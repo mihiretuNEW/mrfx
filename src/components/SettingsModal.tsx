@@ -1,0 +1,9496 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState } from 'react';
+import { ChartSettings, HistorySpanId, HISTORY_SPANS, SMCInstanceConfig, ChartThemeId } from '../types';
+import { THEME_PRESETS, ThemePreset, isDarkTheme, getThemePreset } from '../utils/themePresets';
+import { X, Palette, LayoutGrid, Eye, Sun, Moon, ShieldCheck, Send, ExternalLink, MessageCircle, RotateCcw, Sparkles, Check, RefreshCw, Settings, Crown, Key, Power, Zap, ArrowUpRight, Smartphone, Download, Share2, PlusSquare, Clock, Calendar, CheckCircle2, Layers, Plus, Trash2, Copy, ChevronDown, ChevronUp, SlidersHorizontal, TrendingUp } from 'lucide-react';
+import { AdminPanel } from './AdminPanel';
+import { usePWAInstall } from '../hooks/usePWAInstall';
+
+interface SettingsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  settings: ChartSettings;
+  onUpdateSettings: (settings: ChartSettings) => void;
+  initialTab?: 'candles' | 'appearance' | 'indicators' | 'added_indicators' | 'all_indicators' | 'connection' | 'pwa' | 'support' | 'admin';
+  modalMode?: 'indicators' | 'settings';
+  isMproPro?: boolean;
+  mproAccessMode?: 'free' | 'demo' | 'pro';
+  onOpenMproModal?: () => void;
+  isMpro2Pro?: boolean;
+  mpro2AccessMode?: 'free' | 'demo' | 'pro';
+  onOpenMpro2Modal?: () => void;
+  onActivatePro?: (token?: string) => void;
+  onSwitchToFree?: () => void;
+}
+
+export const SettingsModal: React.FC<SettingsModalProps> = ({
+  isOpen,
+  onClose,
+  settings,
+  onUpdateSettings,
+  initialTab = 'candles',
+  modalMode,
+  isMproPro = false,
+  mproAccessMode = 'demo',
+  onOpenMproModal,
+  isMpro2Pro = false,
+  mpro2AccessMode = 'demo',
+  onOpenMpro2Modal,
+  onActivatePro,
+  onSwitchToFree,
+}) => {
+  const effectiveMode: 'indicators' | 'settings' = modalMode || (
+    initialTab === 'indicators' || initialTab === 'added_indicators' || initialTab === 'all_indicators'
+      ? 'indicators'
+      : 'settings'
+  );
+
+  const [activeTab, setActiveTab] = useState<'candles' | 'appearance' | 'indicators' | 'connection' | 'pwa' | 'support' | 'admin'>('candles');
+  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
+  const [indicatorFilter, setIndicatorFilter] = useState<'all' | 'added' | 'not_added'>('added');
+  const [showTgPasscodeModal, setShowTgPasscodeModal] = useState(false);
+  const [tgPasscodeInput, setTgPasscodeInput] = useState('');
+  const [tgPasscodeError, setTgPasscodeError] = useState('');
+  const [isTgVerifying, setIsTgVerifying] = useState(false);
+
+  const isVerifiedDevice = localStorage.getItem('tg_signals_device_verified') === 'true';
+
+  // PRO Suite Setup & Licensing (Mpro · Mpro2 · Nexus)
+  const PRO_ACTIVATION_CODE = 'Mcharts-Mihiretu-Jump10-2019';
+
+  const [proMode, setProMode] = useState<'pro' | 'free'>(() => {
+    const savedMode = localStorage.getItem('mcharts_pro_mode');
+    if (savedMode === 'free') return 'free';
+    return 'pro';
+  });
+
+  const [isProActivated, setIsProActivated] = useState<boolean>(() => {
+    const savedToken = localStorage.getItem('mcharts_pro_suite_token');
+    const savedMode = localStorage.getItem('mcharts_pro_mode');
+    const hasCookie = typeof document !== 'undefined' && document.cookie.includes('is_mcharts_pro_user=true');
+    if (savedMode === 'free') return false;
+    return savedToken === PRO_ACTIVATION_CODE || hasCookie || !!savedToken || isMpro2Pro || isMproPro;
+  });
+
+  // User requirement: "pro code በblank አታሳይ። code ''Mcharts-Mihiretu-Jump10-2019''"
+  const [proCodeInput, setProCodeInput] = useState<string>(PRO_ACTIVATION_CODE);
+  const [proCodeSuccess, setProCodeSuccess] = useState<string>('');
+  const [proCodeError, setProCodeError] = useState<string>('');
+
+  const handleActivatePro = (customCode?: string) => {
+    const codeToTest = (customCode || proCodeInput || PRO_ACTIVATION_CODE).trim();
+    if (codeToTest.toLowerCase() === PRO_ACTIVATION_CODE.toLowerCase()) {
+      localStorage.setItem('mcharts_pro_suite_token', PRO_ACTIVATION_CODE);
+      localStorage.setItem('mcharts_pro_mode', 'pro');
+      localStorage.setItem('is_mcharts_pro_user', 'true');
+      localStorage.setItem('mpro2_signals_pro_token', PRO_ACTIVATION_CODE);
+      localStorage.setItem('mpro_signals_pro_token', PRO_ACTIVATION_CODE);
+      try {
+        document.cookie = `is_mcharts_pro_user=true; path=/; max-age=${365 * 86400}; SameSite=Lax`;
+        document.cookie = `mcharts_pro_suite_token=${PRO_ACTIVATION_CODE}; path=/; max-age=${365 * 86400}; SameSite=Lax`;
+      } catch (e) {
+        // Cookie fallback
+      }
+      setIsProActivated(true);
+      setProMode('pro');
+      setProCodeSuccess('👑 PRO Suite Activated! Mpro, Mpro2 & Nexus are now fully unlocked.');
+      setProCodeError('');
+      if (onActivatePro) {
+        onActivatePro(PRO_ACTIVATION_CODE);
+      }
+      setTimeout(() => setProCodeSuccess(''), 4000);
+
+      // Turn ON all PRO suite indicators
+      onUpdateSettings({
+        ...settings,
+        indicators: {
+          ...settings.indicators,
+          showSrClassification: true,
+          showEchoMpro: true,
+          showMpro2Signal: true,
+          showMasterDashboard: true,
+          showNexusSuite: true,
+          showOrderBlocksWithVolume: true,
+          showProOrderBlocks: true,
+        },
+      });
+    } else {
+      setProCodeError('Invalid code. Please use: ' + PRO_ACTIVATION_CODE);
+    }
+  };
+
+  const handleSwitchToFree = () => {
+    setProMode('free');
+    localStorage.setItem('mcharts_pro_mode', 'free');
+    localStorage.removeItem('is_mcharts_pro_user');
+    try {
+      document.cookie = `is_mcharts_pro_user=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+    } catch (e) {}
+    setIsProActivated(false);
+    if (onSwitchToFree) {
+      onSwitchToFree();
+    }
+    onUpdateSettings({
+      ...settings,
+      indicators: {
+        ...settings.indicators,
+        showSrClassification: false,
+        showEchoMpro: false,
+        showMpro2Signal: false,
+        showMasterDashboard: false,
+        showNexusSuite: false,
+        showOrderBlocksWithVolume: false,
+        showProOrderBlocks: false,
+      },
+    });
+  };
+
+  const handleSwitchToPro = () => {
+    handleActivatePro(proCodeInput || PRO_ACTIVATION_CODE);
+  };
+
+  const isAutoChannelsActive = settings.indicators.showAutoPriceChannels ?? true;
+  const isAutoSdcActive = settings.indicators.showAutoSupplyDemandChannel ?? true;
+  const isMAActive = settings.indicators.showMA ?? false;
+  const isGTAActive = settings.indicators.showGTA ?? false;
+  const isTWBActive = settings.indicators.showTrendlinesWithBreaks ?? false;
+  const isSMCActive = settings.indicators.showSmartMoneyConcepts ?? false;
+  const isSOActive = settings.indicators.showSignalsAndOverlays ?? false;
+  const isFVGActive = settings.indicators.showConfluenceFVG ?? false;
+  const isICTActive = settings.indicators.showIctConcepts ?? false;
+  const isMStatActive = settings.indicators.showMarketStructureToolkit ?? false;
+  const isMSSActive = settings.indicators.showMarketStructureSignals ?? true;
+  const isPRActive = settings.indicators.showPredictiveRanges ?? true;
+  const isSRActive = settings.indicators.showSrClassification ?? true;
+  const isEchoActive = settings.indicators.showEchoMpro ?? true;
+  const isMpro2Active = settings.indicators.showMpro2Signal ?? true;
+  const isMasterActive = settings.indicators.showMasterDashboard ?? true;
+  const isHvnActive = settings.indicators.showHvnProfile ?? true;
+  const isNexusActive = settings.indicators.showNexusSuite ?? true;
+  const isSessionFilterActive = settings.indicators.showSessionFilter ?? true;
+  const isObvActive = settings.indicators.showOrderBlocksWithVolume ?? true;
+  const isProObActive = settings.indicators.showProOrderBlocks ?? true;
+  const isMsttActive = settings.indicators.showMarketStructureTargetTracker ?? true;
+  const isVipScannerActive = settings.indicators.showVipMarketScanner ?? true;
+  const isDynamicTpSlActive = settings.indicators.showDynamicTpSlSignals ?? true;
+  const isTradePlannerActive = settings.indicators.showTradePlanner ?? true;
+  const isFibSwingActive = settings.indicators.showFibonacciSequenceSwing ?? true;
+  const isMtfEmaActive = settings.indicators.showMultiTimeframeEma ?? true;
+  const isMrovTradeActive = settings.indicators.showMrovOpeningRange ?? false;
+  const isEma50100Active = settings.indicators.showEma50100Trend ?? false;
+
+  // Safe color helper for HTML5 color inputs which strictly require #RRGGBB format
+  const toHexColor = (col?: string, defaultHex = '#00c878'): string => {
+    if (!col) return defaultHex;
+    if (col.startsWith('#')) {
+      if (col.length === 7) return col;
+      if (col.length === 4) return `#${col[1]}${col[1]}${col[2]}${col[2]}${col[3]}${col[3]}`;
+      return col.slice(0, 7);
+    }
+    const match = col.match(/rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (match) {
+      const r = Math.min(255, Math.max(0, parseInt(match[1]))).toString(16).padStart(2, '0');
+      const g = Math.min(255, Math.max(0, parseInt(match[2]))).toString(16).padStart(2, '0');
+      const b = Math.min(255, Math.max(0, parseInt(match[3]))).toString(16).padStart(2, '0');
+      return `#${r}${g}${b}`;
+    }
+    return defaultHex;
+  };
+
+  const FOREX_DEFAULT_CANDLES = {
+    upColor: '#089981',
+    downColor: '#f23645',
+    borderUpColor: '#089981',
+    borderDownColor: '#f23645',
+    wickUpColor: '#089981',
+    wickDownColor: '#f23645',
+  };
+
+  const CANDLE_PRESETS = [
+    {
+      id: 'forex-default',
+      name: 'Original Forex Default',
+      badge: 'Default',
+      upColor: '#089981',
+      downColor: '#f23645',
+      borderUpColor: '#089981',
+      borderDownColor: '#f23645',
+      wickUpColor: '#089981',
+      wickDownColor: '#f23645',
+    },
+    {
+      id: 'tradingview',
+      name: 'TradingView Classic',
+      badge: 'Classic',
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      borderUpColor: '#26a69a',
+      borderDownColor: '#ef5350',
+      wickUpColor: '#26a69a',
+      wickDownColor: '#ef5350',
+    },
+    {
+      id: 'mt4-neon',
+      name: 'MetaTrader Neon',
+      badge: 'MT4/MT5',
+      upColor: '#00c853',
+      downColor: '#d50000',
+      borderUpColor: '#00c853',
+      borderDownColor: '#d50000',
+      wickUpColor: '#00c853',
+      wickDownColor: '#d50000',
+    },
+    {
+      id: 'pro-blue',
+      name: 'Classic Blue & Orange',
+      badge: 'Pro',
+      upColor: '#2563eb',
+      downColor: '#ea580c',
+      borderUpColor: '#2563eb',
+      borderDownColor: '#ea580c',
+      wickUpColor: '#2563eb',
+      wickDownColor: '#ea580c',
+    },
+    {
+      id: 'monochrome',
+      name: 'Monochrome Clean (White/Slate)',
+      badge: 'Mono',
+      upColor: '#ffffff',
+      downColor: '#1e293b',
+      borderUpColor: '#334155',
+      borderDownColor: '#1e293b',
+      wickUpColor: '#334155',
+      wickDownColor: '#1e293b',
+    },
+    {
+      id: 'hollow-white',
+      name: 'Japanese Hollow White',
+      badge: 'Classic',
+      upColor: '#ffffff',
+      downColor: '#ef5350',
+      borderUpColor: '#334155',
+      borderDownColor: '#ef5350',
+      wickUpColor: '#334155',
+      wickDownColor: '#ef5350',
+    },
+  ];
+
+  const isForexDefaultCandles =
+    settings.candle.upColor.toLowerCase() === FOREX_DEFAULT_CANDLES.upColor.toLowerCase() &&
+    settings.candle.downColor.toLowerCase() === FOREX_DEFAULT_CANDLES.downColor.toLowerCase() &&
+    settings.candle.borderUpColor.toLowerCase() === FOREX_DEFAULT_CANDLES.borderUpColor.toLowerCase() &&
+    settings.candle.borderDownColor.toLowerCase() === FOREX_DEFAULT_CANDLES.borderDownColor.toLowerCase() &&
+    settings.candle.wickUpColor.toLowerCase() === FOREX_DEFAULT_CANDLES.wickUpColor.toLowerCase() &&
+    settings.candle.wickDownColor.toLowerCase() === FOREX_DEFAULT_CANDLES.wickDownColor.toLowerCase();
+
+  const handleApplyCandlePreset = (preset: typeof CANDLE_PRESETS[0]) => {
+    onUpdateSettings({
+      ...settings,
+      candle: {
+        upColor: preset.upColor,
+        downColor: preset.downColor,
+        borderUpColor: preset.borderUpColor,
+        borderDownColor: preset.borderDownColor,
+        wickUpColor: preset.wickUpColor,
+        wickDownColor: preset.wickDownColor,
+      },
+    });
+  };
+
+  const handleResetForexDefaultCandles = () => {
+    handleApplyCandlePreset(CANDLE_PRESETS[0]);
+  };
+
+  const addedCount = [
+    isAutoChannelsActive,
+    isAutoSdcActive,
+    isMAActive,
+    isGTAActive,
+    isTWBActive,
+    isSMCActive,
+    isSOActive,
+    isFVGActive,
+    isICTActive,
+    isMStatActive,
+    isMSSActive,
+    isPRActive,
+    isSRActive,
+    isEchoActive,
+    isMpro2Active,
+    isHvnActive,
+    isNexusActive,
+    isSessionFilterActive,
+    isObvActive,
+    isProObActive,
+    isMsttActive,
+    isVipScannerActive,
+    isDynamicTpSlActive,
+    isTradePlannerActive,
+    isFibSwingActive,
+    isMtfEmaActive,
+    isMrovTradeActive,
+    isEma50100Active,
+  ].filter(Boolean).length;
+  const totalCount = 28;
+  const notAddedCount = totalCount - addedCount;
+
+  React.useEffect(() => {
+    if (isOpen) {
+      if (effectiveMode === 'indicators') {
+        setActiveTab('indicators');
+        if (initialTab === 'all_indicators') {
+          setIndicatorFilter('all');
+        } else if ((initialTab as string) === 'not_added') {
+          setIndicatorFilter('not_added');
+        } else {
+          setIndicatorFilter('added');
+        }
+      } else {
+        if (initialTab === 'indicators' || initialTab === 'added_indicators' || initialTab === 'all_indicators') {
+          setActiveTab('candles');
+        } else if (initialTab) {
+          setActiveTab(initialTab as any);
+        } else {
+          setActiveTab('candles');
+        }
+      }
+    }
+  }, [isOpen, initialTab, effectiveMode]);
+
+  if (!isOpen) return null;
+
+  const handleUpdateCandle = (key: keyof ChartSettings['candle'], value: string) => {
+    onUpdateSettings({
+      ...settings,
+      candle: {
+        ...settings.candle,
+        [key]: value,
+      },
+    });
+  };
+
+  const handleUpdateAppearance = (key: keyof ChartSettings['appearance'], value: string) => {
+    onUpdateSettings({
+      ...settings,
+      appearance: {
+        ...settings.appearance,
+        [key]: value,
+      },
+    });
+  };
+
+  const handleUpdateIndicators = (key: keyof ChartSettings['indicators'], value: any) => {
+    onUpdateSettings({
+      ...settings,
+      indicators: {
+        ...settings.indicators,
+        [key]: value,
+      },
+    });
+  };
+
+  const handleUpdateMultipleIndicators = (updates: Partial<ChartSettings['indicators']>) => {
+    onUpdateSettings({
+      ...settings,
+      indicators: {
+        ...settings.indicators,
+        ...updates,
+      },
+    });
+  };
+
+  const handleUpdateConnection = (key: keyof NonNullable<ChartSettings['connection']>, value: string) => {
+    onUpdateSettings({
+      ...settings,
+      connection: {
+        customServer: '',
+        customAppId: '',
+        ...settings.connection,
+        [key]: value,
+      },
+    });
+  };
+
+  const handleApplyTheme = (preset: ThemePreset) => {
+    onUpdateSettings({
+      ...settings,
+      theme: preset.id,
+      appearance: {
+        ...settings.appearance,
+        backgroundColor: preset.backgroundColor,
+        gridColor: preset.gridColor,
+        crosshairColor: preset.crosshairColor,
+      },
+    });
+  };
+
+  const toggleTheme = () => {
+    const isDark = isDarkTheme(settings.theme);
+    const nextTheme: ChartThemeId = isDark ? 'offlight-white' : 'blue-dark';
+    const preset = getThemePreset(nextTheme);
+
+    onUpdateSettings({
+      ...settings,
+      theme: nextTheme,
+      appearance: {
+        ...settings.appearance,
+        backgroundColor: preset.backgroundColor,
+        gridColor: preset.gridColor,
+        crosshairColor: preset.crosshairColor,
+      },
+    });
+  };
+
+  // Predefined color presets
+  const colorPresets = [
+    '#26a69a', // Emerald Green
+    '#ef5350', // Bright Red
+    '#2196f3', // Blue
+    '#ff9800', // Orange
+    '#9c27b0', // Purple
+    '#ffffff', // White
+    '#000000', // Dark Charcoal
+    '#00e676', // Bright Green
+    '#e91e63', // Pink
+  ];
+
+  const isDark = isDarkTheme(settings.theme);
+  const preset = getThemePreset(settings.theme);
+
+  return (
+    <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 select-none backdrop-blur-sm ${
+      isDark ? 'bg-black/75' : 'bg-slate-900/40'
+    }`}>
+      <div 
+        id="settings-modal"
+        className={`w-full ${effectiveMode === 'indicators' || activeTab === 'admin' ? 'max-w-2xl' : 'max-w-lg'} rounded-xl shadow-2xl flex flex-col transition-all border ${
+          isDark 
+            ? 'bg-neutral-950 border-neutral-800 text-white' 
+            : 'bg-white border-neutral-200 text-slate-900'
+        }`}
+        style={{
+          backgroundColor: isDark ? preset.surfaceColor || '#0c0c0e' : '#ffffff',
+          borderColor: isDark ? preset.borderColor : '#e2e8f0',
+          color: isDark ? preset.textColor : '#0f172a',
+        }}
+      >
+        {/* Header */}
+        <div className={`flex items-center justify-between px-6 py-4 border-b ${isDark ? 'border-neutral-800' : 'border-neutral-200'}`}>
+          {effectiveMode === 'indicators' ? (
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
+                <span className="font-serif italic font-black text-base select-none">ƒx</span>
+              </div>
+              <div>
+                <h3 className={`text-base font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Indicators &amp; Strategies
+                </h3>
+                <p className={`text-xs ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>
+                  {addedCount} Added (Active) • {notAddedCount} Inactive
+                </p>
+              </div>
+            </div>
+          ) : (
+            <h3 className={`text-lg font-semibold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              <Settings className="w-5 h-5 text-blue-400" />
+              Chart Settings &amp; Preferences
+            </h3>
+          )}
+          <button 
+            id="close-settings-modal"
+            onClick={onClose} 
+            className={`p-1 rounded-lg transition-colors ${
+              isDark ? 'hover:bg-neutral-900 text-gray-400 hover:text-white' : 'hover:bg-neutral-100 text-slate-400 hover:text-slate-900'
+            }`}
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Tab Selection */}
+        {effectiveMode === 'indicators' ? (
+          <div className={`flex items-center justify-between border-b px-4 py-2 gap-2 flex-wrap ${
+            isDark ? 'border-neutral-800 bg-neutral-950' : 'border-neutral-200 bg-neutral-100/70'
+          }`}>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                id="btn-settings-tab-added-indicators"
+                onClick={() => {
+                  setActiveTab('indicators');
+                  setIndicatorFilter('added');
+                }}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                  indicatorFilter === 'added'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : isDark ? 'text-emerald-400 hover:text-emerald-300 hover:bg-neutral-900' : 'text-emerald-700 hover:text-emerald-800 hover:bg-neutral-200'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${indicatorFilter === 'added' ? 'bg-white' : 'bg-emerald-400 animate-pulse'}`} />
+                <span>Added Indicators (ON)</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
+                  indicatorFilter === 'added' ? 'bg-black/30 text-white' : isDark ? 'bg-neutral-850 text-emerald-400' : 'bg-emerald-100 text-emerald-800'
+                }`}>
+                  {addedCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-settings-tab-not-added-indicators"
+                onClick={() => {
+                  setActiveTab('indicators');
+                  setIndicatorFilter('not_added');
+                }}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                  indicatorFilter === 'not_added'
+                    ? 'bg-neutral-700 text-white shadow-md'
+                    : isDark ? 'text-neutral-400 hover:text-white hover:bg-neutral-900' : 'text-slate-600 hover:text-slate-900 hover:bg-neutral-200'
+                }`}
+              >
+                <span>Not Added (OFF)</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
+                  indicatorFilter === 'not_added' ? 'bg-black/30 text-white' : isDark ? 'bg-neutral-850 text-neutral-400' : 'bg-neutral-200 text-slate-600'
+                }`}>
+                  {notAddedCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-settings-tab-all-indicators"
+                onClick={() => {
+                  setActiveTab('indicators');
+                  setIndicatorFilter('all');
+                }}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                  indicatorFilter === 'all'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : isDark ? 'text-neutral-400 hover:text-white hover:bg-neutral-900' : 'text-slate-600 hover:text-slate-900 hover:bg-neutral-200'
+                }`}
+              >
+                <span>All Indicators</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
+                  indicatorFilter === 'all' ? 'bg-black/30 text-white' : isDark ? 'bg-neutral-850 text-neutral-300' : 'bg-neutral-200 text-slate-700'
+                }`}>
+                  {totalCount}
+                </span>
+              </button>
+            </div>
+
+            <div className={`text-[11px] font-mono hidden sm:flex items-center gap-1.5 ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>
+              <span className="text-emerald-500 font-bold">{addedCount}</span>
+              <span>of</span>
+              <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{totalCount}</span>
+              <span>Active</span>
+            </div>
+          </div>
+        ) : (
+          <div className={`flex border-b px-4 py-1.5 gap-2 overflow-x-auto scrollbar-none ${
+            isDark ? 'border-neutral-800 bg-neutral-950' : 'border-neutral-200 bg-neutral-100/70'
+          }`}>
+            <button
+              id="btn-settings-tab-candles"
+              onClick={() => setActiveTab('candles')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded whitespace-nowrap transition-all cursor-pointer ${
+                activeTab === 'candles' 
+                  ? isDark ? 'bg-neutral-800 text-white' : 'bg-white text-slate-900 shadow-xs border border-neutral-200' 
+                  : isDark ? 'text-gray-400 hover:text-white hover:bg-neutral-900/50' : 'text-slate-600 hover:text-slate-900 hover:bg-neutral-200/60'
+              }`}
+            >
+              Candles (OHLC)
+            </button>
+            <button
+              id="btn-settings-tab-appearance"
+              onClick={() => setActiveTab('appearance')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded whitespace-nowrap transition-all cursor-pointer ${
+                activeTab === 'appearance' 
+                  ? isDark ? 'bg-neutral-800 text-white' : 'bg-white text-slate-900 shadow-xs border border-neutral-200' 
+                  : isDark ? 'text-gray-400 hover:text-white hover:bg-neutral-900/50' : 'text-slate-600 hover:text-slate-900 hover:bg-neutral-200/60'
+              }`}
+            >
+              Canvas Styling
+            </button>
+            <button
+              id="btn-settings-tab-connection"
+              onClick={() => setActiveTab('connection')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded whitespace-nowrap transition-all ${
+                activeTab === 'connection' 
+                  ? isDark ? 'bg-neutral-800 text-white' : 'bg-white text-slate-900 shadow-xs border border-neutral-200' 
+                  : isDark ? 'text-gray-400 hover:text-white hover:bg-neutral-900/50' : 'text-slate-600 hover:text-slate-900 hover:bg-neutral-200/60'
+              }`}
+            >
+              Server &amp; Connection
+            </button>
+            <button
+              id="btn-settings-tab-pwa"
+              onClick={() => setActiveTab('pwa')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'pwa' 
+                  ? 'bg-sky-600 text-white font-bold shadow-md' 
+                  : isDark ? 'text-sky-400 hover:text-sky-300 hover:bg-neutral-900/50' : 'text-sky-600 hover:text-sky-700 hover:bg-neutral-200/60'
+              }`}
+            >
+              <Smartphone className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <span>Add to Home (PWA)</span>
+            </button>
+            <button
+              id="btn-settings-tab-support"
+              onClick={() => setActiveTab('support')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                activeTab === 'support' 
+                  ? 'bg-blue-600 text-white font-bold shadow-md' 
+                  : isDark ? 'text-gray-400 hover:text-white hover:bg-neutral-900/50' : 'text-slate-600 hover:text-slate-900 hover:bg-neutral-200/60'
+              }`}
+            >
+              <Send className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              Support
+            </button>
+            <button
+              id="btn-settings-tab-admin"
+              onClick={() => setActiveTab('admin')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                activeTab === 'admin' 
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold' 
+                  : isDark ? 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-950/30' : 'text-amber-700 hover:text-amber-800 hover:bg-amber-100'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              Admin Panel
+            </button>
+          </div>
+        )}
+
+        {/* Content Body */}
+        <div className="p-6 space-y-5 max-h-[55vh] overflow-y-auto">
+          
+          {/* TAB 1: CANDLES COLOR SELECTION */}
+          {activeTab === 'candles' && (
+            <div className="space-y-5">
+              {/* Candlestick History Span Configuration */}
+              <div className="p-4 bg-gradient-to-br from-blue-950/30 via-neutral-900 to-neutral-950 rounded-xl border border-blue-900/40 space-y-3 shadow-inner">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 bg-blue-600/20 border border-blue-500/30 rounded-lg flex items-center justify-center text-blue-400 shrink-0">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>Candlestick History Horizon & Limit</span>
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-900/60 text-blue-300 border border-blue-600/50 rounded-full font-mono">
+                          {settings.historySpan === 'all' ? 'Default (All)' : (settings.historySpan ? `${settings.historySpan} Limit` : 'Default (All)')}
+                        </span>
+                      </h4>
+                      <p className="text-xs text-neutral-400">
+                        Controls historical candle depth. Selecting a specific duration locks the boundary and strictly stops scrolling. Choose &quot;Default (All)&quot; for unlimited scroll.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* History Span Selector Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                  {HISTORY_SPANS.map((span) => {
+                    const isSelected = (settings.historySpan || 'all') === span.id;
+                    return (
+                      <button
+                        key={span.id}
+                        id={`btn-history-span-${span.id}`}
+                        type="button"
+                        onClick={() => {
+                          onUpdateSettings({
+                            ...settings,
+                            historySpan: span.id,
+                          });
+                        }}
+                        className={`flex flex-col p-2.5 rounded-lg text-left transition-all border cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-600/20 border-blue-500 text-white shadow-md'
+                            : 'bg-neutral-950/60 hover:bg-neutral-900 border-neutral-850 text-neutral-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                            <span>{span.label}</span>
+                          </span>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                        </div>
+                        <span className="text-[10px] text-neutral-400 mt-1">{span.description}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Synchronization info banner */}
+                <div className="flex items-start gap-2 p-2.5 bg-neutral-950/90 rounded-lg border border-neutral-800 text-[11px] text-neutral-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <p>
+                    <strong className="text-neutral-100">Multi-Timeframe Duration Alignment:</strong> When a span is selected (e.g. 1 Month), the chart aligns and locks that exact historical range across all timeframes (1M, 5M, 15M, 30M, 1H). Scrolling back strictly stops at that limit unless <strong className="text-white">Default (All)</strong> is active.
+                  </p>
+                </div>
+              </div>
+
+              {/* Top Banner: Quick Reset to Original Forex Default Colors */}
+              <div className="p-4 bg-gradient-to-br from-emerald-950/40 via-neutral-900 to-neutral-950 rounded-xl border border-emerald-800/40 space-y-3.5 shadow-inner">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 bg-emerald-600/20 border border-emerald-500/30 rounded-lg flex items-center justify-center text-emerald-400 shrink-0">
+                      <Palette className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>Original Forex Default Colors</span>
+                        {isForexDefaultCandles ? (
+                          <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-600/50 rounded-full flex items-center gap-1 font-mono">
+                            <Check className="w-3 h-3 text-emerald-400" /> Default Active
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-amber-950/60 text-amber-300 border border-amber-800/50 rounded-full font-mono">
+                            Custom Colors
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-xs text-neutral-400">
+                        Standard Forex market scheme: Emerald Green (#089981) Bullish & Vivid Red (#f23645) Bearish
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Reset Button with Symbol */}
+                  <button
+                    id="btn-reset-forex-default-candles"
+                    type="button"
+                    onClick={handleResetForexDefaultCandles}
+                    className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer ${
+                      isForexDefaultCandles
+                        ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-300 border border-neutral-700'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500 shadow-emerald-950/50 hover:scale-[1.02]'
+                    }`}
+                    title="Change all candle bodies, borders, and wicks back to original Forex default colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset to Forex Default</span>
+                  </button>
+                </div>
+
+                {/* Live Candlestick Preview Box */}
+                <div className="flex items-center justify-between p-3 bg-neutral-950/80 rounded-lg border border-neutral-850">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-semibold text-neutral-300">Live OHLC Visual Preview</span>
+                    <span className="text-[11px] text-neutral-500">Real-time preview of current body, border, and wick styles</span>
+                  </div>
+
+                  {/* Miniature Candle Graphic */}
+                  <div className="flex items-center gap-6 px-4 py-1.5 bg-neutral-900 rounded-md border border-neutral-800">
+                    {/* Bullish Mini Candle */}
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="w-[1.5px] h-2" style={{ backgroundColor: settings.candle.wickUpColor }} />
+                      <div
+                        className="w-3.5 h-6 rounded-[1px]"
+                        style={{
+                          backgroundColor: settings.candle.upColor,
+                          border: `1.5px solid ${settings.candle.borderUpColor}`,
+                        }}
+                      />
+                      <div className="w-[1.5px] h-2" style={{ backgroundColor: settings.candle.wickUpColor }} />
+                      <span className="text-[9px] font-mono font-bold mt-1 text-emerald-400">BULL</span>
+                    </div>
+
+                    {/* Bearish Mini Candle */}
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="w-[1.5px] h-2" style={{ backgroundColor: settings.candle.wickDownColor }} />
+                      <div
+                        className="w-3.5 h-6 rounded-[1px]"
+                        style={{
+                          backgroundColor: settings.candle.downColor,
+                          border: `1.5px solid ${settings.candle.borderDownColor}`,
+                        }}
+                      />
+                      <div className="w-[1.5px] h-2" style={{ backgroundColor: settings.candle.wickDownColor }} />
+                      <span className="text-[9px] font-mono font-bold mt-1 text-rose-400">BEAR</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Color Presets */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Quick Presets</span>
+                    <span className="text-[10px] text-neutral-500">1-click popular color themes</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {CANDLE_PRESETS.map((preset) => {
+                      const isSelected =
+                        settings.candle.upColor.toLowerCase() === preset.upColor.toLowerCase() &&
+                        settings.candle.downColor.toLowerCase() === preset.downColor.toLowerCase();
+                      return (
+                        <button
+                          key={preset.id}
+                          id={`btn-candle-preset-${preset.id}`}
+                          type="button"
+                          onClick={() => handleApplyCandlePreset(preset)}
+                          className={`flex items-center justify-between p-2 rounded-lg text-xs font-medium transition-all text-left border cursor-pointer ${
+                            isSelected
+                              ? 'bg-neutral-800 border-blue-500/80 text-white shadow-sm'
+                              : 'bg-neutral-950/60 hover:bg-neutral-900 border-neutral-850 text-neutral-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            {/* Color Swatch Dots */}
+                            <div className="flex items-center -space-x-1 shrink-0">
+                              <span className="w-3 h-3 rounded-full border border-black/50" style={{ backgroundColor: preset.upColor }} />
+                              <span className="w-3 h-3 rounded-full border border-black/50" style={{ backgroundColor: preset.downColor }} />
+                            </div>
+                            <span className="truncate text-[11px]">{preset.name}</span>
+                          </div>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-blue-400 shrink-0 ml-1" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Granular OHLC Color Adjustments */}
+              <div className="space-y-3 pt-1">
+                <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
+                  <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Granular OHLC Customization</span>
+                  <button
+                    type="button"
+                    onClick={handleResetForexDefaultCandles}
+                    className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset All to Forex Default</span>
+                  </button>
+                </div>
+
+                {/* 1. Body Colors */}
+                <div className="p-3 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Candlestick Bodies</span>
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-200">Bullish Body Color</span>
+                      <span className="text-[11px] text-gray-500">Color for upward close &gt; open candles</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="candle-up-color"
+                        type="color"
+                        value={settings.candle.upColor}
+                        onChange={(e) => handleUpdateCandle('upColor', e.target.value)}
+                        className="w-8 h-8 rounded cursor-pointer border border-neutral-700 bg-neutral-900"
+                      />
+                      <span className="text-xs font-mono text-gray-300 uppercase w-16 text-center">{settings.candle.upColor}</span>
+                      {settings.candle.upColor.toLowerCase() !== FOREX_DEFAULT_CANDLES.upColor.toLowerCase() && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCandle('upColor', FOREX_DEFAULT_CANDLES.upColor)}
+                          className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-emerald-400 transition-colors"
+                          title="Reset to Forex Default (#089981)"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-200">Bearish Body Color</span>
+                      <span className="text-[11px] text-gray-500">Color for downward close &lt; open candles</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="candle-down-color"
+                        type="color"
+                        value={settings.candle.downColor}
+                        onChange={(e) => handleUpdateCandle('downColor', e.target.value)}
+                        className="w-8 h-8 rounded cursor-pointer border border-neutral-700 bg-neutral-900"
+                      />
+                      <span className="text-xs font-mono text-gray-300 uppercase w-16 text-center">{settings.candle.downColor}</span>
+                      {settings.candle.downColor.toLowerCase() !== FOREX_DEFAULT_CANDLES.downColor.toLowerCase() && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCandle('downColor', FOREX_DEFAULT_CANDLES.downColor)}
+                          className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-rose-400 transition-colors"
+                          title="Reset to Forex Default (#f23645)"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Border Colors */}
+                <div className="p-3 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Candlestick Borders</span>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-200">Bullish Border Color</span>
+                      <span className="text-[11px] text-gray-500">Outline border for bullish bars</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="candle-border-up-color"
+                        type="color"
+                        value={settings.candle.borderUpColor}
+                        onChange={(e) => handleUpdateCandle('borderUpColor', e.target.value)}
+                        className="w-8 h-8 rounded cursor-pointer border border-neutral-700 bg-neutral-900"
+                      />
+                      <span className="text-xs font-mono text-gray-300 uppercase w-16 text-center">{settings.candle.borderUpColor}</span>
+                      {settings.candle.borderUpColor.toLowerCase() !== FOREX_DEFAULT_CANDLES.borderUpColor.toLowerCase() && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCandle('borderUpColor', FOREX_DEFAULT_CANDLES.borderUpColor)}
+                          className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-emerald-400 transition-colors"
+                          title="Reset to Forex Default (#089981)"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-200">Bearish Border Color</span>
+                      <span className="text-[11px] text-gray-500">Outline border for bearish bars</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="candle-border-down-color"
+                        type="color"
+                        value={settings.candle.borderDownColor}
+                        onChange={(e) => handleUpdateCandle('borderDownColor', e.target.value)}
+                        className="w-8 h-8 rounded cursor-pointer border border-neutral-700 bg-neutral-900"
+                      />
+                      <span className="text-xs font-mono text-gray-300 uppercase w-16 text-center">{settings.candle.borderDownColor}</span>
+                      {settings.candle.borderDownColor.toLowerCase() !== FOREX_DEFAULT_CANDLES.borderDownColor.toLowerCase() && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCandle('borderDownColor', FOREX_DEFAULT_CANDLES.borderDownColor)}
+                          className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-rose-400 transition-colors"
+                          title="Reset to Forex Default (#f23645)"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Wick Colors */}
+                <div className="p-3 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Candlestick Wicks & Shadows</span>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-200">Bullish Wick Color</span>
+                      <span className="text-[11px] text-gray-500">High / low shadow line for bullish bars</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="candle-wick-up-color"
+                        type="color"
+                        value={settings.candle.wickUpColor}
+                        onChange={(e) => handleUpdateCandle('wickUpColor', e.target.value)}
+                        className="w-8 h-8 rounded cursor-pointer border border-neutral-700 bg-neutral-900"
+                      />
+                      <span className="text-xs font-mono text-gray-300 uppercase w-16 text-center">{settings.candle.wickUpColor}</span>
+                      {settings.candle.wickUpColor.toLowerCase() !== FOREX_DEFAULT_CANDLES.wickUpColor.toLowerCase() && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCandle('wickUpColor', FOREX_DEFAULT_CANDLES.wickUpColor)}
+                          className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-emerald-400 transition-colors"
+                          title="Reset to Forex Default (#089981)"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-200">Bearish Wick Color</span>
+                      <span className="text-[11px] text-gray-500">High / low shadow line for bearish bars</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="candle-wick-down-color"
+                        type="color"
+                        value={settings.candle.wickDownColor}
+                        onChange={(e) => handleUpdateCandle('wickDownColor', e.target.value)}
+                        className="w-8 h-8 rounded cursor-pointer border border-neutral-700 bg-neutral-900"
+                      />
+                      <span className="text-xs font-mono text-gray-300 uppercase w-16 text-center">{settings.candle.wickDownColor}</span>
+                      {settings.candle.wickDownColor.toLowerCase() !== FOREX_DEFAULT_CANDLES.wickDownColor.toLowerCase() && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCandle('wickDownColor', FOREX_DEFAULT_CANDLES.wickDownColor)}
+                          className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-rose-400 transition-colors"
+                          title="Reset to Forex Default (#f23645)"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: APPEARANCE CUSTOMIZATION */}
+          {activeTab === 'appearance' && (
+            <div className="space-y-4">
+              {/* Theme quicktoggle & Header */}
+              <div className="flex items-center justify-between p-3.5 bg-neutral-900/90 rounded-xl border border-neutral-800">
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-200">Active Theme</span>
+                    <span className="text-xs font-bold text-blue-400 font-mono bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/30">
+                      {getThemePreset(settings.theme).name}
+                    </span>
+                  </div>
+                  <span className="text-xs text-gray-500 mt-0.5">Toggle light/dark or select a specialized trader palette below</span>
+                </div>
+                <button
+                  id="btn-settings-toggle-theme"
+                  onClick={toggleTheme}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-neutral-800 text-blue-400 hover:text-white rounded-lg text-xs font-semibold transition-colors border border-neutral-700"
+                >
+                  {isDarkTheme(settings.theme) ? (
+                    <>
+                      <Sun className="w-4 h-4 text-amber-400" /> Off-Light White
+                    </>
+                  ) : (
+                    <>
+                      <Moon className="w-4 h-4 text-blue-400" /> Dark Mode
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Professional Themes Grid */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Professional Themes</span>
+                  <span className="text-[11px] text-gray-400">Eye comfort & institutional setups</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {THEME_PRESETS.map((preset) => {
+                    const isSelected = settings.theme === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        id={`btn-theme-preset-${preset.id}`}
+                        type="button"
+                        onClick={() => handleApplyTheme(preset)}
+                        className={`flex flex-col p-3 rounded-xl text-left border transition-all cursor-pointer relative ${
+                          isSelected
+                            ? 'bg-neutral-800/90 border-blue-500 text-white shadow-md ring-1 ring-blue-500/40'
+                            : 'bg-neutral-900/60 hover:bg-neutral-850/80 border-neutral-800 text-neutral-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full mb-1.5">
+                          <div className="flex items-center gap-2">
+                            {/* Color preview dots */}
+                            <div className="flex items-center -space-x-1 shrink-0">
+                              <span
+                                className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-sm"
+                                style={{ backgroundColor: preset.backgroundColor }}
+                                title="Canvas Background"
+                              />
+                              <span
+                                className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-sm"
+                                style={{ backgroundColor: preset.surfaceColor }}
+                                title="Panel Surface"
+                              />
+                              <span
+                                className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-sm"
+                                style={{ backgroundColor: preset.accentColor }}
+                                title="Accent"
+                              />
+                            </div>
+                            <span className="text-xs font-bold text-white tracking-wide">{preset.name}</span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {preset.badge && (
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
+                                  isSelected
+                                    ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                    : 'bg-neutral-800 text-neutral-400 border-neutral-700/60'
+                                }`}
+                              >
+                                {preset.badge}
+                              </span>
+                            )}
+                            {isSelected && <Check className="w-4 h-4 text-blue-400 shrink-0" />}
+                          </div>
+                        </div>
+
+                        <p className="text-[11px] text-neutral-400 leading-snug line-clamp-1">{preset.subtitle}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Granular Canvas & Grid Customization */}
+              <div className="space-y-3 pt-2 border-t border-neutral-800">
+                <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Granular Appearance Options</span>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-300">Grid Lines Type</span>
+                  <select
+                    id="settings-select-grid-type"
+                    value={settings.appearance.gridType}
+                    onChange={(e) => handleUpdateAppearance('gridType', e.target.value)}
+                    className="px-2.5 py-1.5 bg-neutral-900 border border-neutral-850 rounded text-xs focus:outline-none focus:border-blue-500 text-white"
+                  >
+                    <option value="both">Both Vertical & Horizontal</option>
+                    <option value="horizontal">Horizontal Only</option>
+                    <option value="vertical">Vertical Only</option>
+                    <option value="none">No Grid Lines</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-300">Grid Style</span>
+                  <select
+                    id="settings-select-grid-style"
+                    value={settings.appearance.gridStyle}
+                    onChange={(e) => handleUpdateAppearance('gridStyle', e.target.value as any)}
+                    className="px-2.5 py-1.5 bg-neutral-900 border border-neutral-850 rounded text-xs focus:outline-none focus:border-blue-500 text-white"
+                  >
+                    <option value="dashed">Dashed Lines</option>
+                    <option value="solid">Solid Lines</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-300">Crosshair Laser Color</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={settings.appearance.crosshairColor}
+                      onChange={(e) => handleUpdateAppearance('crosshairColor', e.target.value)}
+                      className="w-8 h-8 rounded cursor-pointer border border-neutral-700 bg-neutral-900"
+                    />
+                    <span className="text-xs font-mono text-gray-400 uppercase">{settings.appearance.crosshairColor}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-300">Custom Canvas Background</span>
+                    <span className="text-[11px] text-gray-500">Fine-tune chart background color</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={settings.appearance.backgroundColor}
+                      onChange={(e) => handleUpdateAppearance('backgroundColor', e.target.value)}
+                      className="w-8 h-8 rounded cursor-pointer border border-neutral-700 bg-neutral-900"
+                    />
+                    <span className="text-xs font-mono text-gray-400 uppercase">{settings.appearance.backgroundColor}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-300">Grid Lines Color</span>
+                    <span className="text-[11px] text-gray-500">Fine-tune grid lines tone</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={settings.appearance.gridColor}
+                      onChange={(e) => handleUpdateAppearance('gridColor', e.target.value)}
+                      className="w-8 h-8 rounded cursor-pointer border border-neutral-700 bg-neutral-900"
+                    />
+                    <span className="text-xs font-mono text-gray-400 uppercase">{settings.appearance.gridColor}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: FUTURE INDICATOR SETTINGS */}
+          {activeTab === 'indicators' && (
+            <div className="space-y-4">
+              {/* TOP PRO / FREE SUITE CONTROLLER (Mpro2 · Master System · Nexus) */}
+              <div className="p-4 bg-gradient-to-br from-neutral-900 via-neutral-900/95 to-neutral-950 border border-amber-500/35 rounded-xl space-y-3.5 shadow-lg relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-emerald-400 to-amber-500" />
+
+                {/* Top Row: Title + Status + PRO/FREE Switch */}
+                <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                      <Crown className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                          Mcharts PRO Suite
+                        </h4>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider ${
+                          proMode === 'pro' && isProActivated
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : 'bg-neutral-800 text-neutral-400 border border-neutral-700'
+                        }`}>
+                          {proMode === 'pro' && isProActivated ? '👑 PRO ACTIVE' : 'FREE MODE'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-neutral-400">
+                        Unified PRO Suite: Mpro · Mpro2 · Nexus Smart Money (All others are FREE)
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* PRO / FREE Switch Buttons */}
+                  <div className="flex items-center bg-neutral-950 p-1 rounded-lg border border-neutral-800">
+                    <button
+                      type="button"
+                      id="btn-mode-free"
+                      onClick={handleSwitchToFree}
+                      className={`px-3 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+                        proMode === 'free'
+                          ? 'bg-neutral-700 text-white shadow font-bold'
+                          : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      FREE
+                    </button>
+                    <button
+                      type="button"
+                      id="btn-mode-pro"
+                      onClick={handleSwitchToPro}
+                      className={`px-3 py-1 rounded text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        proMode === 'pro'
+                          ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold shadow-md'
+                          : 'text-amber-400 hover:text-amber-300'
+                      }`}
+                    >
+                      <Crown className="w-3 h-3" />
+                      <span>PRO</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Active Controls & Master Turn-All Switch */}
+                  <div className="p-3 bg-neutral-950/80 rounded-lg border border-neutral-800 flex items-center justify-between flex-wrap gap-2.5">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                        <Check className="w-3.5 h-3.5" />
+                        <span>PRO Suite Fully Unlocked</span>
+                      </div>
+                      <p className="text-[11px] text-neutral-400">
+                        Full institutional access to Mpro, Mpro2, Nexus Suite, and Order Blocks with Volume Delta.
+                      </p>
+                    </div>
+
+                    {/* Master Switch to Turn ALL PRO ON or OFF together */}
+                    <button
+                      type="button"
+                      id="btn-toggle-all-pro-suite"
+                      onClick={() => {
+                        const nextState = !(isSRActive && isMpro2Active && isNexusActive && isObvActive);
+                        onUpdateSettings({
+                          ...settings,
+                          indicators: {
+                            ...settings.indicators,
+                            showSrClassification: nextState,
+                            showEchoMpro: nextState,
+                            showMpro2Signal: nextState,
+                            showMasterDashboard: nextState,
+                            showNexusSuite: nextState,
+                            showOrderBlocksWithVolume: nextState,
+                            showProOrderBlocks: nextState,
+                          },
+                        });
+                      }}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow ${
+                        (isSRActive && isMpro2Active && isNexusActive && isObvActive && isProObActive)
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                          : 'bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-amber-500/30'
+                      }`}
+                    >
+                      <Power className="w-3.5 h-3.5" />
+                      <span>{(isSRActive && isMpro2Active && isNexusActive && isObvActive && isProObActive) ? 'All PRO ON (Turn OFF All)' : '⚡ Turn ON All PRO Suite'}</span>
+                    </button>
+                  </div>
+
+                    {/* Quick 5-Pack Toggles */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                      {/* Mpro */}
+                      <div className={`p-2.5 rounded-lg border flex items-center justify-between transition-colors ${
+                        isSRActive
+                          ? 'bg-neutral-900/90 border-emerald-500/40'
+                          : 'bg-neutral-950/60 border-neutral-800'
+                      }`}>
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-white">Mpro Signals</div>
+                          <div className="text-[10px] text-neutral-400">Market Structure &amp; R:R</div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isSRActive}
+                            onChange={(e) => {
+                              handleUpdateIndicators('showSrClassification', e.target.checked);
+                              handleUpdateIndicators('showEchoMpro', e.target.checked);
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Mpro2 */}
+                      <div className={`p-2.5 rounded-lg border flex items-center justify-between transition-colors ${
+                        isMpro2Active
+                          ? 'bg-neutral-900/90 border-emerald-500/40'
+                          : 'bg-neutral-950/60 border-neutral-800'
+                      }`}>
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-white">Mpro2 Signal</div>
+                          <div className="text-[10px] text-neutral-400">Trend &amp; Fib Levels</div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isMpro2Active}
+                            onChange={(e) => handleUpdateIndicators('showMpro2Signal', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Nexus Suite */}
+                      <div className={`p-2.5 rounded-lg border flex items-center justify-between transition-colors ${
+                        isNexusActive
+                          ? 'bg-neutral-900/90 border-emerald-500/40'
+                          : 'bg-neutral-950/60 border-neutral-800'
+                      }`}>
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-white">Nexus Suite</div>
+                          <div className="text-[10px] text-neutral-400">Smart Money Engine</div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isNexusActive}
+                            onChange={(e) => handleUpdateIndicators('showNexusSuite', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Order Blocks with Volume Delta (cTrader) */}
+                      <div className={`p-2.5 rounded-lg border flex items-center justify-between transition-colors ${
+                        isObvActive
+                          ? 'bg-neutral-900/90 border-emerald-500/40'
+                          : 'bg-neutral-950/60 border-neutral-800'
+                      }`}>
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-white">Order Blocks Vol</div>
+                          <div className="text-[10px] text-neutral-400">cTrader Volume Delta</div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isObvActive}
+                            onChange={(e) => handleUpdateIndicators('showOrderBlocksWithVolume', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* PRO Order Blocks (Live & Shadow) */}
+                      <div className={`p-2.5 rounded-lg border flex items-center justify-between transition-colors ${
+                        isProObActive
+                          ? 'bg-neutral-900/90 border-emerald-500/40'
+                          : 'bg-neutral-950/60 border-neutral-800'
+                      }`}>
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-white">PRO Order Blocks</div>
+                          <div className="text-[10px] text-neutral-400">Live 8-Score &amp; Shadow</div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isProObActive}
+                            onChange={(e) => handleUpdateIndicators('showProOrderBlocks', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                {proCodeSuccess && (
+                  <div className="p-2 bg-emerald-950/60 border border-emerald-500/40 rounded-lg text-emerald-300 text-xs font-semibold flex items-center gap-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>{proCodeSuccess}</span>
+                  </div>
+                )}
+              </div>
+              {/* Added vs All Filter Bar (Only shown if opened from full settings, since indicators mode has top filter bar) */}
+              {effectiveMode !== 'indicators' && (
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-neutral-900 border border-neutral-850 rounded-xl">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      id="btn-filter-added-indicators"
+                      onClick={() => setIndicatorFilter('added')}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer ${
+                        indicatorFilter === 'added'
+                          ? 'bg-emerald-600 text-white shadow-md'
+                          : 'text-emerald-400 hover:text-emerald-300 hover:bg-neutral-800/80'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${indicatorFilter === 'added' ? 'bg-white' : 'bg-emerald-400 animate-pulse'}`} />
+                      <span>Added Indicators (ON)</span>
+                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                        indicatorFilter === 'added' ? 'bg-emerald-700 text-white' : 'bg-neutral-800 text-emerald-400'
+                      }`}>
+                        {addedCount}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      id="btn-filter-all-indicators"
+                      onClick={() => setIndicatorFilter('all')}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer ${
+                        indicatorFilter === 'all'
+                          ? 'bg-blue-600 text-white shadow-md'
+                          : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/80'
+                      }`}
+                    >
+                      <span>All Indicators</span>
+                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                        indicatorFilter === 'all' ? 'bg-blue-700 text-white' : 'bg-neutral-800 text-neutral-400'
+                      }`}>
+                        {totalCount}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      id="btn-filter-not-added-indicators"
+                      onClick={() => setIndicatorFilter('not_added')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
+                        indicatorFilter === 'not_added'
+                          ? 'bg-neutral-700 text-white shadow'
+                          : 'text-neutral-400 hover:text-neutral-300 hover:bg-neutral-800/60'
+                      }`}
+                    >
+                      <span>OFF ({notAddedCount})</span>
+                    </button>
+                  </div>
+
+                  <div className="text-[11px] font-medium text-neutral-400 pr-1 hidden sm:flex items-center gap-1.5 font-mono">
+                    <span className="text-emerald-400 font-bold">{addedCount}</span>
+                    <span>of</span>
+                    <span className="text-white font-bold">{totalCount}</span>
+                    <span>Active</span>
+                  </div>
+                </div>
+              )}
+
+              {indicatorFilter === 'added' ? (
+                <div className="p-2.5 bg-emerald-950/20 border border-emerald-900/30 text-xs text-emerald-300 rounded-lg flex items-center justify-between">
+                  <span>Showing only active (ON) indicators added to your chart ({addedCount} active).</span>
+                  <button
+                    type="button"
+                    onClick={() => setIndicatorFilter('all')}
+                    className="text-xs text-blue-400 hover:text-blue-300 underline font-medium cursor-pointer"
+                  >
+                    View All ({totalCount})
+                  </button>
+                </div>
+              ) : indicatorFilter === 'not_added' ? (
+                <div className="p-2.5 bg-neutral-900 border border-neutral-850 text-xs text-neutral-400 rounded-lg flex items-center justify-between">
+                  <span>Showing indicators currently turned OFF ({notAddedCount} inactive).</span>
+                  <button
+                    type="button"
+                    onClick={() => setIndicatorFilter('added')}
+                    className="text-xs text-emerald-400 hover:text-emerald-300 underline font-medium cursor-pointer"
+                  >
+                    View Added ({addedCount})
+                  </button>
+                </div>
+              ) : (
+                <div className="p-2.5 bg-blue-950/20 border border-blue-900/30 text-xs text-blue-300 rounded-lg flex items-center justify-between">
+                  <span>Showing all {totalCount} platform indicators. Toggle switches to add or remove indicators.</span>
+                  <button
+                    type="button"
+                    onClick={() => setIndicatorFilter('added')}
+                    className="text-xs text-emerald-400 hover:text-emerald-300 underline font-medium cursor-pointer"
+                  >
+                    View Added Only ({addedCount})
+                  </button>
+                </div>
+              )}
+
+              {/* Empty state when Added Indicators filter is active but none are ON */}
+              {indicatorFilter === 'added' && addedCount === 0 && (
+                <div className="p-8 text-center bg-neutral-900/40 border border-neutral-800 rounded-xl space-y-3">
+                  <div className="w-12 h-12 mx-auto rounded-full bg-neutral-800/80 flex items-center justify-center text-neutral-400">
+                    <Sparkles className="w-6 h-6 text-amber-400" />
+                  </div>
+                  <div className="text-sm font-semibold text-neutral-200">No Indicators Currently Added</div>
+                  <p className="text-xs text-neutral-400 max-w-sm mx-auto">
+                    All indicators are currently turned OFF. Switch to the <strong>All Indicators</strong> view to activate indicators for your chart.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIndicatorFilter('all')}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow transition-all cursor-pointer"
+                  >
+                    Browse All Indicators ({totalCount})
+                  </button>
+                </div>
+              )}
+
+              {/* Indicator 1: Auto Price Channels (4H) */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isAutoChannelsActive) || (indicatorFilter === 'not_added' && !isAutoChannelsActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-200">Auto Price Channels (4H)</span>
+                        <span className="text-[10px] bg-sky-900/60 text-sky-300 px-1.5 py-0.5 rounded font-mono font-normal">Strict 4H TF</span>
+                        {isAutoChannelsActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">Auto detects price channels, trend direction & breakouts (Only active on 4H)</span>
+                    </div>
+                    <input
+                      id="settings-toggle-auto-price-channels"
+                      type="checkbox"
+                      checked={isAutoChannelsActive}
+                      onChange={(e) => handleUpdateIndicators('showAutoPriceChannels', e.target.checked)}
+                      className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isAutoChannelsActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-sky-800/50 pt-1">
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Channel Line Color</span>
+                        <input
+                          id="settings-color-channels"
+                          type="color"
+                          value={settings.indicators.autoPriceChannelsColor ?? '#38bdf8'}
+                          onChange={(e) => handleUpdateIndicators('autoPriceChannelsColor', e.target.value)}
+                          className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Line Thickness (px)</span>
+                        <input
+                          id="settings-width-channels"
+                          type="number"
+                          min={1}
+                          max={6}
+                          value={settings.indicators.autoPriceChannelsLineWidth ?? 2}
+                          onChange={(e) => handleUpdateIndicators('autoPriceChannelsLineWidth', parseInt(e.target.value) || 2)}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-sky-500 text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Breakout Signals</span>
+                          <span className="text-xs text-gray-500">Marks channel breakout points on candle closes</span>
+                        </div>
+                        <input
+                          id="settings-toggle-channel-breakouts"
+                          type="checkbox"
+                          checked={settings.indicators.autoPriceChannelsShowBreakouts ?? true}
+                          onChange={(e) => handleUpdateIndicators('autoPriceChannelsShowBreakouts', e.target.checked)}
+                          className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 1B: Institutional Auto Supply/Demand Order Blocks & Parallel Channel */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isAutoSdcActive) || (indicatorFilter === 'not_added' && !isAutoSdcActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-200">Auto Supply & Demand + Parallel Channel</span>
+                        <span className="text-[10px] bg-sky-900/60 text-sky-300 px-1.5 py-0.5 rounded font-mono font-normal">SMC & Channel</span>
+                        {isAutoSdcActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">Auto detects Cyan/Blue Supply-Demand zones, Sloped Parallel Trend Channels & Right-Side Projection Blocks</span>
+                    </div>
+                    <input
+                      id="settings-toggle-auto-sdc"
+                      type="checkbox"
+                      checked={isAutoSdcActive}
+                      onChange={(e) => handleUpdateIndicators('showAutoSupplyDemandChannel', e.target.checked)}
+                      className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isAutoSdcActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-sky-800/50 pt-1">
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Theme Color</span>
+                        <input
+                          id="settings-color-sdc"
+                          type="color"
+                          value={settings.indicators.autoSdcColor ?? '#0ea5e9'}
+                          onChange={(e) => handleUpdateIndicators('autoSdcColor', e.target.value)}
+                          className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Show Supply & Demand Bands</span>
+                        <input
+                          id="settings-toggle-sdc-zones"
+                          type="checkbox"
+                          checked={settings.indicators.autoSdcShowSupplyDemand ?? true}
+                          onChange={(e) => handleUpdateIndicators('autoSdcShowSupplyDemand', e.target.checked)}
+                          className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Show Parallel Trend Channel</span>
+                        <input
+                          id="settings-toggle-sdc-channel"
+                          type="checkbox"
+                          checked={settings.indicators.autoSdcShowChannel ?? true}
+                          onChange={(e) => handleUpdateIndicators('autoSdcShowChannel', e.target.checked)}
+                          className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Show Right-Hand Projection Gaps</span>
+                        <input
+                          id="settings-toggle-sdc-fvg"
+                          type="checkbox"
+                          checked={settings.indicators.autoSdcShowFVGProjections ?? true}
+                          onChange={(e) => handleUpdateIndicators('autoSdcShowFVGProjections', e.target.checked)}
+                          className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {(settings.indicators.autoSdcShowFVGProjections ?? true) && (
+                        <div className="grid grid-cols-2 gap-2.5 pt-1">
+                          <div className="flex items-center justify-between p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded bg-emerald-500" />
+                              <span className="text-xs font-medium text-gray-300">Buy FVG</span>
+                            </div>
+                            <input
+                              id="settings-color-sdc-fvg-buy"
+                              type="color"
+                              value={settings.indicators.autoSdcFvgBuyColor || '#10b981'}
+                              onChange={(e) => handleUpdateIndicators('autoSdcFvgBuyColor', e.target.value)}
+                              className="w-8 h-6 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded bg-rose-500" />
+                              <span className="text-xs font-medium text-gray-300">Sell FVG</span>
+                            </div>
+                            <input
+                              id="settings-color-sdc-fvg-sell"
+                              type="color"
+                              value={settings.indicators.autoSdcFvgSellColor || '#f43f5e'}
+                              onChange={(e) => handleUpdateIndicators('autoSdcFvgSellColor', e.target.value)}
+                              className="w-8 h-6 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 2: Simple Moving Average (SMA) */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMAActive) || (indicatorFilter === 'not_added' && !isMAActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-200">Simple Moving Average (SMA)</span>
+                        {isMAActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">Calculates and renders an SMA line on chart candles</span>
+                    </div>
+                    <input
+                      id="settings-toggle-ma"
+                      type="checkbox"
+                      checked={isMAActive}
+                      onChange={(e) => handleUpdateIndicators('showMA', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isMAActive && (
+                    <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                      <span className="text-sm font-medium text-gray-300">SMA Period (Length)</span>
+                      <input
+                        id="settings-input-ma-period"
+                        type="number"
+                        min={2}
+                        max={500}
+                        value={settings.indicators.maPeriod}
+                        onChange={(e) => handleUpdateIndicators('maPeriod', parseInt(e.target.value) || 20)}
+                        className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 3: Grand Trend Alignment (GTA) Filter */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isGTAActive) || (indicatorFilter === 'not_added' && !isGTAActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-200">Grand Trend Alignment (GTA) Filter</span>
+                        {isGTAActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">Triple-smoothed EMA momentum overlay (Green/Red/Neutral States)</span>
+                    </div>
+                    <input
+                      id="settings-toggle-gta"
+                      type="checkbox"
+                      checked={isGTAActive}
+                      onChange={(e) => handleUpdateIndicators('showGTA', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isGTAActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-neutral-800 pt-1">
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Short Period (Velocity)</span>
+                        <input
+                          id="settings-input-gta-short"
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={settings.indicators.gtaShortPeriod}
+                          onChange={(e) => handleUpdateIndicators('gtaShortPeriod', parseInt(e.target.value) || 6)}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Medium Period (Baseline)</span>
+                        <input
+                          id="settings-input-gta-mid"
+                          type="number"
+                          min={1}
+                          max={200}
+                          value={settings.indicators.gtaMidPeriod}
+                          onChange={(e) => handleUpdateIndicators('gtaMidPeriod', parseInt(e.target.value) || 13)}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Long Period (Anchor)</span>
+                        <input
+                          id="settings-input-gta-long"
+                          type="number"
+                          min={1}
+                          max={500}
+                          value={settings.indicators.gtaLongPeriod}
+                          onChange={(e) => handleUpdateIndicators('gtaLongPeriod', parseInt(e.target.value) || 21)}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Arrow Placement Offset</span>
+                          <span className="text-xs text-gray-500">Spacing height multiplier</span>
+                        </div>
+                        <input
+                          id="settings-input-gta-offset"
+                          type="number"
+                          step={0.01}
+                          min={0.01}
+                          max={0.5}
+                          value={settings.indicators.gtaArrowOffset}
+                          onChange={(e) => handleUpdateIndicators('gtaArrowOffset', parseFloat(e.target.value) || 0.10)}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show GTA EMAs on Chart</span>
+                          <span className="text-xs text-gray-500">Render the three underlying EMA lines</span>
+                        </div>
+                        <input
+                          id="settings-toggle-gta-emas"
+                          type="checkbox"
+                          checked={settings.indicators.showGTAEMAs}
+                          onChange={(e) => handleUpdateIndicators('showGTAEMAs', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show GTA Buy/Sell Arrows</span>
+                          <span className="text-xs text-gray-500">Render trend signal arrows on chart</span>
+                        </div>
+                        <input
+                          id="settings-toggle-gta-arrows"
+                          type="checkbox"
+                          checked={settings.indicators.gtaShowArrows ?? true}
+                          onChange={(e) => handleUpdateIndicators('gtaShowArrows', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">GTA Candle Color Changes</span>
+                          <span className="text-xs text-gray-500">Color candles based on GTA trend direction</span>
+                        </div>
+                        <input
+                          id="settings-toggle-gta-color-candles"
+                          type="checkbox"
+                          checked={settings.indicators.gtaColorCandles ?? true}
+                          onChange={(e) => handleUpdateIndicators('gtaColorCandles', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="border-t border-neutral-900 my-2" />
+
+              {/* Indicator 4: LuxAlgo Trendlines with Breaks */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isTWBActive) || (indicatorFilter === 'not_added' && !isTWBActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-200">LuxAlgo Trendlines with Breaks</span>
+                        {isTWBActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">Pivots and slope-calculated breakout signals</span>
+                    </div>
+                    <input
+                      id="settings-toggle-twb"
+                      type="checkbox"
+                      checked={isTWBActive}
+                      onChange={(e) => handleUpdateIndicators('showTrendlinesWithBreaks', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isTWBActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-neutral-800 pt-1">
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Pivot Lookback Period (Length)</span>
+                        <input
+                          id="settings-input-twb-length"
+                          type="number"
+                          min={2}
+                          max={100}
+                          value={settings.indicators.twbLength}
+                          onChange={(e) => handleUpdateIndicators('twbLength', parseInt(e.target.value) || 14)}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Slope Multiplier</span>
+                        <input
+                          id="settings-input-twb-slope"
+                          type="number"
+                          step={0.1}
+                          min={0.1}
+                          max={10}
+                          value={settings.indicators.twbSlopeMultiplier}
+                          onChange={(e) => handleUpdateIndicators('twbSlopeMultiplier', parseFloat(e.target.value) || 1.6)}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Slope Calculation Method</span>
+                        <select
+                          id="settings-select-twb-method"
+                          value={settings.indicators.twbSlopeMethod}
+                          onChange={(e) => handleUpdateIndicators('twbSlopeMethod', e.target.value)}
+                          className="w-28 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        >
+                          <option value="atr">ATR</option>
+                          <option value="manual">Manual</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Breakout Signals</span>
+                          <span className="text-xs text-gray-500">Draw "B" arrows on the chart upon breakout</span>
+                        </div>
+                        <input
+                          id="settings-toggle-twb-signals"
+                          type="checkbox"
+                          checked={settings.indicators.twbShowSignals ?? true}
+                          onChange={(e) => handleUpdateIndicators('twbShowSignals', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 5: Smart Money Concepts (SMC) */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isSMCActive) || (indicatorFilter === 'not_added' && !isSMCActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-200">Smart Money Concepts (SMC)</span>
+                        {isSMCActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">BOS, CHoCH structural breaks & Order Blocks (Live Candles, No Noise)</span>
+                    </div>
+                    <input
+                      id="settings-toggle-smc"
+                      type="checkbox"
+                      checked={isSMCActive}
+                      onChange={(e) => handleUpdateIndicators('showSmartMoneyConcepts', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isSMCActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-neutral-800 pt-1">
+                      {/* Swing Lookback Period with 720, 168, 24 Quick Presets */}
+                      <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Swing Lookback Period</span>
+                            <span className="text-xs text-gray-500">720 (Monthly OBs) • 168 (Weekly OBs) • 24 (Daily OBs) • 5 (Intraday)</span>
+                          </div>
+                          <input
+                            id="settings-input-smc-lookback"
+                            type="number"
+                            min={2}
+                            max={5000}
+                            value={settings.indicators.smcSwingLookback ?? 5}
+                            onChange={(e) => handleUpdateIndicators('smcSwingLookback', parseInt(e.target.value) || 5)}
+                            className="w-24 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono font-bold"
+                          />
+                        </div>
+                        {/* Quick Presets for Lookback */}
+                        <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateIndicators('smcSwingLookback', 720)}
+                            className={
+                              settings.indicators.smcSwingLookback === 720
+                                ? 'px-2.5 py-1 text-xs font-mono font-semibold rounded bg-cyan-600 text-white border border-cyan-400 shadow-sm'
+                                : 'px-2.5 py-1 text-xs font-mono font-semibold rounded bg-neutral-950 text-neutral-300 border border-neutral-800 hover:bg-neutral-800'
+                            }
+                          >
+                            720 (Monthly)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateIndicators('smcSwingLookback', 168)}
+                            className={
+                              settings.indicators.smcSwingLookback === 168
+                                ? 'px-2.5 py-1 text-xs font-mono font-semibold rounded bg-blue-600 text-white border border-blue-400 shadow-sm'
+                                : 'px-2.5 py-1 text-xs font-mono font-semibold rounded bg-neutral-950 text-neutral-300 border border-neutral-800 hover:bg-neutral-800'
+                            }
+                          >
+                            168 (Weekly)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateIndicators('smcSwingLookback', 24)}
+                            className={
+                              settings.indicators.smcSwingLookback === 24
+                                ? 'px-2.5 py-1 text-xs font-mono font-semibold rounded bg-purple-600 text-white border border-purple-400 shadow-sm'
+                                : 'px-2.5 py-1 text-xs font-mono font-semibold rounded bg-neutral-950 text-neutral-300 border border-neutral-800 hover:bg-neutral-800'
+                            }
+                          >
+                            24 (Daily)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateIndicators('smcSwingLookback', 5)}
+                            className={
+                              settings.indicators.smcSwingLookback === 5
+                                ? 'px-2.5 py-1 text-xs font-mono font-semibold rounded bg-emerald-600 text-white border border-emerald-400 shadow-sm'
+                                : 'px-2.5 py-1 text-xs font-mono font-semibold rounded bg-neutral-950 text-neutral-300 border border-neutral-800 hover:bg-neutral-800'
+                            }
+                          >
+                            5 (Intraday)
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Structure Line Style</span>
+                          <span className="text-xs text-gray-500">Style for CHoCH & BOS market structure lines</span>
+                        </div>
+                        <select
+                          id="settings-select-smc-structure-line-style"
+                          value={settings.indicators.smcStructureLineStyle ?? 'dotted'}
+                          onChange={(e) => handleUpdateIndicators('smcStructureLineStyle', e.target.value as 'dashed' | 'solid' | 'dotted')}
+                          className="px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+                        >
+                          <option value="dotted">Dotted Lines</option>
+                          <option value="dashed">Dashed Lines</option>
+                          <option value="solid">Solid Lines</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Show Break of Structure (BOS)</span>
+                        <input
+                          id="settings-toggle-smc-bos"
+                          type="checkbox"
+                          checked={settings.indicators.smcShowBOS}
+                          onChange={(e) => handleUpdateIndicators('smcShowBOS', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Show Change of Character (CHoCH)</span>
+                        <input
+                          id="settings-toggle-smc-choch"
+                          type="checkbox"
+                          checked={settings.indicators.smcShowCHoCH}
+                          onChange={(e) => handleUpdateIndicators('smcShowCHoCH', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Order Blocks (OB)</span>
+                          <span className="text-xs text-gray-500">Price ካለፈ በኃላ አይወጣም (Only active unmitigated OBs show)</span>
+                        </div>
+                        <input
+                          id="settings-toggle-smc-ob"
+                          type="checkbox"
+                          checked={settings.indicators.smcShowOrderBlocks}
+                          onChange={(e) => handleUpdateIndicators('smcShowOrderBlocks', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {settings.indicators.smcShowOrderBlocks && (
+                        <div className="space-y-3 pl-3 border-l-2 border-neutral-800 ml-2">
+                          <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-gray-300">Order Blocks Filter Mode</span>
+                              <span className="text-xs text-gray-500">Strong Order Blocks (Breakout origin) vs All Blocks</span>
+                            </div>
+                            <select
+                              id="settings-select-smc-ob-mode"
+                              value={settings.indicators.smcObMode ?? 'strong'}
+                              onChange={(e) => handleUpdateIndicators('smcObMode', e.target.value as 'strong' | 'all')}
+                              className="px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+                            >
+                              <option value="strong">Strong Blocks Only</option>
+                              <option value="all">All Order Blocks</option>
+                            </select>
+                          </div>
+
+                          <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <span className="text-sm font-medium text-gray-300">Max Order Blocks Count</span>
+                            <input
+                              id="settings-input-smc-oblimit"
+                              type="number"
+                              min={1}
+                              max={20}
+                              value={settings.indicators.smcObLimit}
+                              onChange={(e) => handleUpdateIndicators('smcObLimit', parseInt(e.target.value) || 5)}
+                              className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-gray-300">Order Blocks Shades Visibility</span>
+                              <span className="text-xs text-gray-500">Shade opacity intensity for Supply & Demand zones</span>
+                            </div>
+                            <select
+                              id="settings-select-smc-ob-shades"
+                              value={settings.indicators.smcObOpacityMultiplier ?? 2}
+                              onChange={(e) => handleUpdateIndicators('smcObOpacityMultiplier', parseFloat(e.target.value) as 1 | 2 | 2.5)}
+                              className="px-3 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-medium cursor-pointer font-mono"
+                            >
+                              <option value={1}>1x (Normal Shade)</option>
+                              <option value={2}>2x (Vivid Shade)</option>
+                              <option value={2.5}>2.5x (High Visibility)</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Multi-Instance SMC: Add indicator multiple times with different lookbacks/settings */}
+                      <div className="pt-3 border-t border-neutral-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-1.5">
+                              <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                              <span className="text-xs font-semibold text-gray-200">Multi-Instance SMC Layers</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-cyan-950 text-cyan-300 border border-cyan-800/60">
+                                {settings.indicators.smcInstances?.length || 0} Layers
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-gray-400">
+                              አንዱን SMC indicator በተደጋጋሚ በተለያየ Lookback (720, 168, 24, 5) እና Timeframe Add ያድርጉ
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const currentInstances = settings.indicators.smcInstances || [];
+                              const newId = `smc-${Date.now()}`;
+                              const presetCount = currentInstances.length;
+                              // Smart default rotation: 720 Monthly, 168 Weekly, 24 Daily, 5 Intraday
+                              const presets = [
+                                { name: 'SMC #1 (720 Monthly)', lookback: 720, tag: '720M', color: '#06b6d4' },
+                                { name: 'SMC #2 (168 Weekly)', lookback: 168, tag: '168W', color: '#3b82f6' },
+                                { name: 'SMC #3 (24 Daily)', lookback: 24, tag: '24D', color: '#a855f7' },
+                                { name: 'SMC #4 (5 Intraday)', lookback: 5, tag: '5H', color: '#10b981' },
+                              ];
+                              const p = presets[presetCount % presets.length];
+                              const newInstance: SMCInstanceConfig = {
+                                id: newId,
+                                name: p.name,
+                                enabled: true,
+                                timeframe: 'chart',
+                                historyCandlesLimit: p.lookback,
+                                swingLookback: p.lookback,
+                                showBOS: true,
+                                showCHoCH: true,
+                                showOrderBlocks: true,
+                                obMode: 'strong',
+                                obLimit: 5,
+                                obOpacityMultiplier: 2,
+                                structureLineStyle: 'dotted',
+                                bullishColor: '#10b981',
+                                bearishColor: '#ef4444',
+                                tagBadge: p.tag,
+                              };
+                              handleUpdateIndicators('smcInstances', [...currentInstances, newInstance]);
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white flex items-center gap-1.5 shadow transition-all cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Add Another SMC</span>
+                          </button>
+                        </div>
+
+                        {/* List of active SMC instances */}
+                        {settings.indicators.smcInstances && settings.indicators.smcInstances.length > 0 && (
+                          <div className="space-y-2.5">
+                            {settings.indicators.smcInstances.map((inst, idx) => (
+                              <div
+                                key={inst.id}
+                                className="p-3 bg-neutral-950/80 rounded-lg border border-neutral-800 space-y-2.5 transition-all"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={inst.enabled}
+                                      onChange={(e) => {
+                                        const updated = (settings.indicators.smcInstances || []).map((item) =>
+                                          item.id === inst.id ? { ...item, enabled: e.target.checked } : item
+                                        );
+                                        handleUpdateIndicators('smcInstances', updated);
+                                      }}
+                                      className="w-4 h-4 text-cyan-600 bg-neutral-900 rounded border-neutral-700 cursor-pointer"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={inst.name}
+                                      onChange={(e) => {
+                                        const updated = (settings.indicators.smcInstances || []).map((item) =>
+                                          item.id === inst.id ? { ...item, name: e.target.value } : item
+                                        );
+                                        handleUpdateIndicators('smcInstances', updated);
+                                      }}
+                                      className="bg-transparent border-b border-transparent hover:border-neutral-700 focus:border-cyan-500 text-xs font-semibold text-white px-1 py-0.5 outline-none font-mono"
+                                    />
+                                    {inst.tagBadge && (
+                                      <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-cyan-950 text-cyan-400 border border-cyan-800">
+                                        {inst.tagBadge}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const filtered = (settings.indicators.smcInstances || []).filter(
+                                          (item) => item.id !== inst.id
+                                        );
+                                        handleUpdateIndicators('smcInstances', filtered);
+                                      }}
+                                      className="p-1 text-neutral-400 hover:text-red-400 transition-colors cursor-pointer"
+                                      title="Remove this SMC instance"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {inst.enabled && (
+                                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-neutral-850">
+                                    {/* Lookback input & quick presets */}
+                                    <div className="flex flex-col gap-1">
+                                      <span className="text-[10px] font-medium text-neutral-400 uppercase">Lookback Candles</span>
+                                      <div className="flex items-center gap-1">
+                                        <input
+                                          type="number"
+                                          min={2}
+                                          max={5000}
+                                          value={inst.swingLookback}
+                                          onChange={(e) => {
+                                            const val = parseInt(e.target.value) || 5;
+                                            const updated = (settings.indicators.smcInstances || []).map((item) =>
+                                              item.id === inst.id ? { ...item, swingLookback: val, historyCandlesLimit: val } : item
+                                            );
+                                            handleUpdateIndicators('smcInstances', updated);
+                                          }}
+                                          className="w-16 px-2 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono font-bold"
+                                        />
+                                        <div className="flex gap-1">
+                                          {[720, 168, 24, 5].map((presetLb) => (
+                                            <button
+                                              key={presetLb}
+                                              type="button"
+                                              onClick={() => {
+                                                const updated = (settings.indicators.smcInstances || []).map((item) =>
+                                                  item.id === inst.id
+                                                    ? {
+                                                        ...item,
+                                                        swingLookback: presetLb,
+                                                        historyCandlesLimit: presetLb,
+                                                        tagBadge: presetLb === 720 ? '720M' : presetLb === 168 ? '168W' : presetLb === 24 ? '24D' : '5H',
+                                                      }
+                                                    : item
+                                                );
+                                                handleUpdateIndicators('smcInstances', updated);
+                                              }}
+                                              className={`px-1.5 py-0.5 text-[10px] font-mono rounded cursor-pointer ${
+                                                inst.swingLookback === presetLb
+                                                  ? 'bg-cyan-600 text-white font-bold'
+                                                  : 'bg-neutral-900 text-neutral-400 hover:text-white'
+                                              }`}
+                                            >
+                                              {presetLb}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* OB Limit & Mode */}
+                                    <div className="flex flex-col gap-1">
+                                      <span className="text-[10px] font-medium text-neutral-400 uppercase">OBs Limit & Mode</span>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          max={20}
+                                          value={inst.obLimit}
+                                          onChange={(e) => {
+                                            const val = parseInt(e.target.value) || 5;
+                                            const updated = (settings.indicators.smcInstances || []).map((item) =>
+                                              item.id === inst.id ? { ...item, obLimit: val } : item
+                                            );
+                                            handleUpdateIndicators('smcInstances', updated);
+                                          }}
+                                          className="w-12 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                                        />
+                                        <select
+                                          value={inst.obMode || 'strong'}
+                                          onChange={(e) => {
+                                            const updated = (settings.indicators.smcInstances || []).map((item) =>
+                                              item.id === inst.id ? { ...item, obMode: e.target.value as any } : item
+                                            );
+                                            handleUpdateIndicators('smcInstances', updated);
+                                          }}
+                                          className="px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-[11px] text-white outline-none cursor-pointer"
+                                        >
+                                          <option value="strong">Strong Only</option>
+                                          <option value="all">All Blocks</option>
+                                        </select>
+                                      </div>
+                                    </div>
+
+                                    {/* Toggle OB, BOS, CHoCH */}
+                                    <div className="flex items-center gap-3 pt-3">
+                                      <label className="flex items-center gap-1 cursor-pointer text-[11px] text-neutral-300">
+                                        <input
+                                          type="checkbox"
+                                          checked={inst.showOrderBlocks}
+                                          onChange={(e) => {
+                                            const updated = (settings.indicators.smcInstances || []).map((item) =>
+                                              item.id === inst.id ? { ...item, showOrderBlocks: e.target.checked } : item
+                                            );
+                                            handleUpdateIndicators('smcInstances', updated);
+                                          }}
+                                          className="w-3 h-3 text-cyan-600 rounded"
+                                        />
+                                        <span>OB</span>
+                                      </label>
+                                      <label className="flex items-center gap-1 cursor-pointer text-[11px] text-neutral-300">
+                                        <input
+                                          type="checkbox"
+                                          checked={inst.showBOS}
+                                          onChange={(e) => {
+                                            const updated = (settings.indicators.smcInstances || []).map((item) =>
+                                              item.id === inst.id ? { ...item, showBOS: e.target.checked } : item
+                                            );
+                                            handleUpdateIndicators('smcInstances', updated);
+                                          }}
+                                          className="w-3 h-3 text-cyan-600 rounded"
+                                        />
+                                        <span>BOS</span>
+                                      </label>
+                                      <label className="flex items-center gap-1 cursor-pointer text-[11px] text-neutral-300">
+                                        <input
+                                          type="checkbox"
+                                          checked={inst.showCHoCH}
+                                          onChange={(e) => {
+                                            const updated = (settings.indicators.smcInstances || []).map((item) =>
+                                              item.id === inst.id ? { ...item, showCHoCH: e.target.checked } : item
+                                            );
+                                            handleUpdateIndicators('smcInstances', updated);
+                                          }}
+                                          className="w-3 h-3 text-cyan-600 rounded"
+                                        />
+                                        <span>CHoCH</span>
+                                      </label>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 6: LuxAlgo® - Signals & Overlays™ */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isSOActive) || (indicatorFilter === 'not_added' && !isSOActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-200">LuxAlgo® - Signals & Overlays™</span>
+                        {isSOActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">Flagship trend tracker ribbon & buy/sell signals</span>
+                    </div>
+                    <input
+                      id="settings-toggle-so"
+                      type="checkbox"
+                      checked={isSOActive}
+                      onChange={(e) => handleUpdateIndicators('showSignalsAndOverlays', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isSOActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-neutral-800 pt-1">
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Signal Mode</span>
+                        <select
+                          id="settings-select-so-mode"
+                          value={settings.indicators.soSignalMode}
+                          onChange={(e) => handleUpdateIndicators('soSignalMode', e.target.value as any)}
+                          className="w-32 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        >
+                          <option value="confirmation">Confirmation</option>
+                          <option value="contrarian">Contrarian</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Sensitivity</span>
+                          <span className="text-xs text-gray-500">Lower = more signals, Higher = slower</span>
+                        </div>
+                        <input
+                          id="settings-input-so-sensitivity"
+                          type="number"
+                          min={1}
+                          max={50}
+                          value={settings.indicators.soSensitivity}
+                          onChange={(e) => handleUpdateIndicators('soSensitivity', parseInt(e.target.value) || 12)}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Show Trend Ribbon</span>
+                        <input
+                          id="settings-toggle-so-ribbon"
+                          type="checkbox"
+                          checked={settings.indicators.soShowRibbon}
+                          onChange={(e) => handleUpdateIndicators('soShowRibbon', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Show Exit Signals</span>
+                        <input
+                          id="settings-toggle-so-exits"
+                          type="checkbox"
+                          checked={settings.indicators.soShowExitSignals}
+                          onChange={(e) => handleUpdateIndicators('soShowExitSignals', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Show Strong Signals</span>
+                        <input
+                          id="settings-toggle-so-strong"
+                          type="checkbox"
+                          checked={settings.indicators.soShowStrongSignals}
+                          onChange={(e) => handleUpdateIndicators('soShowStrongSignals', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Show Signal Arrows (Buy / Sell)</span>
+                        <input
+                          id="settings-toggle-so-arrows"
+                          type="checkbox"
+                          checked={settings.indicators.soShowSignalArrows ?? true}
+                          onChange={(e) => handleUpdateIndicators('soShowSignalArrows', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Confluence FVG Finder | ProjectSyndicate */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isFVGActive) || (indicatorFilter === 'not_added' && !isFVGActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-semibold text-gray-200">Confluence FVG Finder | ProjectSyndicate</span>
+                      <span className="text-xs text-gray-500">LuxAlgo style multi-timeframe confluence zones</span>
+                    </div>
+                    <input
+                      id="settings-toggle-fvg"
+                      type="checkbox"
+                      checked={settings.indicators.showConfluenceFVG}
+                      onChange={(e) => handleUpdateIndicators('showConfluenceFVG', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                    />
+                  </div>
+
+                  {settings.indicators.showConfluenceFVG && (
+                <div className="space-y-3.5 pl-3 border-l-2 border-neutral-800">
+                  {/* Multi-Timeframes Selectors */}
+                  <div className="grid grid-cols-3 gap-2 p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">TF 1 (Anchor)</span>
+                      <select
+                        id="settings-select-fvg-tf1"
+                        value={settings.indicators.fvgTf1}
+                        onChange={(e) => handleUpdateIndicators('fvgTf1', e.target.value)}
+                        className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none"
+                      >
+                        <option value="1M">1M</option>
+                        <option value="2M">2M</option>
+                        <option value="5M">5M</option>
+                        <option value="15M">15M</option>
+                        <option value="30M">30M</option>
+                        <option value="1H">1H</option>
+                        <option value="4H">4H</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">TF 2</span>
+                      <select
+                        id="settings-select-fvg-tf2"
+                        value={settings.indicators.fvgTf2}
+                        onChange={(e) => handleUpdateIndicators('fvgTf2', e.target.value)}
+                        className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none"
+                      >
+                        <option value="1M">1M</option>
+                        <option value="2M">2M</option>
+                        <option value="5M">5M</option>
+                        <option value="15M">15M</option>
+                        <option value="30M">30M</option>
+                        <option value="1H">1H</option>
+                        <option value="4H">4H</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">TF 3</span>
+                      <select
+                        id="settings-select-fvg-tf3"
+                        value={settings.indicators.fvgTf3}
+                        onChange={(e) => handleUpdateIndicators('fvgTf3', e.target.value)}
+                        className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none"
+                      >
+                        <option value="1M">1M</option>
+                        <option value="2M">2M</option>
+                        <option value="5M">5M</option>
+                        <option value="15M">15M</option>
+                        <option value="30M">30M</option>
+                        <option value="1H">1H</option>
+                        <option value="4H">4H</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Display Mode & Color Controls */}
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-300">FVG Display Style</span>
+                      <span className="text-xs text-gray-500">Render as bold line level or rectangle zone</span>
+                    </div>
+                    <select
+                      id="settings-select-fvg-displaymode"
+                      value={settings.indicators.fvgDisplayMode ?? 'Line'}
+                      onChange={(e) => handleUpdateIndicators('fvgDisplayMode', e.target.value as any)}
+                      className="w-36 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="Line">Bold Line</option>
+                      <option value="Zone">Rectangle Zone</option>
+                    </select>
+                  </div>
+
+                  {/* FVG Custom Colors */}
+                  <div className="grid grid-cols-2 gap-2 p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-gray-300">Bullish Color</span>
+                      <input
+                        id="settings-color-fvg-bullish"
+                        type="color"
+                        value={settings.indicators.fvgBullishColor || '#089981'}
+                        onChange={(e) => {
+                          handleUpdateIndicators('fvgBullishColor', e.target.value);
+                          handleUpdateIndicators('fvgBullishBorderColor', e.target.value);
+                        }}
+                        className="w-8 h-8 rounded border border-neutral-700 bg-neutral-950 cursor-pointer"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-gray-300">Bearish Color</span>
+                      <input
+                        id="settings-color-fvg-bearish"
+                        type="color"
+                        value={settings.indicators.fvgBearishColor || '#f23645'}
+                        onChange={(e) => {
+                          handleUpdateIndicators('fvgBearishColor', e.target.value);
+                          handleUpdateIndicators('fvgBearishBorderColor', e.target.value);
+                        }}
+                        className="w-8 h-8 rounded border border-neutral-700 bg-neutral-950 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <span className="text-sm font-medium text-gray-300">Line / Border Thickness</span>
+                    <input
+                      id="settings-input-fvg-width"
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={settings.indicators.fvgBorderWidth ?? 2}
+                      onChange={(e) => handleUpdateIndicators('fvgBorderWidth', parseInt(e.target.value) || 2)}
+                      className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                    />
+                  </div>
+
+                  {/* General Config */}
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <span className="text-sm font-medium text-gray-300">Show Bullish Zones</span>
+                    <input
+                      id="settings-toggle-fvg-bullish"
+                      type="checkbox"
+                      checked={settings.indicators.fvgShowBullish}
+                      onChange={(e) => handleUpdateIndicators('fvgShowBullish', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <span className="text-sm font-medium text-gray-300">Show Bearish Zones</span>
+                    <input
+                      id="settings-toggle-fvg-bearish"
+                      type="checkbox"
+                      checked={settings.indicators.fvgShowBearish}
+                      onChange={(e) => handleUpdateIndicators('fvgShowBearish', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                    />
+                  </div>
+
+                  {/* Limits and Filters */}
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-300">Max Zones Per Direction</span>
+                      <span className="text-xs text-gray-500">Cap maximum displayed boxes</span>
+                    </div>
+                    <input
+                      id="settings-input-fvg-max"
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={settings.indicators.fvgMaxZones}
+                      onChange={(e) => handleUpdateIndicators('fvgMaxZones', parseInt(e.target.value) || 8)}
+                      className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-300">Minimum Confluence Count</span>
+                      <span className="text-xs text-gray-500">Require matching levels across TFs (1-3)</span>
+                    </div>
+                    <input
+                      id="settings-input-fvg-confluence"
+                      type="number"
+                      min={1}
+                      max={3}
+                      value={settings.indicators.fvgMinConfluence}
+                      onChange={(e) => handleUpdateIndicators('fvgMinConfluence', parseInt(e.target.value) || 2)}
+                      className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-300">Proximity ATR Mult</span>
+                      <span className="text-xs text-gray-500">Confluence grouping proximity multiplier</span>
+                    </div>
+                    <input
+                      id="settings-input-fvg-proximity"
+                      type="number"
+                      step={0.1}
+                      min={0.5}
+                      max={15}
+                      value={settings.indicators.fvgProximityAtrMult}
+                      onChange={(e) => handleUpdateIndicators('fvgProximityAtrMult', parseFloat(e.target.value) || 5.0)}
+                      className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-300">Strength Rating Rating</span>
+                      <span className="text-xs text-gray-500">Enable score filters on gaps</span>
+                    </div>
+                    <input
+                      id="settings-toggle-fvg-rating"
+                      type="checkbox"
+                      checked={settings.indicators.fvgEnableStrengthRating}
+                      onChange={(e) => handleUpdateIndicators('fvgEnableStrengthRating', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                    />
+                  </div>
+
+                  {settings.indicators.fvgEnableStrengthRating && (
+                    <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850 ml-3 border-l-2 border-neutral-800">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-gray-300">Min Strength Score Filter</span>
+                        <span className="text-xs text-gray-500">Only show zones scored above threshold</span>
+                      </div>
+                      <input
+                        id="settings-input-fvg-minstrength"
+                        type="number"
+                        step={0.1}
+                        min={0.1}
+                        max={10}
+                        value={settings.indicators.fvgMinStrengthFilter}
+                        onChange={(e) => handleUpdateIndicators('fvgMinStrengthFilter', parseFloat(e.target.value) || 3.0)}
+                        className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                      />
+                    </div>
+                  )}
+
+                  {/* Mitigation Settings */}
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <span className="text-sm font-medium text-gray-300">Mitigation Type</span>
+                    <select
+                      id="settings-select-fvg-mitigation"
+                      value={settings.indicators.fvgMitigationType}
+                      onChange={(e) => handleUpdateIndicators('fvgMitigationType', e.target.value)}
+                      className="w-28 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none"
+                    >
+                      <option value="Touch">Touch</option>
+                      <option value="Full Fill">Full Fill</option>
+                      <option value="50% Fill">50% Fill</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <span className="text-sm font-medium text-gray-300">Show Mitigated FVG Zones</span>
+                    <input
+                      id="settings-toggle-fvg-mitigated"
+                      type="checkbox"
+                      checked={settings.indicators.fvgShowMitigated}
+                      onChange={(e) => handleUpdateIndicators('fvgShowMitigated', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                    />
+                  </div>
+
+                  {/* Normalization Settings */}
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-300">Normalize Zone Heights</span>
+                      <span className="text-xs text-gray-500">Unifies zone block sizes symmetrically</span>
+                    </div>
+                    <input
+                      id="settings-toggle-fvg-normalize"
+                      type="checkbox"
+                      checked={settings.indicators.fvgUseNormalizedZones}
+                      onChange={(e) => handleUpdateIndicators('fvgUseNormalizedZones', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                    />
+                  </div>
+
+                  {settings.indicators.fvgUseNormalizedZones && (
+                    <div className="space-y-3 pl-3 border-l-2 border-neutral-800 ml-3">
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Height Method</span>
+                        <select
+                          id="settings-select-fvg-hm"
+                          value={settings.indicators.fvgZoneHeightMethod}
+                          onChange={(e) => handleUpdateIndicators('fvgZoneHeightMethod', e.target.value)}
+                          className="w-32 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none"
+                        >
+                          <option value="ATR Based">ATR Based</option>
+                          <option value="Fixed Percentage">Fixed %</option>
+                        </select>
+                      </div>
+
+                      {settings.indicators.fvgZoneHeightMethod === 'ATR Based' ? (
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-sm font-medium text-gray-300">Height ATR Mult</span>
+                          <input
+                            id="settings-input-fvg-height-atr"
+                            type="number"
+                            step={0.05}
+                            min={0.1}
+                            max={3.0}
+                            value={settings.indicators.fvgZoneHeightAtrMult}
+                            onChange={(e) => handleUpdateIndicators('fvgZoneHeightAtrMult', parseFloat(e.target.value) || 0.75)}
+                            className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none text-center font-mono"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-sm font-medium text-gray-300">Height % of Price</span>
+                          <input
+                            id="settings-input-fvg-height-pct"
+                            type="number"
+                            step={0.05}
+                            min={0.05}
+                            max={2.0}
+                            value={settings.indicators.fvgZoneHeightPercent}
+                            onChange={(e) => handleUpdateIndicators('fvgZoneHeightPercent', parseFloat(e.target.value) || 0.3)}
+                            className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none text-center font-mono"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Texts in Zone with ON/OFF (As requested) */}
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-300">Show Texts in Zone</span>
+                      <span className="text-xs text-gray-500">Render indicators info metrics inside FVG block</span>
+                    </div>
+                    <input
+                      id="settings-toggle-fvg-info"
+                      type="checkbox"
+                      checked={settings.indicators.fvgShowInfo}
+                      onChange={(e) => handleUpdateIndicators('fvgShowInfo', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                    />
+                  </div>
+
+                  {settings.indicators.fvgShowInfo && (
+                    <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850 ml-3 border-l-2 border-neutral-800">
+                      <span className="text-sm font-medium text-gray-300">Info Text Size</span>
+                      <select
+                        id="settings-select-fvg-size"
+                        value={settings.indicators.fvgInfoTextSize}
+                        onChange={(e) => handleUpdateIndicators('fvgInfoTextSize', e.target.value)}
+                        className="w-28 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none"
+                      >
+                        <option value="Tiny">Tiny</option>
+                        <option value="Small">Small</option>
+                        <option value="Normal">Normal</option>
+                        <option value="Large">Large</option>
+                        <option value="Huge">Huge</option>
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                    <span className="text-sm font-medium text-gray-300">Show Bull/Bear Simple Labels</span>
+                    <input
+                      id="settings-toggle-fvg-labels"
+                      type="checkbox"
+                      checked={settings.indicators.fvgShowLabels}
+                      onChange={(e) => handleUpdateIndicators('fvgShowLabels', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="border-t border-neutral-900 my-2" />
+
+              {/* Pure Price Action Liquidity Sweeps [LuxAlgo] */}
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-sm font-semibold text-gray-200">Pure Price Action Liquidity Sweeps [LuxAlgo]</span>
+                  <span className="text-xs text-gray-500">Detects multi-level liquidity sweeps with level origin lines and sweep zones</span>
+                </div>
+                <input
+                  id="settings-toggle-pure-liquidity-sweeps"
+                  type="checkbox"
+                  checked={settings.indicators.showPureLiquiditySweeps ?? true}
+                  onChange={(e) => handleUpdateIndicators('showPureLiquiditySweeps', e.target.checked)}
+                  className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                />
+              </div>
+
+              {(settings.indicators.showPureLiquiditySweeps ?? true) && (
+                <div className="space-y-3 pl-3 border-l-2 border-emerald-500/40 bg-neutral-900/30 p-3 rounded-r-lg border border-neutral-800/80">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-300">Detection Level</span>
+                    <select
+                      id="settings-select-pure-liquidity-detection"
+                      value={settings.indicators.pureLiquidityDetection ?? 'Long Term'}
+                      onChange={(e) => handleUpdateIndicators('pureLiquidityDetection', e.target.value)}
+                      className="w-40 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none"
+                    >
+                      <option value="Short Term">Short Term (1)</option>
+                      <option value="Intermediate Term">Intermediate Term (2)</option>
+                      <option value="Long Term">Long Term (3)</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-neutral-800/80 pt-3">
+                    <div className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800">
+                      <span className="text-xs font-medium text-gray-300">Bullish Level</span>
+                      <input
+                        type="color"
+                        value={settings.indicators.pureLiquidityBullishColor ?? '#089981'}
+                        onChange={(e) => handleUpdateIndicators('pureLiquidityBullishColor', e.target.value)}
+                        className="w-7 h-7 rounded cursor-pointer border-none bg-transparent"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800">
+                      <span className="text-xs font-medium text-gray-300">Bullish Sweep Box</span>
+                      <input
+                        type="color"
+                        value={settings.indicators.pureLiquidityBullishSweepColor ?? '#08998180'}
+                        onChange={(e) => handleUpdateIndicators('pureLiquidityBullishSweepColor', e.target.value)}
+                        className="w-7 h-7 rounded cursor-pointer border-none bg-transparent"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800">
+                      <span className="text-xs font-medium text-gray-300">Bearish Level</span>
+                      <input
+                        type="color"
+                        value={settings.indicators.pureLiquidityBearishColor ?? '#f23645'}
+                        onChange={(e) => handleUpdateIndicators('pureLiquidityBearishColor', e.target.value)}
+                        className="w-7 h-7 rounded cursor-pointer border-none bg-transparent"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800">
+                      <span className="text-xs font-medium text-gray-300">Bearish Sweep Box</span>
+                      <input
+                        type="color"
+                        value={settings.indicators.pureLiquidityBearishSweepColor ?? '#f2364580'}
+                        onChange={(e) => handleUpdateIndicators('pureLiquidityBearishSweepColor', e.target.value)}
+                        className="w-7 h-7 rounded cursor-pointer border-none bg-transparent"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+                </div>
+              )}
+
+              {/* Market Structure Signals | ProjectSyndicate */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMSSActive) || (indicatorFilter === 'not_added' && !isMSSActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-semibold text-gray-200">Market Structure Signals | ProjectSyndicate</span>
+                      <span className="text-xs text-gray-500">Non-repainting BOS/CHoCH breakouts, ADR10 targets (TP1/TP2/SL) & SMC Dashboard</span>
+                    </div>
+                    <input
+                      id="settings-toggle-mss"
+                      type="checkbox"
+                      checked={settings.indicators.showMarketStructureSignals ?? true}
+                      onChange={(e) => handleUpdateIndicators('showMarketStructureSignals', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                    />
+                  </div>
+
+                  {(settings.indicators.showMarketStructureSignals ?? true) && (
+                <div className="space-y-4 pl-3 border-l-2 border-neutral-800 my-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                      <span className="text-xs text-neutral-300">Lookback Period</span>
+                      <input
+                        id="settings-input-mss-length"
+                        type="number"
+                        min={5}
+                        max={100}
+                        value={settings.indicators.mssSwingLength ?? 25}
+                        onChange={(e) => handleUpdateIndicators('mssSwingLength', parseInt(e.target.value) || 25)}
+                        className="w-16 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                      <span className="text-xs text-neutral-300">BOS Confirmation</span>
+                      <select
+                        id="settings-select-mss-bos-confirmation"
+                        value={settings.indicators.mssBosConfirmation ?? 'Close'}
+                        onChange={(e) => handleUpdateIndicators('mssBosConfirmation', e.target.value as 'Close' | 'Wick')}
+                        className="px-2 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-medium cursor-pointer"
+                      >
+                        <option value="Close">Close</option>
+                        <option value="Wick">Wick</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                      <span className="text-xs text-neutral-300">Show CHoCH Labels</span>
+                      <input
+                        id="settings-toggle-mss-choch"
+                        type="checkbox"
+                        checked={settings.indicators.mssShowCHoCH ?? true}
+                        onChange={(e) => handleUpdateIndicators('mssShowCHoCH', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 bg-neutral-800 rounded border-neutral-700"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                      <span className="text-xs text-neutral-300">Dashboard Text Size</span>
+                      <select
+                        id="settings-select-mss-dash-size"
+                        value={settings.indicators.mssDashboardTextSize ?? 'Normal'}
+                        onChange={(e) => handleUpdateIndicators('mssDashboardTextSize', e.target.value as any)}
+                        className="px-2 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-medium cursor-pointer"
+                      >
+                        <option value="Tiny">Tiny</option>
+                        <option value="Small">Small</option>
+                        <option value="Normal">Normal</option>
+                        <option value="Large">Large</option>
+                        <option value="Huge">Huge</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                      <span className="text-xs text-neutral-300">TP1 % of ADR10</span>
+                      <input
+                        id="settings-input-mss-tp1"
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={settings.indicators.mssTp1Percent ?? 20.0}
+                        onChange={(e) => handleUpdateIndicators('mssTp1Percent', parseFloat(e.target.value) || 20.0)}
+                        className="w-16 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                      <span className="text-xs text-neutral-300">TP2 % of ADR10</span>
+                      <input
+                        id="settings-input-mss-tp2"
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={settings.indicators.mssTp2Percent ?? 30.0}
+                        onChange={(e) => handleUpdateIndicators('mssTp2Percent', parseFloat(e.target.value) || 30.0)}
+                        className="w-16 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                      <span className="text-xs text-neutral-300">SL % of ADR10</span>
+                      <input
+                        id="settings-input-mss-sl"
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={settings.indicators.mssSlPercent ?? 20.0}
+                        onChange={(e) => handleUpdateIndicators('mssSlPercent', parseFloat(e.target.value) || 20.0)}
+                        className="w-16 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                      <span className="text-xs text-neutral-300">Bullish / Bearish Colors</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="color"
+                          value={settings.indicators.mssColorBullish ?? '#21c997'}
+                          onChange={(e) => handleUpdateIndicators('mssColorBullish', e.target.value)}
+                          className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                        />
+                        <input
+                          type="color"
+                          value={settings.indicators.mssColorBearish ?? '#cc24e2'}
+                          onChange={(e) => handleUpdateIndicators('mssColorBearish', e.target.value)}
+                          className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                      <span className="text-xs text-neutral-300">TP1 / TP2 / SL Colors</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="color"
+                          value={settings.indicators.mssColorTP1 ?? '#26a69a'}
+                          onChange={(e) => handleUpdateIndicators('mssColorTP1', e.target.value)}
+                          className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                        />
+                        <input
+                          type="color"
+                          value={settings.indicators.mssColorTP2 ?? '#00897b'}
+                          onChange={(e) => handleUpdateIndicators('mssColorTP2', e.target.value)}
+                          className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                        />
+                        <input
+                          type="color"
+                          value={settings.indicators.mssColorSL ?? '#b71c1c'}
+                          onChange={(e) => handleUpdateIndicators('mssColorSL', e.target.value)}
+                          className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900 col-span-1 md:col-span-2">
+                      <div className="flex flex-col">
+                        <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                          <Send className="w-3.5 h-3.5" /> Send Signals to Telegram Channel
+                        </span>
+                        <span className="text-[10px] text-gray-400">
+                          Automatically broadcasts buy/sell signals with exact SL & TP1/TP2 targets to your Telegram channel (-1004295328271)
+                        </span>
+                      </div>
+                      <input
+                        id="settings-toggle-mss-telegram"
+                        type="checkbox"
+                        checked={settings.indicators.mssSendTelegramSignals ?? false}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          if (checked) {
+                            if (isVerifiedDevice) {
+                              handleUpdateIndicators('mssSendTelegramSignals', true);
+                            } else {
+                              setShowTgPasscodeModal(true);
+                              setTgPasscodeError('');
+                              setTgPasscodeInput('');
+                            }
+                          } else {
+                            handleUpdateIndicators('mssSendTelegramSignals', false);
+                          }
+                        }}
+                        className="w-4 h-4 text-emerald-500 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Passcode Verification Modal */}
+              {showTgPasscodeModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs">
+                  <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-lg w-full max-w-sm space-y-4 shadow-xl">
+                    <div className="flex justify-between items-center border-b border-neutral-800 pb-2">
+                      <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" /> Verify Device Passcode
+                      </h3>
+                      <button
+                        onClick={() => setShowTgPasscodeModal(false)}
+                        className="text-gray-400 hover:text-white text-xs cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-gray-300">
+                      Enter the owner passcode to pair and authorize this device/browser for automated Telegram signal broadcasting:
+                    </p>
+
+                    <div>
+                      <input
+                        type="password"
+                        placeholder="Enter Passcode..."
+                        value={tgPasscodeInput}
+                        onChange={(e) => {
+                          setTgPasscodeInput(e.target.value);
+                          setTgPasscodeError('');
+                        }}
+                        className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
+                      />
+                      {tgPasscodeError && (
+                        <p className="text-[11px] text-red-400 mt-1">{tgPasscodeError}</p>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button
+                        onClick={() => setShowTgPasscodeModal(false)}
+                        className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 rounded text-xs text-gray-300 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        disabled={isTgVerifying}
+                        onClick={async () => {
+                          setIsTgVerifying(true);
+                          try {
+                            const res = await fetch('/api/telegram', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                action: 'verify_passcode',
+                                passcode: tgPasscodeInput,
+                              }),
+                            });
+                            const data = await res.json();
+                            if (data.verified) {
+                              localStorage.setItem('tg_signals_device_verified', 'true');
+                              handleUpdateIndicators('mssSendTelegramSignals', true);
+                              setShowTgPasscodeModal(false);
+                            } else {
+                              setTgPasscodeError('Incorrect passcode. Access denied.');
+                            }
+                          } catch (err: any) {
+                            setTgPasscodeError('Verification failed. Try again.');
+                          } finally {
+                            setIsTgVerifying(false);
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded text-xs text-white font-medium flex items-center gap-1 cursor-pointer"
+                      >
+                        {isTgVerifying ? 'Verifying...' : 'Authorize Device'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+                </div>
+              )}
+
+              {/* ICT Concepts (LuxAlgo) | ProjectSyndicate */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isICTActive) || (indicatorFilter === 'not_added' && !isICTActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-semibold text-gray-200">Smart Money & ICT Concepts (LuxAlgo) | ProjectSyndicate</span>
+                      <span className="text-xs text-gray-500">Premium market structure, order blocks, liquidities, volume imbalances, & FVG</span>
+                    </div>
+                    <input
+                      id="settings-toggle-ict-concepts"
+                      type="checkbox"
+                      checked={settings.indicators.showIctConcepts}
+                      onChange={(e) => handleUpdateIndicators('showIctConcepts', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                    />
+                  </div>
+
+                  {settings.indicators.showIctConcepts && (
+                <div className="space-y-4 pl-3 border-l-2 border-neutral-800">
+                  
+                  {/* Mode & Universal Settings */}
+                  <div className="space-y-2">
+                    <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Universal Settings</span>
+                    
+                    <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                      <span className="text-sm font-medium text-gray-300">Analysis Mode</span>
+                      <select
+                        id="settings-select-ict-mode"
+                        value={settings.indicators.ictMode}
+                        onChange={(e) => handleUpdateIndicators('ictMode', e.target.value)}
+                        className="w-32 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none"
+                      >
+                        <option value="Present">Present (500 Bars)</option>
+                        <option value="Historical">Historical (Full)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Market Structure (MSS & BOS) */}
+                  <div className="space-y-2 border-t border-neutral-900 pt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Market Structure (MSS & BOS)</span>
+                      <input
+                        id="settings-toggle-ict-ms"
+                        type="checkbox"
+                        checked={settings.indicators.ictShowMarketStructure}
+                        onChange={(e) => handleUpdateIndicators('ictShowMarketStructure', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    {settings.indicators.ictShowMarketStructure && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pl-2.5">
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">Swing Point Length</span>
+                          <input
+                            id="settings-input-ict-ms-length"
+                            type="number"
+                            min={2}
+                            max={50}
+                            value={settings.indicators.ictMsLength}
+                            onChange={(e) => handleUpdateIndicators('ictMsLength', parseInt(e.target.value) || 8)}
+                            className="w-16 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900 col-span-1 md:col-span-2">
+                          <span className="text-xs font-semibold text-neutral-200">Structure Line Style</span>
+                          <select
+                            id="settings-select-ict-structure-line-style"
+                            value={settings.indicators.ictStructureLineStyle ?? 'dashed'}
+                            onChange={(e) => handleUpdateIndicators('ictStructureLineStyle', e.target.value as 'dashed' | 'solid' | 'dotted')}
+                            className="px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+                          >
+                            <option value="dashed">Dashed Lines</option>
+                            <option value="dotted">Dotted Lines</option>
+                            <option value="solid">Solid Lines</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">Shift Label Naming</span>
+                          <select
+                            id="settings-select-ict-structure-label-mode"
+                            value={settings.indicators.ictStructureLabelMode ?? 'CHoCH'}
+                            onChange={(e) => handleUpdateIndicators('ictStructureLabelMode', e.target.value as 'CHoCH' | 'MSS')}
+                            className="px-2 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-medium cursor-pointer"
+                          >
+                            <option value="CHoCH">CHoCH</option>
+                            <option value="MSS">MSS</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">Show CHoCH / MSS</span>
+                          <input
+                            id="settings-toggle-ict-mss"
+                            type="checkbox"
+                            checked={settings.indicators.ictShowMSS}
+                            onChange={(e) => handleUpdateIndicators('ictShowMSS', e.target.checked)}
+                            className="w-3.5 h-3.5 text-blue-600 bg-neutral-800 rounded border-neutral-700"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">Show Break of Structure (BOS)</span>
+                          <input
+                            id="settings-toggle-ict-bos"
+                            type="checkbox"
+                            checked={settings.indicators.ictShowBOS}
+                            onChange={(e) => handleUpdateIndicators('ictShowBOS', e.target.checked)}
+                            className="w-3.5 h-3.5 text-blue-600 bg-neutral-800 rounded border-neutral-700"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">CHoCH/MSS Colors</span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              id="settings-color-ict-mss-bull"
+                              type="color"
+                              value={settings.indicators.ictMssColorBullish}
+                              onChange={(e) => handleUpdateIndicators('ictMssColorBullish', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                            <input
+                              id="settings-color-ict-mss-bear"
+                              type="color"
+                              value={settings.indicators.ictMssColorBearish}
+                              onChange={(e) => handleUpdateIndicators('ictMssColorBearish', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">BOS Bull/Bear Colors</span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              id="settings-color-ict-bos-bull"
+                              type="color"
+                              value={settings.indicators.ictBosColorBullish}
+                              onChange={(e) => handleUpdateIndicators('ictBosColorBullish', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                            <input
+                              id="settings-color-ict-bos-bear"
+                              type="color"
+                              value={settings.indicators.ictBosColorBearish}
+                              onChange={(e) => handleUpdateIndicators('ictBosColorBearish', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Order Blocks (OB) */}
+                  <div className="space-y-2 border-t border-neutral-900 pt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Order Blocks (OB)</span>
+                      <input
+                        id="settings-toggle-ict-ob"
+                        type="checkbox"
+                        checked={settings.indicators.ictShowOrderBlocks}
+                        onChange={(e) => handleUpdateIndicators('ictShowOrderBlocks', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 bg-neutral-800 rounded border-neutral-700"
+                      />
+                    </div>
+
+                    {settings.indicators.ictShowOrderBlocks && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pl-2.5">
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900 col-span-1 md:col-span-2">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-semibold text-neutral-200">Order Blocks Filter Mode</span>
+                            <span className="text-[10px] text-neutral-500">Strong Order Blocks (CHoCH origin / Expansion) vs All Blocks</span>
+                          </div>
+                          <select
+                            id="settings-select-ict-ob-mode"
+                            value={settings.indicators.ictObMode ?? 'strong'}
+                            onChange={(e) => handleUpdateIndicators('ictObMode', e.target.value as 'strong' | 'all')}
+                            className="px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+                          >
+                            <option value="strong">Strong Blocks Only</option>
+                            <option value="all">All Order Blocks</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">Lookback Period</span>
+                          <input
+                            id="settings-input-ict-ob-lookback"
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={settings.indicators.ictObLookback}
+                            onChange={(e) => handleUpdateIndicators('ictObLookback', parseInt(e.target.value) || 5)}
+                            className="w-16 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">Max Rendered Blocks</span>
+                          <input
+                            id="settings-input-ict-ob-max"
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={settings.indicators.ictObMaxCount}
+                            onChange={(e) => handleUpdateIndicators('ictObMaxCount', parseInt(e.target.value) || 5)}
+                            className="w-16 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">Bull/Bear Colors</span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              id="settings-color-ict-ob-bull"
+                              type="color"
+                              value={settings.indicators.ictObBullishColor}
+                              onChange={(e) => handleUpdateIndicators('ictObBullishColor', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                            <input
+                              id="settings-color-ict-ob-bear"
+                              type="color"
+                              value={settings.indicators.ictObBearishColor}
+                              onChange={(e) => handleUpdateIndicators('ictObBearishColor', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Liquidity (BSL & SSL) */}
+                  <div className="space-y-2 border-t border-neutral-900 pt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Buyside & Sellside Liquidity</span>
+                      <input
+                        id="settings-toggle-ict-liq"
+                        type="checkbox"
+                        checked={settings.indicators.ictShowLiquidity}
+                        onChange={(e) => handleUpdateIndicators('ictShowLiquidity', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 bg-neutral-800 rounded border-neutral-700"
+                      />
+                    </div>
+
+                    {settings.indicators.ictShowLiquidity && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pl-2.5">
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900 col-span-1 md:col-span-2">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-semibold text-neutral-200">Liquidity Zones Filter Mode</span>
+                            <span className="text-[10px] text-neutral-500">Strong Zones (Equal Highs/Lows & Major Swings) vs All Zones</span>
+                          </div>
+                          <select
+                            id="settings-select-ict-liq-mode"
+                            value={settings.indicators.ictLiqMode ?? 'strong'}
+                            onChange={(e) => handleUpdateIndicators('ictLiqMode', e.target.value as 'strong' | 'all')}
+                            className="px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+                          >
+                            <option value="strong">Strong Zones Only</option>
+                            <option value="all">All Zones</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">Sensitivity Multiplier</span>
+                          <input
+                            id="settings-input-ict-liq-sens"
+                            type="number"
+                            step={0.1}
+                            min={0.5}
+                            max={10}
+                            value={settings.indicators.ictLiqSensitivity}
+                            onChange={(e) => handleUpdateIndicators('ictLiqSensitivity', parseFloat(e.target.value) || 2.3)}
+                            className="w-16 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">Max Visibility Cap</span>
+                          <input
+                            id="settings-input-ict-liq-max"
+                            type="number"
+                            min={5}
+                            max={100}
+                            value={settings.indicators.ictLiqMaxBoxes}
+                            onChange={(e) => handleUpdateIndicators('ictLiqMaxBoxes', parseInt(e.target.value) || 50)}
+                            className="w-16 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">SSL (Bullish) / BSL (Bearish) Colors</span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              id="settings-color-ict-liq-bull"
+                              type="color"
+                              value={settings.indicators.ictLiqBullishColor}
+                              onChange={(e) => handleUpdateIndicators('ictLiqBullishColor', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                            <input
+                              id="settings-color-ict-liq-bear"
+                              type="color"
+                              value={settings.indicators.ictLiqBearishColor}
+                              onChange={(e) => handleUpdateIndicators('ictLiqBearishColor', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Volume Imbalances */}
+                  <div className="space-y-2 border-t border-neutral-900 pt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Volume Imbalances</span>
+                      <input
+                        id="settings-toggle-ict-vi"
+                        type="checkbox"
+                        checked={settings.indicators.ictShowVolumeImbalance}
+                        onChange={(e) => handleUpdateIndicators('ictShowVolumeImbalance', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 bg-neutral-800 rounded border-neutral-700"
+                      />
+                    </div>
+
+                    {settings.indicators.ictShowVolumeImbalance && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pl-2.5">
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">Max Boxes Limit</span>
+                          <input
+                            id="settings-input-ict-vi-max"
+                            type="number"
+                            min={5}
+                            max={200}
+                            value={settings.indicators.ictViMaxBoxes}
+                            onChange={(e) => handleUpdateIndicators('ictViMaxBoxes', parseInt(e.target.value) || 100)}
+                            className="w-16 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                          <span className="text-xs text-neutral-400">Bull/Bear Colors</span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              id="settings-color-ict-vi-bull"
+                              type="color"
+                              value={settings.indicators.ictViBullishColor}
+                              onChange={(e) => handleUpdateIndicators('ictViBullishColor', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                            <input
+                              id="settings-color-ict-vi-bear"
+                              type="color"
+                              value={settings.indicators.ictViBearishColor}
+                              onChange={(e) => handleUpdateIndicators('ictViBearishColor', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* FVG, IFVG, & BPR */}
+                  <div className="space-y-2 border-t border-neutral-900 pt-3">
+                    <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Imbalances (FVG, IFVG & BPR)</span>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pl-2.5">
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-xs text-neutral-400">Imbalance Option</span>
+                        <select
+                          id="settings-select-ict-fvg-opt"
+                          value={settings.indicators.ictFvgOption}
+                          onChange={(e) => handleUpdateIndicators('ictFvgOption', e.target.value)}
+                          className="px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white"
+                        >
+                          <option value="FVG">Standard FVG</option>
+                          <option value="IFVG">Inverted FVG (IFVG)</option>
+                          <option value="NONE">None</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-xs text-neutral-400">Max Boxes Count</span>
+                        <input
+                          id="settings-input-ict-fvg-max"
+                          type="number"
+                          min={5}
+                          max={100}
+                          value={settings.indicators.ictFvgMaxCount}
+                          onChange={(e) => handleUpdateIndicators('ictFvgMaxCount', parseInt(e.target.value) || 20)}
+                          className="w-16 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-xs text-neutral-400">Show Bullish FVG</span>
+                        <input
+                          id="settings-toggle-ict-fvg-bullish"
+                          type="checkbox"
+                          checked={settings.indicators.ictFvgShowBullish}
+                          onChange={(e) => handleUpdateIndicators('ictFvgShowBullish', e.target.checked)}
+                          className="w-3.5 h-3.5 text-blue-600 bg-neutral-800 rounded border-neutral-700"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-xs text-neutral-400">Show Bearish FVG</span>
+                        <input
+                          id="settings-toggle-ict-fvg-bearish"
+                          type="checkbox"
+                          checked={settings.indicators.ictFvgShowBearish}
+                          onChange={(e) => handleUpdateIndicators('ictFvgShowBearish', e.target.checked)}
+                          className="w-3.5 h-3.5 text-blue-600 bg-neutral-800 rounded border-neutral-700"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-xs text-neutral-400">Balanced Price Range (BPR)</span>
+                        <input
+                          id="settings-toggle-ict-fvg-bpr"
+                          type="checkbox"
+                          checked={settings.indicators.ictFvgBalancePriceRange}
+                          onChange={(e) => handleUpdateIndicators('ictFvgBalancePriceRange', e.target.checked)}
+                          className="w-3.5 h-3.5 text-blue-600 bg-neutral-800 rounded border-neutral-700"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-xs text-neutral-400">Bull/Bear Colors</span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            id="settings-color-ict-fvg-bull"
+                            type="color"
+                            value={settings.indicators.ictFvgBullishColor}
+                            onChange={(e) => handleUpdateIndicators('ictFvgBullishColor', e.target.value)}
+                            className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                          />
+                          <input
+                            id="settings-color-ict-fvg-bear"
+                            type="color"
+                            value={settings.indicators.ictFvgBearishColor}
+                            onChange={(e) => handleUpdateIndicators('ictFvgBearishColor', e.target.value)}
+                            className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Displacement Highlight */}
+                  <div className="space-y-2 border-t border-neutral-900 pt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Highlight Displacement</span>
+                      <input
+                        id="settings-toggle-ict-disp"
+                        type="checkbox"
+                        checked={settings.indicators.ictShowDisplacement}
+                        onChange={(e) => handleUpdateIndicators('ictShowDisplacement', e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 bg-neutral-800 rounded border-neutral-700"
+                      />
+                    </div>
+                  </div>
+
+                </div>
+              )}
+                </div>
+              )}
+
+            {/* 9. ZEIIERMAN MARKET STRUCTURE & PRICE ACTION TOOLKIT */}
+            {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMStatActive) || (indicatorFilter === 'not_added' && !isMStatActive)) && (
+              <div className="p-4 bg-neutral-900/60 border border-neutral-800 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                      <span>Market Structure & Price Action Toolkit</span>
+                      <span className="px-1.5 py-0.5 text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded font-mono font-bold">Zeiierman</span>
+                    </h4>
+                    <p className="text-xs text-neutral-400">Zeiierman Real-Time Fractal Order Block & Support/Resistance Grid Zones</p>
+                  </div>
+                  <input
+                    id="settings-toggle-mstat"
+                    type="checkbox"
+                    checked={isMStatActive}
+                    onChange={(e) => handleUpdateIndicators('showMarketStructureToolkit', e.target.checked)}
+                    className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500"
+                  />
+                </div>
+
+                {isMStatActive && (
+                  <div className="pt-2 border-t border-neutral-800/60 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs text-neutral-400">Pivot Lookback</span>
+                        <input
+                          id="settings-input-mstat-pivot"
+                          type="number"
+                          min={2}
+                          max={30}
+                          value={settings.indicators.mstatPivotLength ?? 8}
+                          onChange={(e) => handleUpdateIndicators('mstatPivotLength', parseInt(e.target.value) || 8)}
+                          className="px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs text-neutral-400">Max Active Zones</span>
+                        <input
+                          id="settings-input-mstat-oblimit"
+                          type="number"
+                          min={1}
+                          max={15}
+                          value={settings.indicators.mstatMaxZones ?? 6}
+                          onChange={(e) => handleUpdateIndicators('mstatMaxZones', parseInt(e.target.value) || 6)}
+                          className="px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-mstat-projections"
+                          type="checkbox"
+                          checked={settings.indicators.mstatShowDashedProjections ?? true}
+                          onChange={(e) => handleUpdateIndicators('mstatShowDashedProjections', e.target.checked)}
+                          className="w-3.5 h-3.5 text-blue-600 rounded"
+                        />
+                        <span className="text-neutral-300">Dashed Projection Lines</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-mstat-badges"
+                          type="checkbox"
+                          checked={settings.indicators.mstatShowHeightBadges ?? true}
+                          onChange={(e) => handleUpdateIndicators('mstatShowHeightBadges', e.target.checked)}
+                          className="w-3.5 h-3.5 text-blue-600 rounded"
+                        />
+                        <span className="text-neutral-300">Height / Spread Badges</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Indicator 12: Predictive Ranges [LuxAlgo] */}
+            {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isPRActive) || (indicatorFilter === 'not_added' && !isPRActive)) && (
+              <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-gray-200">Predictive Ranges [LuxAlgo]</span>
+                      <span className="text-[10px] bg-indigo-900/60 text-indigo-300 px-1.5 py-0.5 rounded font-mono font-normal">LuxAlgo Original</span>
+                      {isPRActive ? (
+                        <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                          Not Added
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500">Calculates dynamic adaptive step volatility ranges with 5 key levels: Upper 2, Upper 1, Central Average, Lower 1, Lower 2 with shaded zones</span>
+                  </div>
+                  <input
+                    id="settings-toggle-predictive-ranges"
+                    type="checkbox"
+                    checked={isPRActive}
+                    onChange={(e) => handleUpdateIndicators('showPredictiveRanges', e.target.checked)}
+                    className="w-4 h-4 text-indigo-600 bg-neutral-800 rounded border-neutral-700 focus:ring-indigo-500 focus:ring-2 cursor-pointer shrink-0"
+                  />
+                </div>
+
+                {isPRActive && (
+                  <div className="space-y-3.5 pl-3 border-l-2 border-indigo-800/50 pt-1">
+                    {/* Input parameters: Length and Mult */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Length</span>
+                          <span className="text-xs text-gray-500">ATR lookback period (default 200)</span>
+                        </div>
+                        <input
+                          id="settings-input-pr-length"
+                          type="number"
+                          min={2}
+                          max={500}
+                          value={settings.indicators.prLength ?? 200}
+                          onChange={(e) => handleUpdateIndicators('prLength', Math.max(2, parseInt(e.target.value) || 200))}
+                          className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-right"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Factor</span>
+                          <span className="text-xs text-gray-500">Multiplier factor (default 6.0)</span>
+                        </div>
+                        <input
+                          id="settings-input-pr-mult"
+                          type="number"
+                          step={0.5}
+                          min={0.5}
+                          max={20}
+                          value={settings.indicators.prMult ?? 6.0}
+                          onChange={(e) => handleUpdateIndicators('prMult', Math.max(0.1, parseFloat(e.target.value) || 6.0))}
+                          className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-right"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Color controls */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded bg-rose-500" />
+                          <span className="text-xs font-medium text-gray-300">Resistance Shade (R1-R2)</span>
+                        </div>
+                        <input
+                          id="settings-color-pr-upper"
+                          type="color"
+                          value={settings.indicators.prUpperColor || '#f23645'}
+                          onChange={(e) => handleUpdateIndicators('prUpperColor', e.target.value)}
+                          className="w-8 h-6 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded bg-emerald-500" />
+                          <span className="text-xs font-medium text-gray-300">Support Shade (P1-P2)</span>
+                        </div>
+                        <input
+                          id="settings-color-pr-lower"
+                          type="color"
+                          value={settings.indicators.prLowerColor || '#089981'}
+                          onChange={(e) => handleUpdateIndicators('prLowerColor', e.target.value)}
+                          className="w-8 h-6 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Visual styling toggles */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Fill Opacity (%)</span>
+                          <span className="text-xs text-gray-500">Zone shading transparency</span>
+                        </div>
+                        <input
+                          id="settings-input-pr-opacity"
+                          type="number"
+                          min={0}
+                          max={50}
+                          value={settings.indicators.prFillOpacity ?? 10}
+                          onChange={(e) => handleUpdateIndicators('prFillOpacity', Math.max(0, Math.min(50, parseInt(e.target.value) || 10)))}
+                          className="w-16 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-right"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Line Width</span>
+                          <span className="text-xs text-gray-500">Stroke thickness</span>
+                        </div>
+                        <select
+                          id="settings-select-pr-linewidth"
+                          value={settings.indicators.prLineWidth ?? 1.5}
+                          onChange={(e) => handleUpdateIndicators('prLineWidth', parseFloat(e.target.value) || 1.5)}
+                          className="px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white"
+                        >
+                          <option value={1}>1.0 px</option>
+                          <option value={1.5}>1.5 px (Default)</option>
+                          <option value={2}>2.0 px</option>
+                          <option value={2.5}>2.5 px</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <label className="flex items-center gap-2 p-2.5 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-pr-extend-right"
+                          type="checkbox"
+                          checked={settings.indicators.prExtendRight ?? true}
+                          onChange={(e) => handleUpdateIndicators('prExtendRight', e.target.checked)}
+                          className="w-3.5 h-3.5 text-indigo-600 rounded"
+                        />
+                        <span className="text-neutral-300">Extend Active Shelf to Right Margin</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2.5 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-pr-show-labels"
+                          type="checkbox"
+                          checked={settings.indicators.prShowLabels ?? true}
+                          onChange={(e) => handleUpdateIndicators('prShowLabels', e.target.checked)}
+                          className="w-3.5 h-3.5 text-indigo-600 rounded"
+                        />
+                        <span className="text-neutral-300">Show Price Badges & Labels</span>
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                      <label className="flex items-center gap-2 p-2.5 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-pr-touch-markers"
+                          type="checkbox"
+                          checked={settings.indicators.prShowTouchMarkers ?? true}
+                          onChange={(e) => handleUpdateIndicators('prShowTouchMarkers', e.target.checked)}
+                          className="w-3.5 h-3.5 text-indigo-600 rounded"
+                        />
+                        <span className="text-neutral-300">Reversal Signals (🔺/🔻)</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2.5 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-pr-breakout-markers"
+                          type="checkbox"
+                          checked={settings.indicators.prShowBreakoutMarkers ?? true}
+                          onChange={(e) => handleUpdateIndicators('prShowBreakoutMarkers', e.target.checked)}
+                          className="w-3.5 h-3.5 text-indigo-600 rounded"
+                        />
+                        <span className="text-neutral-300">Breakout &apos;B&apos; Badges (🟢/🔴 B)</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2.5 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-pr-highlight-active"
+                          type="checkbox"
+                          checked={settings.indicators.prHighlightActiveTouch ?? true}
+                          onChange={(e) => handleUpdateIndicators('prHighlightActiveTouch', e.target.checked)}
+                          className="w-3.5 h-3.5 text-indigo-600 rounded"
+                        />
+                        <span className="text-neutral-300">Active Touch Line Glow</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 13. MPRO SIGNALS (PAID / DEMO INDICATOR) */}
+            {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isSRActive) || (indicatorFilter === 'not_added' && !isSRActive)) && (
+              <div className="p-4 bg-gradient-to-r from-neutral-900/90 via-neutral-900/60 to-neutral-900/90 border border-emerald-500/20 rounded-xl space-y-3 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>Mpro Signals</span>
+                      </h4>
+                      {isMproPro ? (
+                        <span className="px-2 py-0.5 text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded font-mono font-bold">
+                          PRO ACTIVE ✓
+                        </span>
+                      ) : mproAccessMode === 'demo' ? (
+                        <button
+                          onClick={onOpenMproModal}
+                          className="px-2 py-0.5 text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded font-mono font-bold hover:bg-amber-500/30 transition-colors"
+                        >
+                          DEMO MODE — UNLOCK PRO ($20)
+                        </button>
+                      ) : (
+                        <button
+                          onClick={onOpenMproModal}
+                          className="px-2 py-0.5 text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded font-mono font-bold hover:bg-purple-500/30 transition-colors"
+                        >
+                          PRO REQUIRED ($20)
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-neutral-400 mt-0.5">Professional Market Structure & Signal Engine with 1:1.5 Risk/Reward Analysis</p>
+                  </div>
+                  <div className="flex items-center gap-2.5">
+                    {onOpenMproModal && (
+                      <button
+                        type="button"
+                        onClick={onOpenMproModal}
+                        className="px-2.5 py-1 text-[11px] font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-lg transition-colors hidden sm:inline-block"
+                      >
+                        {isMproPro ? 'License Details' : 'Unlock PRO / Demo'}
+                      </button>
+                    )}
+                    <input
+                      id="settings-toggle-sr-classification"
+                      type="checkbox"
+                      checked={isSRActive}
+                      onChange={(e) => handleUpdateIndicators('showSrClassification', e.target.checked)}
+                      className="w-4 h-4 text-emerald-600 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {isSRActive && (
+                  <div className="pt-2 border-t border-neutral-800/60 space-y-4 text-xs">
+                    {/* General Settings */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      <div className="flex flex-col gap-1 p-2 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-[11px] text-neutral-400">Lookback (Bars)</span>
+                        <input
+                          id="settings-input-sr-lookback"
+                          type="number"
+                          min={20}
+                          max={3000}
+                          value={settings.indicators.srLookback ?? 100}
+                          onChange={(e) => handleUpdateIndicators('srLookback', parseInt(e.target.value) || 100)}
+                          className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1 p-2 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-[11px] text-neutral-400">Fade (Breaks)</span>
+                        <input
+                          id="settings-input-sr-fade"
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={settings.indicators.srFade ?? 5}
+                          onChange={(e) => handleUpdateIndicators('srFade', parseInt(e.target.value) || 5)}
+                          className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1 p-2 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-[11px] text-neutral-400">Line Width</span>
+                        <select
+                          id="settings-select-sr-linewidth"
+                          value={settings.indicators.srLineWidth ?? 1.5}
+                          onChange={(e) => handleUpdateIndicators('srLineWidth', parseFloat(e.target.value) || 1.5)}
+                          className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-mono"
+                        >
+                          <option value={1}>1.0 px</option>
+                          <option value={1.5}>1.5 px (Default)</option>
+                          <option value={2}>2.0 px</option>
+                          <option value={2.5}>2.5 px</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1 p-2 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-[11px] text-neutral-400">Breaks Mode</span>
+                        <select
+                          id="settings-select-sr-opt"
+                          value={settings.indicators.srOpt ?? 'line'}
+                          onChange={(e) => handleUpdateIndicators('srOpt', e.target.value)}
+                          className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-mono"
+                        >
+                          <option value="line">Line (Default)</option>
+                          <option value="value">Value</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Line Extension Mode (Anchored vs Full Chart) */}
+                    <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-medium text-neutral-200">Line Extension Mode</span>
+                        <span className="text-[10px] text-neutral-400">
+                          Anchored to Cycle starts at the swing range &amp; projects forward into live price (recommended for Jump 10)
+                        </span>
+                      </div>
+                      <select
+                        id="settings-select-sr-line-extension"
+                        value={settings.indicators.srLineExtension ?? 'Anchored'}
+                        onChange={(e) => handleUpdateIndicators('srLineExtension', e.target.value as any)}
+                        className="px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-medium"
+                      >
+                        <option value="Anchored">Anchored to Cycle (Original Math)</option>
+                        <option value="FullChart">Full Chart (All History)</option>
+                      </select>
+                    </div>
+
+                    {/* Level Display Mode: Rectangle Shadow vs Original Lines */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                        <div className="flex flex-col">
+                          <span className="text-[12px] font-medium text-neutral-200">S/R Visual Mode</span>
+                          <span className="text-[10px] text-neutral-400">Shadow replaces sharp lines with soft zones</span>
+                        </div>
+                        <select
+                          id="settings-select-sr-display-mode"
+                          value={settings.indicators.srDisplayMode ?? 'shadow'}
+                          onChange={(e) => handleUpdateIndicators('srDisplayMode', e.target.value as any)}
+                          className="px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-medium"
+                        >
+                          <option value="shadow">Rectangle Shadow (Clean)</option>
+                          <option value="lines">Original Lines (Sharp)</option>
+                          <option value="both">Shadow + Lines (Combined)</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                        <div className="flex flex-col">
+                          <span className="text-[12px] font-medium text-neutral-200">Shadow Visibility</span>
+                          <span className="text-[10px] text-neutral-400">Opacity intensity multiplier</span>
+                        </div>
+                        <select
+                          id="settings-select-sr-shadow-visibility"
+                          value={settings.indicators.srShadowVisibility ?? '1x'}
+                          onChange={(e) => handleUpdateIndicators('srShadowVisibility', e.target.value as any)}
+                          className="px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-medium font-mono"
+                        >
+                          <option value="0.5x">0.5x (Subtle)</option>
+                          <option value="1x">1x (Standard)</option>
+                          <option value="2x">2x (Enhanced)</option>
+                          <option value="3x">3x (Vivid)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Colors & Toggles */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-neutral-400">Support / Resistance Colors</span>
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-emerald-400">Sup:</span>
+                            <input
+                              id="settings-color-sr-colu"
+                              type="color"
+                              value={settings.indicators.srColU ?? '#22c55e'}
+                              onChange={(e) => handleUpdateIndicators('srColU', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-rose-400">Res:</span>
+                            <input
+                              id="settings-color-sr-cold"
+                              type="color"
+                              value={settings.indicators.srColD ?? '#ef4444'}
+                              onChange={(e) => handleUpdateIndicators('srColD', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-cyan-400">Mid:</span>
+                            <input
+                              id="settings-color-sr-midline"
+                              type="color"
+                              value={settings.indicators.srMidlineColor ?? '#06b6d4'}
+                              onChange={(e) => handleUpdateIndicators('srMidlineColor', e.target.value)}
+                              className="w-6 h-5 bg-transparent border-0 rounded cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900">
+                        <span className="text-neutral-400">Swings Pivot Strength (L/R)</span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            id="settings-input-sr-left"
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={settings.indicators.srLeft ?? 10}
+                            onChange={(e) => handleUpdateIndicators('srLeft', parseInt(e.target.value) || 10)}
+                            className="w-12 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                          <span className="text-neutral-500">/</span>
+                          <input
+                            id="settings-input-sr-right"
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={settings.indicators.srRight ?? 1}
+                            onChange={(e) => handleUpdateIndicators('srRight', parseInt(e.target.value) || 1)}
+                            className="w-12 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                      <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-sr-center-shadows"
+                          type="checkbox"
+                          checked={settings.indicators.srShowCenterShadows ?? false}
+                          onChange={(e) => handleUpdateIndicators('srShowCenterShadows', e.target.checked)}
+                          className="w-3.5 h-3.5 text-emerald-600 rounded"
+                        />
+                        <span className="text-neutral-300 font-medium">Inside Center Shadows</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-sr-strong-shadows"
+                          type="checkbox"
+                          checked={settings.indicators.srShowStrongShadows ?? true}
+                          onChange={(e) => handleUpdateIndicators('srShowStrongShadows', e.target.checked)}
+                          className="w-3.5 h-3.5 text-emerald-600 rounded"
+                        />
+                        <span className="text-neutral-300 font-medium">Higher & Lower Shadows</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-sr-midline"
+                          type="checkbox"
+                          checked={settings.indicators.srShowMidline ?? true}
+                          onChange={(e) => handleUpdateIndicators('srShowMidline', e.target.checked)}
+                          className="w-3.5 h-3.5 text-cyan-500 rounded"
+                        />
+                        <span className="text-neutral-300 font-medium text-cyan-400">Middle Line (50% Midline)</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-sr-showsignals"
+                          type="checkbox"
+                          checked={settings.indicators.srShowSignals ?? true}
+                          onChange={(e) => handleUpdateIndicators('srShowSignals', e.target.checked)}
+                          className="w-3.5 h-3.5 text-emerald-600 rounded"
+                        />
+                        <span className="text-neutral-300 font-medium text-emerald-400">Buy / Sell Signals</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-sr-showlabels"
+                          type="checkbox"
+                          checked={settings.indicators.srShowLabels ?? false}
+                          onChange={(e) => handleUpdateIndicators('srShowLabels', e.target.checked)}
+                          className="w-3.5 h-3.5 text-emerald-600 rounded"
+                        />
+                        <span className="text-neutral-300">Show Text Labels</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-sr-showpp"
+                          type="checkbox"
+                          checked={settings.indicators.srShowPP ?? false}
+                          onChange={(e) => handleUpdateIndicators('srShowPP', e.target.checked)}
+                          className="w-3.5 h-3.5 text-emerald-600 rounded"
+                        />
+                        <span className="text-neutral-300">Show Pivot Markers</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-sr-showbreaks"
+                          type="checkbox"
+                          checked={settings.indicators.srShowBreaks ?? false}
+                          onChange={(e) => handleUpdateIndicators('srShowBreaks', e.target.checked)}
+                          className="w-3.5 h-3.5 text-emerald-600 rounded"
+                        />
+                        <span className="text-neutral-300">Show Break Counts</span>
+                      </label>
+                      <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-900 cursor-pointer">
+                        <input
+                          id="settings-toggle-show-center-entry-line"
+                          type="checkbox"
+                          checked={settings.indicators.showCenterEntryLine ?? true}
+                          onChange={(e) => handleUpdateIndicators('showCenterEntryLine', e.target.checked)}
+                          className="w-3.5 h-3.5 text-emerald-600 rounded"
+                        />
+                        <span className="text-neutral-300">Center Entry Line</span>
+                      </label>
+                    </div>
+
+                    {/* Mpro Middle Line Mode & Width */}
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-900 gap-2">
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-semibold text-cyan-300">Middle Line (Equilibrium) Mode</span>
+                        <span className="text-[10px] text-neutral-400">
+                          Central line between Upper &amp; Lower shadows, adapting to chart history (e.g. Monthly)
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select
+                          id="settings-select-sr-midline-type"
+                          value={settings.indicators.srMidlineType ?? 'both'}
+                          onChange={(e) => handleUpdateIndicators('srMidlineType', e.target.value as any)}
+                          className="px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-medium"
+                        >
+                          <option value="both">Both (Equilibrium + Dynamic Path)</option>
+                          <option value="equilibrium">50% Horizontal Equilibrium</option>
+                          <option value="dynamic">Dynamic History Path</option>
+                        </select>
+                        <select
+                          id="settings-select-sr-midline-width"
+                          value={settings.indicators.srMidlineWidth ?? 1.5}
+                          onChange={(e) => handleUpdateIndicators('srMidlineWidth', parseFloat(e.target.value) || 1.5)}
+                          className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-mono"
+                        >
+                          <option value={1}>1.0 px</option>
+                          <option value={1.5}>1.5 px</option>
+                          <option value={2}>2.0 px</option>
+                          <option value={2.5}>2.5 px</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* 9 SET Slots Configuration */}
+                    <div className="space-y-2 pt-2 border-t border-neutral-900">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">SET Slots (N° – Type – Length – Mult – HTF)</span>
+                      </div>
+
+                      <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                        {[
+                          { num: 1, chcKey: 'srChc1', lenKey: 'srLen1', mltKey: 'srMlt1', resKey: 'srRes1', dChc: 'SMA', dLen: 50, dMlt: 2, dRes: 'D' },
+                          { num: 2, chcKey: 'srChc2', lenKey: 'srLen2', mltKey: 'srMlt2', resKey: 'srRes2', dChc: 'SMA', dLen: 100, dMlt: 2, dRes: 'D' },
+                          { num: 3, chcKey: 'srChc3', lenKey: 'srLen3', mltKey: 'srMlt3', resKey: 'srRes3', dChc: 'SMA', dLen: 20, dMlt: 2, dRes: 'W' },
+                          { num: 4, chcKey: 'srChc4', lenKey: 'srLen4', mltKey: 'srMlt4', resKey: 'srRes4', dChc: 'Previous High', dLen: 20, dMlt: 2, dRes: 'W' },
+                          { num: 5, chcKey: 'srChc5', lenKey: 'srLen5', mltKey: 'srMlt5', resKey: 'srRes5', dChc: 'Previous Low', dLen: 20, dMlt: 2, dRes: 'W' },
+                          { num: 6, chcKey: 'srChc6', lenKey: 'srLen6', mltKey: 'srMlt6', resKey: 'srRes6', dChc: 'Upper', dLen: 20, dMlt: 2, dRes: 'D' },
+                          { num: 7, chcKey: 'srChc7', lenKey: 'srLen7', mltKey: 'srMlt7', resKey: 'srRes7', dChc: 'Lower', dLen: 20, dMlt: 2, dRes: 'D' },
+                          { num: 8, chcKey: 'srChc8', lenKey: 'srLen8', mltKey: 'srMlt8', resKey: 'srRes8', dChc: 'Swings', dLen: 20, dMlt: 2, dRes: 'D' },
+                          { num: 9, chcKey: 'srChc9', lenKey: 'srLen9', mltKey: 'srMlt9', resKey: 'srRes9', dChc: 'Fibonacci', dLen: 20, dMlt: 2, dRes: 'W' },
+                        ].map((s) => (
+                          <div key={s.num} className="flex items-center gap-1.5 p-1.5 bg-neutral-950 rounded border border-neutral-900 text-xs">
+                            <span className="w-5 font-mono font-bold text-neutral-400 text-center">{s.num}</span>
+                            <select
+                              value={(settings.indicators as any)[s.chcKey] ?? s.dChc}
+                              onChange={(e) => handleUpdateIndicators(s.chcKey as any, e.target.value)}
+                              className="px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white flex-1"
+                            >
+                              <option value="NONE">NONE</option>
+                              <option value="SMA">SMA</option>
+                              <option value="Upper">Upper (BB)</option>
+                              <option value="Lower">Lower (BB)</option>
+                              <option value="Previous High">Previous High</option>
+                              <option value="Previous Low">Previous Low</option>
+                              <option value="Swings">Swings</option>
+                              <option value="Fibonacci">Fibonacci</option>
+                            </select>
+
+                            <input
+                              type="number"
+                              min={1}
+                              max={500}
+                              placeholder="Len"
+                              value={(settings.indicators as any)[s.lenKey] ?? s.dLen}
+                              onChange={(e) => handleUpdateIndicators(s.lenKey as any, parseInt(e.target.value) || s.dLen)}
+                              className="w-14 px-1 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                              title="Length"
+                            />
+
+                            <input
+                              type="number"
+                              step={0.5}
+                              min={0.1}
+                              max={10}
+                              placeholder="Mult"
+                              value={(settings.indicators as any)[s.mltKey] ?? s.dMlt}
+                              onChange={(e) => handleUpdateIndicators(s.mltKey as any, parseFloat(e.target.value) || s.dMlt)}
+                              className="w-12 px-1 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                              title="Multiplier"
+                            />
+
+                            <select
+                              value={(settings.indicators as any)[s.resKey] ?? s.dRes}
+                              onChange={(e) => handleUpdateIndicators(s.resKey as any, e.target.value)}
+                              className="w-14 px-1 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-mono text-center"
+                              title="Timeframe"
+                            >
+                              <option value="M">M</option>
+                              <option value="W">W</option>
+                              <option value="D">D</option>
+                              <option value="4H">4H</option>
+                              <option value="1H">1H</option>
+                              <option value="">Chart</option>
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+              {/* Indicator 14: ECHO mpro (Echo Forecast [LuxAlgo]) */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isEchoActive) || (indicatorFilter === 'not_added' && !isEchoActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-200">ECHO mpro</span>
+                        <span className="text-[10px] bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded font-mono font-normal">LuxAlgo Echo Forecast</span>
+                        {isEchoActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">Autonomous pattern-matching forecast tool predicting future price trajectory via similarity analysis</span>
+                    </div>
+                    <input
+                      id="settings-toggle-echo-mpro"
+                      type="checkbox"
+                      checked={isEchoActive}
+                      onChange={(e) => handleUpdateIndicators('showEchoMpro', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isEchoActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-blue-800/50 pt-1">
+                      {/* Screen Shade On / Off Button */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-200">Screen Shade (Area Boxes)</span>
+                            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md font-mono ${
+                              (settings.indicators.echoShowArea ?? true)
+                                ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40'
+                                : 'bg-neutral-800 text-neutral-400 border border-neutral-700'
+                            }`}>
+                              {(settings.indicators.echoShowArea ?? true) ? 'SHADE ON' : 'SHADE OFF'}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-500">Displays evaluation, reference, and correlation window shaded backgrounds</span>
+                        </div>
+                        <button
+                          type="button"
+                          id="btn-toggle-screen-shade"
+                          onClick={() => handleUpdateIndicators('echoShowArea', !(settings.indicators.echoShowArea ?? true))}
+                          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-sm ${
+                            (settings.indicators.echoShowArea ?? true)
+                              ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                              : 'bg-neutral-800 hover:bg-neutral-750 text-neutral-300 border border-neutral-700'
+                          }`}
+                        >
+                          {(settings.indicators.echoShowArea ?? true) ? 'Screen Shade: ON' : 'Screen Shade: OFF'}
+                        </button>
+                      </div>
+
+                      {/* Evaluation Window (Length) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Evaluation Window</span>
+                          <span className="text-xs text-gray-500">Historical lookback search range (0 - 200 bars)</span>
+                        </div>
+                        <input
+                          id="settings-echo-length"
+                          type="number"
+                          min={0}
+                          max={200}
+                          value={settings.indicators.echoLength ?? 50}
+                          onChange={(e) => handleUpdateIndicators('echoLength', Math.max(0, Math.min(200, parseInt(e.target.value) || 50)))}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        />
+                      </div>
+
+                      {/* Forecast Window (Fcast) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Forecast Window</span>
+                          <span className="text-xs text-gray-500">Number of forward predicted bars into the future (1 - 200)</span>
+                        </div>
+                        <input
+                          id="settings-echo-fcast"
+                          type="number"
+                          min={1}
+                          max={200}
+                          value={settings.indicators.echoFcast ?? 50}
+                          onChange={(e) => handleUpdateIndicators('echoFcast', Math.max(1, Math.min(200, parseInt(e.target.value) || 50)))}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        />
+                      </div>
+
+                      {/* Forecast Mode */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Forecast Mode</span>
+                          <span className="text-xs text-gray-500">Similarity (direct correlation) or Dissimilarity (inverse correlation)</span>
+                        </div>
+                        <select
+                          id="settings-echo-fmode"
+                          value={settings.indicators.echoFmode ?? 'Similarity'}
+                          onChange={(e) => handleUpdateIndicators('echoFmode', e.target.value)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                        >
+                          <option value="Similarity">Similarity</option>
+                          <option value="Dissimilarity">Dissimilarity</option>
+                        </select>
+                      </div>
+
+                      {/* Forecast Construction */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Forecast Construction</span>
+                          <span className="text-xs text-gray-500">Cumulative deltas, Mean average, or Linear Regression</span>
+                        </div>
+                        <select
+                          id="settings-echo-cmode"
+                          value={settings.indicators.echoCmode ?? 'Cumulative'}
+                          onChange={(e) => handleUpdateIndicators('echoCmode', e.target.value)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                        >
+                          <option value="Cumulative">Cumulative</option>
+                          <option value="Mean">Mean</option>
+                          <option value="Linreg">Linreg</option>
+                        </select>
+                      </div>
+
+                      {/* Price Source */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Price Source</span>
+                        <select
+                          id="settings-echo-src"
+                          value={settings.indicators.echoSrc ?? 'close'}
+                          onChange={(e) => handleUpdateIndicators('echoSrc', e.target.value)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                        >
+                          <option value="close">Close</option>
+                          <option value="open">Open</option>
+                          <option value="high">High</option>
+                          <option value="low">Low</option>
+                          <option value="hl2">HL2 (H+L)/2</option>
+                          <option value="hlc3">HLC3 (H+L+C)/3</option>
+                          <option value="ohlc4">OHLC4 (O+H+L+C)/4</option>
+                        </select>
+                      </div>
+
+                      {/* Forecast Style: Color & Line Style */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Forecast Line Color</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            id="settings-echo-fcast-color"
+                            type="color"
+                            value={settings.indicators.echoFcastColor ?? '#2157f3'}
+                            onChange={(e) => handleUpdateIndicators('echoFcastColor', e.target.value)}
+                            className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                          />
+                          <span className="text-xs font-mono text-gray-400 uppercase">{settings.indicators.echoFcastColor ?? '#2157f3'}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Forecast Line Style</span>
+                        <select
+                          id="settings-echo-fcast-style"
+                          value={settings.indicators.echoFcastStyle ?? 'dotted'}
+                          onChange={(e) => handleUpdateIndicators('echoFcastStyle', e.target.value)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                        >
+                          <option value="dotted">· · · (Dotted)</option>
+                          <option value="dashed">- - - (Dashed)</option>
+                          <option value="solid">── (Solid)</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <span className="text-sm font-medium text-gray-300">Line Thickness (px)</span>
+                        <input
+                          id="settings-echo-line-width"
+                          type="number"
+                          min={1}
+                          max={6}
+                          value={settings.indicators.echoLineWidth ?? 1.5}
+                          onChange={(e) => handleUpdateIndicators('echoLineWidth', parseFloat(e.target.value) || 1.5)}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 text-center font-mono"
+                        />
+                      </div>
+
+                      {/* Area Colors */}
+                      <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850 space-y-2.5">
+                        <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Screen Shade Window Colors</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                          <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-850">
+                            <span className="text-xs text-gray-400">Reference Window</span>
+                            <input
+                              type="color"
+                              value={settings.indicators.echoRefAreaColor ?? '#ff5d00'}
+                              onChange={(e) => handleUpdateIndicators('echoRefAreaColor', e.target.value)}
+                              className="w-7 h-6 rounded cursor-pointer border-none bg-transparent"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-850">
+                            <span className="text-xs text-gray-400">Correlation Window</span>
+                            <input
+                              type="color"
+                              value={settings.indicators.echoCorrAreaColor ?? '#089981'}
+                              onChange={(e) => handleUpdateIndicators('echoCorrAreaColor', e.target.value)}
+                              className="w-7 h-6 rounded cursor-pointer border-none bg-transparent"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-850">
+                            <span className="text-xs text-gray-400">Evaluation Window</span>
+                            <input
+                              type="color"
+                              value={settings.indicators.echoEvalAreaColor ?? '#808080'}
+                              onChange={(e) => handleUpdateIndicators('echoEvalAreaColor', e.target.value)}
+                              className="w-7 h-6 rounded cursor-pointer border-none bg-transparent"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator: Mpro2 Signal */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMpro2Active) || (indicatorFilter === 'not_added' && !isMpro2Active)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-blue-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-blue-400 flex items-center gap-1.5">
+                          🎯 Mpro2 Signal
+                        </span>
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40 rounded font-mono">
+                          Mpro2
+                        </span>
+                        {isMpro2Active ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        Multi-swing high-accuracy levels, Golden Pocket (0.618 - 0.65), level touch strength, full chart lines &amp; upper/lower line touch Buy/Sell signals
+                      </span>
+                    </div>
+                    <input
+                      id="settings-toggle-mpro2"
+                      type="checkbox"
+                      checked={isMpro2Active}
+                      onChange={(e) => handleUpdateIndicators('showMpro2Signal', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isMpro2Active && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-blue-500/30 pt-1">
+                      {/* PRO / DEMO Status Banner */}
+                      <div className="p-3 bg-neutral-950 rounded-lg border border-blue-500/30 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                            <Sparkles className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-white">Mpro2 Signal License</span>
+                              {isMpro2Pro ? (
+                                <span className="px-1.5 py-0.2 text-[9px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40 rounded">
+                                  PRO ACTIVE ✓
+                                </span>
+                              ) : mpro2AccessMode === 'demo' ? (
+                                <span className="px-1.5 py-0.2 text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded">
+                                  DEMO MODE ($20)
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.2 text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded">
+                                  PRO REQUIRED
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-neutral-400">
+                              {isMpro2Pro
+                                ? 'Full Real-time Confluence & Instant Reversal Alerts'
+                                : 'Demo: Historical testing on past charts (Key required for live alerts)'}
+                            </span>
+                          </div>
+                        </div>
+                        {onOpenMpro2Modal && (
+                          <button
+                            type="button"
+                            onClick={onOpenMpro2Modal}
+                            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors shadow-sm cursor-pointer shrink-0"
+                          >
+                            {isMpro2Pro ? 'License Details' : 'Unlock PRO / Demo'}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Range Calculation Source: All Chart High/Low vs Lookback */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-medium text-gray-200">High / Low Calculation Range</span>
+                            <span className="px-1.5 py-0.5 text-[9px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40 rounded">
+                              ACCURACY
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-400">
+                            Derived from all chart High &amp; Low in each timeframe for clear, reliable trades
+                          </span>
+                        </div>
+                        <select
+                          id="settings-mpro2-range-mode"
+                          value={settings.indicators.mpro2RangeMode ?? 'WeeklyAnchor'}
+                          onChange={(e) => handleUpdateIndicators('mpro2RangeMode', e.target.value as any)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-medium"
+                        >
+                          <option value="WeeklyAnchor">Weekly Anchor &amp; Confirmed Swing Lock (Master Recommended)</option>
+                          <option value="AllChart">All Chart High &amp; Low</option>
+                          <option value="Lookback">Custom Lookback Window</option>
+                        </select>
+                      </div>
+
+                      {/* Lookback Period & Delay (only needed when Lookback mode is chosen) */}
+                      {(settings.indicators.mpro2RangeMode === 'Lookback') && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="p-2.5 bg-neutral-900 rounded-lg border border-neutral-850 flex flex-col gap-1">
+                            <span className="text-xs font-medium text-gray-300">Period (Lookback)</span>
+                            <input
+                              type="number"
+                              min={10}
+                              max={1000}
+                              value={settings.indicators.mpro2LookbackPeriod ?? 200}
+                              onChange={(e) => handleUpdateIndicators('mpro2LookbackPeriod', parseInt(e.target.value) || 200)}
+                              className="px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                            />
+                          </div>
+                          <div className="p-2.5 bg-neutral-900 rounded-lg border border-neutral-850 flex flex-col gap-1">
+                            <span className="text-xs font-medium text-gray-300">Delay Bars</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={50}
+                              value={settings.indicators.mpro2DelayBars ?? 5}
+                              onChange={(e) => handleUpdateIndicators('mpro2DelayBars', parseInt(e.target.value) || 5)}
+                              className="px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Line Extension Mode & Reverse */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Line Extension</span>
+                          <span className="text-xs text-gray-500">Horizontal line span on chart</span>
+                        </div>
+                        <select
+                          value={settings.indicators.mpro2LineExtensionMode ?? 'FullChart'}
+                          onChange={(e) => handleUpdateIndicators('mpro2LineExtensionMode', e.target.value as any)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-medium"
+                        >
+                          <option value="FullChart">Full Chart (Spans entire width)</option>
+                          <option value="Both">Both (Left &amp; Right)</option>
+                          <option value="Right">Right Extended</option>
+                          <option value="Left">Left Extended</option>
+                          <option value="None">None (Anchored to Swing)</option>
+                        </select>
+                      </div>
+
+                      {/* Buy / Sell Touch Arrows Toggle */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300 flex items-center gap-1.5">
+                            <span>Buy / Sell Reversal Arrows</span>
+                            <span className="px-1.5 py-0.5 text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded">
+                              SIGNAL
+                            </span>
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            Plots ▲ BUY when price touches lower baseline/support, and ▼ SELL when touching upper baseline/resistance
+                          </span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={settings.indicators.mpro2ShowTouchArrows ?? true}
+                          onChange={(e) => handleUpdateIndicators('mpro2ShowTouchArrows', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Screen Texts (On/Off toggle for HUD & Labels) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Screen Texts &amp; HUD Table</span>
+                          <span className="text-xs text-gray-500">
+                            On/Off master toggle for status table text, swing values, and level labels on screen
+                          </span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={settings.indicators.mpro2ShowScreenTexts ?? true}
+                          onChange={(e) => handleUpdateIndicators('mpro2ShowScreenTexts', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Status Table Position */}
+                      {settings.indicators.mpro2ShowScreenTexts !== false && (
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Status Table Position</span>
+                            <span className="text-xs text-gray-500">Screen HUD overlay position</span>
+                          </div>
+                          <select
+                            value={settings.indicators.mpro2TablePosition ?? 'Top Right'}
+                            onChange={(e) => handleUpdateIndicators('mpro2TablePosition', e.target.value as any)}
+                            className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 font-medium"
+                          >
+                            <option value="Top Right">Top Right</option>
+                            <option value="Top Left">Top Left</option>
+                            <option value="Bottom Right">Bottom Right</option>
+                            <option value="Bottom Left">Bottom Left</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Golden Pocket (0.618 - 0.650) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300 flex items-center gap-1.5">
+                            <span>Golden Pocket Shade (0.618 - 0.65)</span>
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
+                          </span>
+                          <span className="text-xs text-gray-500">Highlight high-probability reversal zone fill</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={settings.indicators.mpro2GoldenPocketColor ?? '#FFB020'}
+                            onChange={(e) => handleUpdateIndicators('mpro2GoldenPocketColor', e.target.value)}
+                            className="w-7 h-6 rounded cursor-pointer border-none bg-transparent"
+                          />
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.mpro2ShowGoldenPocket ?? true}
+                            onChange={(e) => handleUpdateIndicators('mpro2ShowGoldenPocket', e.target.checked)}
+                            className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Multi-Swing Confluence */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Multi-Swing Confluence (★)</span>
+                          <span className="text-xs text-gray-500">Highlights levels aligned with prior swings</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={settings.indicators.mpro2ShowConfluence ?? true}
+                          onChange={(e) => handleUpdateIndicators('mpro2ShowConfluence', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Touch Counts on Labels */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Touch Counts (e.g. 3x)</span>
+                          <span className="text-xs text-gray-500">Displays level test frequency &amp; strength score</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={settings.indicators.mpro2ShowTouchCounts ?? true}
+                          onChange={(e) => handleUpdateIndicators('mpro2ShowTouchCounts', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Mpro2 Visual Mode: Lines vs Rectangle Shadow */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-200 flex items-center gap-1.5">
+                            <span>Visual Mode (የመስመር / የጥላ አቀራረብ)</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-mono font-semibold">Lines / Shadow</span>
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            Switch Mpro2 between sharp lines and soft Rectangle Shadow zones
+                          </span>
+                        </div>
+                        <select
+                          id="settings-select-mpro2-display-mode"
+                          value={settings.indicators.mpro2DisplayMode ?? 'lines'}
+                          onChange={(e) => handleUpdateIndicators('mpro2DisplayMode', e.target.value as any)}
+                          className="px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
+                        >
+                          <option value="lines">Original Lines (Sharp)</option>
+                          <option value="shadow">Rectangle Shadow (Clean)</option>
+                          <option value="both">Shadow + Lines (Combined)</option>
+                        </select>
+                      </div>
+
+                      {/* Mpro2 Rectangle Shadow Height & Intensity */}
+                      {(settings.indicators.mpro2DisplayMode === 'shadow' || settings.indicators.mpro2DisplayMode === 'both') && (
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-200">Shadow Height &amp; Intensity</span>
+                            <span className="text-xs text-gray-400">Rectangle shadow zone thickness multiplier</span>
+                          </div>
+                          <select
+                            id="settings-select-mpro2-shadow-visibility"
+                            value={settings.indicators.mpro2ShadowVisibility ?? '1x'}
+                            onChange={(e) => handleUpdateIndicators('mpro2ShadowVisibility', e.target.value as any)}
+                            className="px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white font-medium font-mono focus:outline-none focus:border-blue-500 cursor-pointer"
+                          >
+                            <option value="0.5x">0.5x (Subtle &amp; Tight)</option>
+                            <option value="1x">1x (Standard)</option>
+                            <option value="2x">2x (Expanded Zone)</option>
+                            <option value="3x">3x (Wide Macro Zone)</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Base Line Style & Color */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Base Lines (0.000 / 1.000)</span>
+                          <span className="text-xs text-gray-500">Primary outer swing anchors</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={settings.indicators.mpro2BaseLineColor ?? '#2962FF'}
+                            onChange={(e) => handleUpdateIndicators('mpro2BaseLineColor', e.target.value)}
+                            className="w-7 h-6 rounded cursor-pointer border-none bg-transparent"
+                          />
+                          <select
+                            value={settings.indicators.mpro2BaseLineStyle ?? 'Solid'}
+                            onChange={(e) => handleUpdateIndicators('mpro2BaseLineStyle', e.target.value as any)}
+                            className="px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none"
+                          >
+                            <option value="Solid">Solid</option>
+                            <option value="Dotted">Dotted</option>
+                            <option value="Dashed">Dashed</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Extension Lines Style & Color */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Extension Lines (0.236 - 0.786)</span>
+                          <span className="text-xs text-gray-500">Intermediate retracement levels</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={settings.indicators.mpro2ExtLineColor ?? '#787B86'}
+                            onChange={(e) => handleUpdateIndicators('mpro2ExtLineColor', e.target.value)}
+                            className="w-7 h-6 rounded cursor-pointer border-none bg-transparent"
+                          />
+                          <select
+                            value={settings.indicators.mpro2ExtLineStyle ?? 'Dotted'}
+                            onChange={(e) => handleUpdateIndicators('mpro2ExtLineStyle', e.target.value as any)}
+                            className="px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none"
+                          >
+                            <option value="Dotted">Dotted</option>
+                            <option value="Solid">Solid</option>
+                            <option value="Dashed">Dashed</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Center Dotted Lines (All Intermediate Retracements) On / Off Toggle */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300 flex items-center gap-1.5">
+                            <span>Inside Lines & Dots (Intermediate Levels)</span>
+                            <span className="w-2 h-2 rounded-full bg-blue-400 inline-block shadow-sm" />
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            When OFF (default), Mpro2 cleanly displays only the Two Higher and Lower Lines plus the Yellow Gold Golden Pocket (0.618 - 0.650)
+                          </span>
+                        </div>
+                        <input
+                          id="settings-mpro2-dotted-lines-toggle"
+                          type="checkbox"
+                          checked={settings.indicators.mpro2ShowDottedLines ?? false}
+                          onChange={(e) => handleUpdateIndicators('mpro2ShowDottedLines', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Center White Line (0.500 Midpoint) On / Off Toggle */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300 flex items-center gap-1.5">
+                            <span>Center Line (0.500 Midpoint)</span>
+                            <span className="w-2 h-2 rounded-full bg-white inline-block shadow-sm" />
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            Equilibrium midpoint horizontal center line across chart at 50% retracement
+                          </span>
+                        </div>
+                        <input
+                          id="settings-mpro2-center-line-toggle"
+                          type="checkbox"
+                          checked={(settings.indicators.mpro2ShowExtLine3 ?? false) && (settings.indicators.mpro2ShowCenterLine ?? false)}
+                          onChange={(e) => {
+                            handleUpdateIndicators('mpro2ShowExtLine3', e.target.checked);
+                            handleUpdateIndicators('mpro2ShowCenterLine', e.target.checked);
+                          }}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Fibonacci Time Zones */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Fibonacci Time Zones</span>
+                          <span className="text-xs text-gray-500">Vertical projected time cycle intervals</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={settings.indicators.mpro2ShowTimeZones ?? false}
+                          onChange={(e) => handleUpdateIndicators('mpro2ShowTimeZones', e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator: Master Strategy System & Dashboard (Strictly Mpro2) */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMasterActive) || (indicatorFilter === 'not_added' && !isMasterActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-blue-500/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-blue-400 flex items-center gap-1.5">
+                          🛡️ Master Strategy System
+                        </span>
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40 rounded font-mono">
+                          Mpro2 Exclusive
+                        </span>
+                        {isMasterActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Active
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Turned Off
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        1:3 RR Gatekeeper, Micro-Trigger, and Trade Attribution HUD. Operates strictly on Mpro2 (Weekly Anchor, 0.000 / 1.000 Lines, &amp; Golden Pocket). Mpro is completely disabled.
+                      </span>
+                    </div>
+                    <input
+                      id="settings-toggle-master-dashboard"
+                      type="checkbox"
+                      checked={isMasterActive}
+                      onChange={(e) => {
+                        handleUpdateMultipleIndicators({
+                          showMasterDashboard: e.target.checked,
+                          showMasterSignal: e.target.checked,
+                        });
+                      }}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isMasterActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-blue-500/30 pt-1">
+                      {/* Master HUD on chart toggle */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Master Dashboard on Chart (የዳሽቦርድ ማሳያ)</span>
+                          <span className="text-xs text-gray-500">Display real-time Master Gatekeeper HUD, Floating R counter, and Win/Loss tracker</span>
+                        </div>
+                        <input
+                          id="settings-toggle-master-hud-visible"
+                          type="checkbox"
+                          checked={settings.indicators.showMasterDashboard ?? true}
+                          onChange={(e) => {
+                            handleUpdateMultipleIndicators({
+                              showMasterDashboard: e.target.checked,
+                              showMasterSignal: e.target.checked,
+                            });
+                          }}
+                          className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Rule Clarification Card */}
+                      <div className="p-3 bg-neutral-950/80 rounded-lg border border-neutral-800 space-y-1.5 text-xs">
+                        <div className="flex items-center gap-1.5 text-blue-400 font-semibold">
+                          <span>✓ Exclusive Mpro2 Strategy Connected</span>
+                        </div>
+                        <p className="text-[11px] text-gray-400 leading-relaxed">
+                          Master የሚሰራው በ Mpro2 (Higher/Lower Base Lines, Weekly Anchor PWH/PWL, እና Golden Pocket 0.618-0.650) ላይ ብቻ ነው። Mpro በዚህ ስትራቴጂ ውስጥ ሙሉ በሙሉ እንዳይሰራ ተደርጓል።
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 16: HVN Profile (ATAS Market Profile by ProfitPro) */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isHvnActive) || (indicatorFilter === 'not_added' && !isHvnActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-200">HVN Profile</span>
+                        <span className="text-[10px] bg-amber-950/80 text-amber-300 border border-amber-800/60 px-1.5 py-0.5 rounded font-mono font-semibold">
+                          ATAS • ProfitPro
+                        </span>
+                        {isHvnActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        Order flow High Volume Node (HVN) projection zones with POC levels and period volume profile silhouettes
+                      </span>
+                    </div>
+                    <input
+                      id="settings-toggle-hvn-profile"
+                      type="checkbox"
+                      checked={isHvnActive}
+                      onChange={(e) => handleUpdateIndicators('showHvnProfile', e.target.checked)}
+                      className="w-4 h-4 text-amber-500 bg-neutral-800 rounded border-neutral-700 focus:ring-amber-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isHvnActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-amber-600/50 pt-1">
+                      {/* Period Length (Bars per Segment) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Period Length (Bars)</span>
+                          <span className="text-xs text-gray-500">Number of candles per profile segment (Default: 60)</span>
+                        </div>
+                        <input
+                          id="settings-hvn-period-bars"
+                          type="number"
+                          min={15}
+                          max={300}
+                          step={5}
+                          value={settings.indicators.hvnPeriodBars ?? 60}
+                          onChange={(e) => handleUpdateIndicators('hvnPeriodBars', parseInt(e.target.value) || 60)}
+                          className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-amber-500 font-mono text-right"
+                        />
+                      </div>
+
+                      {/* Zone Projection Extension Mode */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">HVN Zone Extension</span>
+                          <span className="text-xs text-gray-500">How far the amber reaction zones project across price</span>
+                        </div>
+                        <select
+                          id="settings-hvn-extension-mode"
+                          value={settings.indicators.hvnExtensionMode ?? 'Mitigation'}
+                          onChange={(e) => handleUpdateIndicators('hvnExtensionMode', e.target.value as any)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
+                        >
+                          <option value="Mitigation">Until Mitigated / Retested</option>
+                          <option value="NextPeriod">Until Next Period</option>
+                          <option value="FullRight">Full Chart (Extend to Right)</option>
+                        </select>
+                      </div>
+
+                      {/* Mitigation Condition */}
+                      {(settings.indicators.hvnExtensionMode ?? 'Mitigation') === 'Mitigation' && (
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Mitigation Trigger</span>
+                            <span className="text-xs text-gray-500">Whether a wick touch or candle close terminates projection</span>
+                          </div>
+                          <select
+                            id="settings-hvn-mitigation-type"
+                            value={settings.indicators.hvnMitigationType ?? 'Touch'}
+                            onChange={(e) => handleUpdateIndicators('hvnMitigationType', e.target.value as any)}
+                            className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-amber-500 font-medium"
+                          >
+                            <option value="Touch">Wick Touch (High / Low)</option>
+                            <option value="Close">Candle Body Close</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Zone Thickness (% of Range) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Zone Thickness (%)</span>
+                          <span className="text-xs text-gray-500">Vertical height tolerance around the HVN peak (Default: 3.0%)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min={1}
+                            max={8}
+                            step={0.5}
+                            value={settings.indicators.hvnZoneThicknessPct ?? 3.0}
+                            onChange={(e) => handleUpdateIndicators('hvnZoneThicknessPct', parseFloat(e.target.value))}
+                            className="w-24 accent-amber-500 cursor-pointer"
+                          />
+                          <span className="text-xs font-mono text-amber-300 w-10 text-right">
+                            {(settings.indicators.hvnZoneThicknessPct ?? 3.0).toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Volume Profile Silhouette Toggle */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Profile Silhouette</span>
+                          <span className="text-xs text-gray-500">Dark curved volume profile histogram behind candles</span>
+                        </div>
+                        <input
+                          id="settings-toggle-hvn-silhouette"
+                          type="checkbox"
+                          checked={settings.indicators.hvnShowSilhouette ?? true}
+                          onChange={(e) => handleUpdateIndicators('hvnShowSilhouette', e.target.checked)}
+                          className="w-4 h-4 text-amber-500 bg-neutral-800 rounded border-neutral-700 focus:ring-amber-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Screen Labels & Price Badges */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Screen Labels &amp; Badges</span>
+                          <span className="text-xs text-gray-500">Show price and POC badge tags at the right of active zones</span>
+                        </div>
+                        <input
+                          id="settings-toggle-hvn-labels"
+                          type="checkbox"
+                          checked={settings.indicators.hvnShowLabels ?? true}
+                          onChange={(e) => handleUpdateIndicators('hvnShowLabels', e.target.checked)}
+                          className="w-4 h-4 text-amber-500 bg-neutral-800 rounded border-neutral-700 focus:ring-amber-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Secondary HVN Nodes */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Secondary HVN Nodes</span>
+                          <span className="text-xs text-gray-500">Detect and project secondary high-volume nodes in addition to POC</span>
+                        </div>
+                        <input
+                          id="settings-toggle-hvn-secondary"
+                          type="checkbox"
+                          checked={settings.indicators.hvnShowSecondaryNodes ?? false}
+                          onChange={(e) => handleUpdateIndicators('hvnShowSecondaryNodes', e.target.checked)}
+                          className="w-4 h-4 text-amber-500 bg-neutral-800 rounded border-neutral-700 focus:ring-amber-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Color Palette Controls */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="p-2.5 bg-neutral-900 rounded-lg border border-neutral-850 flex items-center justify-between">
+                          <span className="text-xs font-medium text-gray-300">Zone Fill</span>
+                          <input
+                            type="color"
+                            value={settings.indicators.hvnZoneColor ?? '#f59e0b'}
+                            onChange={(e) => handleUpdateIndicators('hvnZoneColor', e.target.value)}
+                            className="w-6 h-6 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                          />
+                        </div>
+                        <div className="p-2.5 bg-neutral-900 rounded-lg border border-neutral-850 flex items-center justify-between">
+                          <span className="text-xs font-medium text-gray-300">POC Line</span>
+                          <input
+                            type="color"
+                            value={settings.indicators.hvnPocLineColor ?? '#fbbf24'}
+                            onChange={(e) => handleUpdateIndicators('hvnPocLineColor', e.target.value)}
+                            className="w-6 h-6 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                          />
+                        </div>
+                        <div className="p-2.5 bg-neutral-900 rounded-lg border border-neutral-850 flex items-center justify-between">
+                          <span className="text-xs font-medium text-gray-300">Silhouette</span>
+                          <input
+                            type="color"
+                            value={settings.indicators.hvnProfileColor ?? '#1e3a8a'}
+                            onChange={(e) => handleUpdateIndicators('hvnProfileColor', e.target.value)}
+                            className="w-6 h-6 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 17: NEXUS SMART MONEY SUITE [BullByte] */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isNexusActive) || (indicatorFilter === 'not_added' && !isNexusActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-cyan-500/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-cyan-400 flex items-center gap-1.5">
+                          ⚡ NEXUS: SMART MONEY SUITE
+                        </span>
+                        <span className="text-[10px] bg-cyan-950/90 text-cyan-300 border border-cyan-800/60 px-1.5 py-0.5 rounded font-mono font-semibold">
+                          BullByte Institutional
+                        </span>
+                        {isProActivated || isMpro2Pro || isMproPro ? (
+                          <span className="px-2 py-0.5 text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 rounded font-mono font-bold">
+                            👑 PRO ACTIVE ✓
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handleSwitchToPro}
+                            className="px-2 py-0.5 text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded font-mono font-bold hover:bg-amber-500/30 transition-colors"
+                          >
+                            PRO ONLY (ACTIVATE)
+                          </button>
+                        )}
+                        {isNexusActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Active
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Turned Off
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        Unified SMC institutional framework featuring Market Structure (BOS, CHoCH, SMS), Scored Order Blocks, Fair Value Gaps (CE 50%), Liquidity Sweeps, Temporal Memory, Nexus Pulse &amp; Trade Management Engine.
+                      </span>
+                    </div>
+                    <input
+                      id="settings-toggle-nexus-suite"
+                      type="checkbox"
+                      checked={isNexusActive}
+                      onChange={(e) => handleUpdateIndicators('showNexusSuite', e.target.checked)}
+                      className="w-4 h-4 text-cyan-500 bg-neutral-800 rounded border-neutral-700 focus:ring-cyan-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isNexusActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-cyan-500/30 pt-1">
+                      {/* Master HUD & Narrative Visibility */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded-lg border border-neutral-850">
+                          <span className="text-xs font-medium text-gray-300">NEXUS HUD Dashboard</span>
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.nexusShowDashboard ?? true}
+                            onChange={(e) => handleUpdateIndicators('nexusShowDashboard', e.target.checked)}
+                            className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded border-neutral-750 cursor-pointer"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded-lg border border-neutral-850">
+                          <span className="text-xs font-medium text-gray-300">Market Narrative Box</span>
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.nexusShowMarketNarrative ?? true}
+                            onChange={(e) => handleUpdateIndicators('nexusShowMarketNarrative', e.target.checked)}
+                            className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded border-neutral-750 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Trading Mode & Signal Filter */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1.5 p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-xs font-medium text-gray-300">Trading Mode Profile</span>
+                          <select
+                            value={settings.indicators.nexusTradingMode ?? 'AUTO'}
+                            onChange={(e) => handleUpdateIndicators('nexusTradingMode', e.target.value)}
+                            className="px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                          >
+                            <option value="AUTO">AUTO (Adaptive by Timeframe)</option>
+                            <option value="SCALPER">SCALPER (1M-5M Fast Reaction)</option>
+                            <option value="SWING">SWING (15M-1H Balanced)</option>
+                            <option value="POSITION">POSITION (4H-1D Major Swings)</option>
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col gap-1.5 p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-xs font-medium text-gray-300">Signal Confluence Filter</span>
+                          <select
+                            value={settings.indicators.nexusSignalFilter ?? 'A_PLUS_AND_A'}
+                            onChange={(e) => handleUpdateIndicators('nexusSignalFilter', e.target.value)}
+                            className="px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                          >
+                            <option value="A_PLUS_ONLY">A+ Only (Score ≥ 50)</option>
+                            <option value="A_PLUS_AND_A">A+ and A (Score ≥ 40)</option>
+                            <option value="B_AND_ABOVE">B and Above (Score ≥ 25)</option>
+                            <option value="ALL">Show All Signals</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Execution & Risk Management */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-950 rounded border border-neutral-850">
+                          <span className="text-[11px] text-gray-400">Entry Mode</span>
+                          <select
+                            value={settings.indicators.nexusEntryMode ?? 'BOTH'}
+                            onChange={(e) => handleUpdateIndicators('nexusEntryMode', e.target.value)}
+                            className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-mono"
+                          >
+                            <option value="BOTH">Both (Break + Retest)</option>
+                            <option value="RETEST">Retest Only (High Precision)</option>
+                            <option value="BREAK">Direct Break</option>
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-950 rounded border border-neutral-850">
+                          <span className="text-[11px] text-gray-400">Stop Loss Method</span>
+                          <select
+                            value={settings.indicators.nexusStopLossMode ?? 'ATR'}
+                            onChange={(e) => handleUpdateIndicators('nexusStopLossMode', e.target.value)}
+                            className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-mono"
+                          >
+                            <option value="ATR">ATR Dynamic</option>
+                            <option value="SWING">Structural Swing Point</option>
+                            <option value="PERCENT">Fixed Percent</option>
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-950 rounded border border-neutral-850">
+                          <span className="text-[11px] text-gray-400">ATR SL Multiplier</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0.5"
+                            max="5.0"
+                            value={settings.indicators.nexusAtrMultiplierSL ?? 2.0}
+                            onChange={(e) => handleUpdateIndicators('nexusAtrMultiplierSL', parseFloat(e.target.value) || 2.0)}
+                            className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-white font-mono text-center"
+                          />
+                        </div>
+                      </div>
+
+                      {/* SMC Modules Sub-Toggles */}
+                      <div className="p-3 bg-neutral-950/80 rounded-lg border border-neutral-850 space-y-2.5">
+                        <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Active Analytical Modules</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800/80 cursor-pointer">
+                            <span className="text-gray-300">Market Structure (BOS / CHoCH / SMS)</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowMarketStructure ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowMarketStructure', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800/80 cursor-pointer">
+                            <span className="text-gray-300">Order Blocks (Scored 1-5)</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowOrderBlocks ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowOrderBlocks', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800/80 cursor-pointer">
+                            <span className="text-gray-300">Breaker Blocks (Mitigated OBs)</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowBreakerBlocks ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowBreakerBlocks', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800/80 cursor-pointer">
+                            <span className="text-gray-300">Fair Value Gaps &amp; 50% CE</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowFVG ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowFVG', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800/80 cursor-pointer">
+                            <span className="text-gray-300">Inverted FVGs (iFVG)</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowInvertedFVG ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowInvertedFVG', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800/80 cursor-pointer">
+                            <span className="text-gray-300">Liquidity Pools &amp; Sweeps (BSL/SSL)</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowLiquidityPools ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowLiquidityPools', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800/80 cursor-pointer">
+                            <span className="text-gray-300">Premium / Discount / Equilibrium</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowPremiumDiscount ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowPremiumDiscount', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-800/80 cursor-pointer">
+                            <span className="text-gray-300">Density-Weighted S/R with Touch Glow</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowSRGlow ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowSRGlow', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-850 cursor-pointer">
+                            <span className="text-gray-300">Institutional VWAP &amp; Bands</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowVWAP ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowVWAP', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-850 cursor-pointer">
+                            <span className="text-gray-300">Key Levels (PDH, PDL, PDO, PWH, PWL)</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowKeyLevels ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowKeyLevels', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-850 cursor-pointer">
+                            <span className="text-gray-300">Smart Trendlines &amp; Breaks</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowTrendlines ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowTrendlines', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-850 cursor-pointer">
+                            <span className="text-gray-300">Signal Arrows &amp; Targets (Long / Short)</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowSignals ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowSignals', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-850 cursor-pointer">
+                            <span className="text-gray-300">Trend-Colored Candles</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusColorCandles ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusColorCandles', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-850 cursor-pointer">
+                            <span className="text-gray-300">Sessions &amp; Kill Zones (LDN/NY KZ)</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusShowSessions ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusShowSessions', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-900/60 rounded border border-neutral-850 cursor-pointer">
+                            <span className="text-gray-300">Confirmation Bar (Wait for Close)</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.nexusConfirmationBar ?? true}
+                              onChange={(e) => handleUpdateIndicators('nexusConfirmationBar', e.target.checked)}
+                              className="w-3.5 h-3.5 text-cyan-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 18: Session Filter (Free Indicator) */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isSessionFilterActive) || (indicatorFilter === 'not_added' && !isSessionFilterActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-200">Session Filter</span>
+                        <span className="text-[10px] bg-sky-950/80 text-sky-300 border border-sky-800/60 px-1.5 py-0.5 rounded font-mono font-semibold">
+                          FREE • MCHARTS
+                        </span>
+                        {isSessionFilterActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        Noise-free off-light dotted, solid, or dashed vertical session dividers for Asian, London, and New York trading sessions with clean top labels
+                      </span>
+                    </div>
+                    <input
+                      id="settings-toggle-session-filter"
+                      type="checkbox"
+                      checked={isSessionFilterActive}
+                      onChange={(e) => handleUpdateIndicators('showSessionFilter', e.target.checked)}
+                      className="w-4 h-4 text-sky-500 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isSessionFilterActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-sky-600/50 pt-1">
+                      {/* Line Style (Dotted / Solid / Dashed) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Line Style</span>
+                          <span className="text-xs text-gray-500">Dotted, solid, or dashed vertical separator lines</span>
+                        </div>
+                        <select
+                          id="settings-session-line-style"
+                          value={settings.indicators.sessionFilterLineStyle ?? 'dotted'}
+                          onChange={(e) => handleUpdateIndicators('sessionFilterLineStyle', e.target.value as any)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-sm text-gray-200 focus:outline-none focus:border-sky-500"
+                        >
+                          <option value="dotted">Dotted (Off-light)</option>
+                          <option value="solid">Solid Line</option>
+                          <option value="dashed">Dashed Line</option>
+                        </select>
+                      </div>
+
+                      {/* Line Opacity */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Line Opacity (Zero Noise)</span>
+                          <span className="text-xs text-gray-500">Subtle off-light transparency (Default: 35%)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            id="settings-session-line-opacity"
+                            type="range"
+                            min={15}
+                            max={100}
+                            step={5}
+                            value={settings.indicators.sessionFilterLineOpacity ?? 35}
+                            onChange={(e) => handleUpdateIndicators('sessionFilterLineOpacity', Number(e.target.value))}
+                            className="w-24 accent-sky-500 cursor-pointer"
+                          />
+                          <span className="text-xs text-neutral-400 font-mono w-9 text-right">
+                            {settings.indicators.sessionFilterLineOpacity ?? 35}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Line Width */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Line Thickness</span>
+                          <span className="text-xs text-gray-500">Subtle 1px boundary width (Default: 1px)</span>
+                        </div>
+                        <select
+                          id="settings-session-line-width"
+                          value={settings.indicators.sessionFilterLineWidth ?? 1}
+                          onChange={(e) => handleUpdateIndicators('sessionFilterLineWidth', Number(e.target.value))}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-sm text-gray-200 focus:outline-none focus:border-sky-500"
+                        >
+                          <option value={1}>1px (Minimalist)</option>
+                          <option value={1.5}>1.5px</option>
+                          <option value={2}>2px</option>
+                        </select>
+                      </div>
+
+                      {/* Sessions to Filter */}
+                      <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850 space-y-2.5">
+                        <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
+                          Filter Market Sessions
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <label className="flex items-center justify-between p-2.5 bg-neutral-950/80 rounded border border-neutral-800 cursor-pointer hover:border-neutral-700">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-semibold text-sky-400">Asian Session</span>
+                              <span className="text-[10px] text-neutral-500 font-mono">00:00 - 08:00 UTC</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.sessionFilterShowAsia ?? true}
+                              onChange={(e) => handleUpdateIndicators('sessionFilterShowAsia', e.target.checked)}
+                              className="w-3.5 h-3.5 text-sky-500 bg-neutral-900 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2.5 bg-neutral-950/80 rounded border border-neutral-800 cursor-pointer hover:border-neutral-700">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-semibold text-amber-400">London Session</span>
+                              <span className="text-[10px] text-neutral-500 font-mono">07:00 - 16:00 UTC</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.sessionFilterShowLondon ?? true}
+                              onChange={(e) => handleUpdateIndicators('sessionFilterShowLondon', e.target.checked)}
+                              className="w-3.5 h-3.5 text-amber-500 bg-neutral-900 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2.5 bg-neutral-950/80 rounded border border-neutral-800 cursor-pointer hover:border-neutral-700">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-semibold text-emerald-400">New York Session</span>
+                              <span className="text-[10px] text-neutral-500 font-mono">13:00 - 21:00 UTC</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.sessionFilterShowNewYork ?? true}
+                              onChange={(e) => handleUpdateIndicators('sessionFilterShowNewYork', e.target.checked)}
+                              className="w-3.5 h-3.5 text-emerald-500 bg-neutral-900 rounded"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Display Boundaries & Labels */}
+                      <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850 space-y-2">
+                        <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
+                          Boundaries &amp; Labels
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          <label className="flex items-center justify-between p-2 bg-neutral-950/80 rounded border border-neutral-800 cursor-pointer">
+                            <span className="text-gray-300">Session Start Vertical Line</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.sessionFilterShowStartLine ?? true}
+                              onChange={(e) => handleUpdateIndicators('sessionFilterShowStartLine', e.target.checked)}
+                              className="w-3.5 h-3.5 text-sky-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-950/80 rounded border border-neutral-800 cursor-pointer">
+                            <span className="text-gray-300">Session End Vertical Line</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.sessionFilterShowEndLine ?? true}
+                              onChange={(e) => handleUpdateIndicators('sessionFilterShowEndLine', e.target.checked)}
+                              className="w-3.5 h-3.5 text-sky-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-950/80 rounded border border-neutral-850 cursor-pointer">
+                            <span className="text-gray-300">Top Session Name Label</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.sessionFilterShowLabels ?? true}
+                              onChange={(e) => handleUpdateIndicators('sessionFilterShowLabels', e.target.checked)}
+                              className="w-3.5 h-3.5 text-sky-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+
+                          <label className="flex items-center justify-between p-2 bg-neutral-950/80 rounded border border-neutral-850 cursor-pointer">
+                            <span className="text-gray-300">Subtle Session Colors</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.sessionFilterCustomColors ?? true}
+                              onChange={(e) => handleUpdateIndicators('sessionFilterCustomColors', e.target.checked)}
+                              className="w-3.5 h-3.5 text-sky-500 bg-neutral-850 rounded"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Label Font Size */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Top Label Size</span>
+                          <span className="text-xs text-gray-500">Discreet tiny font to prevent noise (Default: Tiny 9px)</span>
+                        </div>
+                        <select
+                          id="settings-session-label-size"
+                          value={settings.indicators.sessionFilterLabelSize ?? 'tiny'}
+                          onChange={(e) => handleUpdateIndicators('sessionFilterLabelSize', e.target.value as any)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-sm text-gray-200 focus:outline-none focus:border-sky-500"
+                        >
+                          <option value="tiny">Tiny (9px - Zero Noise)</option>
+                          <option value="small">Small (11px)</option>
+                        </select>
+                      </div>
+
+                      {/* Background Shading (Optional) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Faint Session Background Tint</span>
+                          <span className="text-xs text-gray-500">Optional whisper-light fill between lines (Default: Off)</span>
+                        </div>
+                        <input
+                          id="settings-session-fill-bg"
+                          type="checkbox"
+                          checked={settings.indicators.sessionFilterFillBackground ?? false}
+                          onChange={(e) => handleUpdateIndicators('sessionFilterFillBackground', e.target.checked)}
+                          className="w-4 h-4 text-sky-500 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 19: Order Blocks with Volume Delta (cTrader Store / Pepperstone Specification) */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isObvActive) || (indicatorFilter === 'not_added' && !isObvActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-200">Order Blocks with Volume Delta</span>
+                        <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800/60 px-1.5 py-0.5 rounded font-mono font-bold">
+                          PRO • cTrader Store
+                        </span>
+                        {isObvActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        Institutional Order Blocks split by Buy/Sell Volume Delta % with Total Volume labels &amp; mitigation tracking
+                      </span>
+                    </div>
+                    <input
+                      id="settings-toggle-obv"
+                      type="checkbox"
+                      checked={isObvActive}
+                      onChange={(e) => handleUpdateIndicators('showOrderBlocksWithVolume', e.target.checked)}
+                      className="w-4 h-4 text-emerald-500 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isObvActive && (
+                    <div className="space-y-4 pl-3 border-l-2 border-emerald-600/50 pt-1">
+                      {/* TECHNICAL SETTINGS HEADER */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-neutral-800 pb-1">
+                        Technical Settings
+                      </div>
+
+                      {/* Swing Length */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Swing Length</span>
+                          <span className="text-xs text-gray-500">Bilateral fractal pivot lookback &amp; lookahead window (Default: 10)</span>
+                        </div>
+                        <input
+                          id="settings-obv-swing-length"
+                          type="number"
+                          min={2}
+                          max={50}
+                          value={settings.indicators.obvSwingLength ?? 10}
+                          onChange={(e) => handleUpdateIndicators('obvSwingLength', parseInt(e.target.value) || 10)}
+                          className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-emerald-500 font-mono text-right"
+                        />
+                      </div>
+
+                      {/* Invalidation Mode */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Invalidation</span>
+                          <span className="text-xs text-gray-500">Trigger for zone invalidation when price breaks boundary</span>
+                        </div>
+                        <select
+                          id="settings-obv-invalidation"
+                          value={settings.indicators.obvInvalidation ?? 'Wick'}
+                          onChange={(e) => handleUpdateIndicators('obvInvalidation', e.target.value as 'Wick' | 'Close')}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-emerald-500 font-medium"
+                        >
+                          <option value="Wick">Wick (High / Low Touch)</option>
+                          <option value="Close">Close (Candle Body Close)</option>
+                        </select>
+                      </div>
+
+                      {/* Show Nearest */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Nearest</span>
+                          <span className="text-xs text-gray-500">Maximum nearest active order blocks to display (Default: 10)</span>
+                        </div>
+                        <input
+                          id="settings-obv-show-nearest"
+                          type="number"
+                          min={1}
+                          max={50}
+                          value={settings.indicators.obvShowNearest ?? 10}
+                          onChange={(e) => handleUpdateIndicators('obvShowNearest', parseInt(e.target.value) || 10)}
+                          className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-emerald-500 font-mono text-right"
+                        />
+                      </div>
+
+                      {/* Extend Zones */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Extend Zones</span>
+                          <span className="text-xs text-gray-500">Number of forward bars to extend active unmitigated zones (Default: 10)</span>
+                        </div>
+                        <input
+                          id="settings-obv-extend-zones"
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={settings.indicators.obvExtendZones ?? 10}
+                          onChange={(e) => handleUpdateIndicators('obvExtendZones', parseInt(e.target.value) || 0)}
+                          className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-emerald-500 font-mono text-right"
+                        />
+                      </div>
+
+                      {/* Hide Invalidated Zones */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Hide Invalidated Zones</span>
+                          <span className="text-xs text-gray-500">Remove zones once price breaks through boundary (Default: Yes)</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.obvHideInvalidatedZones ?? true}
+                            onChange={(e) => handleUpdateIndicators('obvHideInvalidatedZones', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* VOLUME METRICS HEADER */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-sky-400 border-b border-neutral-800 pb-1 pt-2">
+                        Volume Metrics
+                      </div>
+
+                      {/* Enable Volume Delta */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Enable Volume Delta</span>
+                          <span className="text-xs text-gray-500">Split zones into Buy Volume (Green) and Sell Volume (Red) (Default: Yes)</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.obvEnableVolumeDelta ?? true}
+                            onChange={(e) => handleUpdateIndicators('obvEnableVolumeDelta', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Display Total Volume */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Display Total Volume</span>
+                          <span className="text-xs text-gray-500">Show institutional total volume label on right edge of zone (Default: Yes)</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.obvDisplayTotalVolume ?? true}
+                            onChange={(e) => handleUpdateIndicators('obvDisplayTotalVolume', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Show Delta % */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Delta %</span>
+                          <span className="text-xs text-gray-500">Show centered Buy % and Sell % inside zone segments (Default: Yes)</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.obvShowDeltaPercent ?? true}
+                            onChange={(e) => handleUpdateIndicators('obvShowDeltaPercent', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* AESTHETICS & COLORS HEADER */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-amber-400 border-b border-neutral-800 pb-1 pt-2">
+                        Aesthetics &amp; Colors
+                      </div>
+
+                      {/* Bullish Block Color */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Bullish Block Color</span>
+                          <span className="text-xs text-gray-500">Color for Buy Volume / Bullish demand zone</span>
+                        </div>
+                        <input
+                          id="settings-obv-bullish-color"
+                          type="color"
+                          value={settings.indicators.obvBullishColor ?? '#2e7d32'}
+                          onChange={(e) => handleUpdateIndicators('obvBullishColor', e.target.value)}
+                          className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Bearish Block Color */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Bearish Block Color</span>
+                          <span className="text-xs text-gray-500">Color for Sell Volume / Bearish supply zone</span>
+                        </div>
+                        <input
+                          id="settings-obv-bearish-color"
+                          type="color"
+                          value={settings.indicators.obvBearishColor ?? '#881337'}
+                          onChange={(e) => handleUpdateIndicators('obvBearishColor', e.target.value)}
+                          className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Total Vol Text Color */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Total Vol Text Color</span>
+                          <span className="text-xs text-gray-500">Color for outside right volume text label</span>
+                        </div>
+                        <input
+                          id="settings-obv-total-vol-color"
+                          type="color"
+                          value={settings.indicators.obvTotalVolColor ?? '#00aaff'}
+                          onChange={(e) => handleUpdateIndicators('obvTotalVolColor', e.target.value)}
+                          className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Delta % Text Color */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Delta % Text Color</span>
+                          <span className="text-xs text-gray-500">Color for inside % text labels</span>
+                        </div>
+                        <input
+                          id="settings-obv-delta-text-color"
+                          type="color"
+                          value={settings.indicators.obvDeltaTextColor ?? '#ffffff'}
+                          onChange={(e) => handleUpdateIndicators('obvDeltaTextColor', e.target.value)}
+                          className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 20: PRO Order Blocks [Live 8-Score & Shadow] */}
+              {isProActivated && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isProObActive) || (indicatorFilter === 'not_added' && !isProObActive)) && (
+                <div className="p-4 bg-neutral-950 rounded-xl border border-neutral-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400">
+                        <Layers className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-200">PRO Order Blocks [Live 8-Score &amp; Shadow]</span>
+                          <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full">
+                            PRO LIVE SMC
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          Zero-lag live order blocks with forward shadow projection &amp; 8-factor confluence strength score (1-8 &amp; 0-100%).
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      id="settings-toggle-pro-ob"
+                      type="checkbox"
+                      checked={isProObActive}
+                      onChange={(e) => handleUpdateIndicators('showProOrderBlocks', e.target.checked)}
+                      className="w-4 h-4 text-emerald-500 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isProObActive && (
+                    <div className="pl-12 space-y-3 pt-2 border-t border-neutral-900">
+                      {/* SHADOW & PROJECTION HEADER */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-neutral-800 pb-1">
+                        Shadow &amp; Forward Projection
+                      </div>
+
+                      {/* Shadow Visibility Toggle */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Shadow Visibility</span>
+                          <span className="text-xs text-gray-500">Show luminous forward shadow zone across the chart (Default: ON)</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-pro-ob-show-shadow"
+                            type="checkbox"
+                            checked={settings.indicators.proObShowShadow ?? true}
+                            onChange={(e) => handleUpdateIndicators('proObShowShadow', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Shadow Opacity % */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Shadow Opacity</span>
+                          <span className="text-xs text-gray-500">Soft luminous shadow intensity (Default: 25%)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            id="settings-pro-ob-shadow-opacity"
+                            type="range"
+                            min="5"
+                            max="70"
+                            step="5"
+                            value={settings.indicators.proObShadowOpacity ?? 25}
+                            onChange={(e) => handleUpdateIndicators('proObShadowOpacity', parseInt(e.target.value))}
+                            className="w-24 accent-emerald-500"
+                          />
+                          <span className="text-xs font-mono text-emerald-400 w-9 text-right font-bold">
+                            {settings.indicators.proObShadowOpacity ?? 25}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Forward Projection Distance (Bars) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Forward Shadow Projection</span>
+                          <span className="text-xs text-gray-500">Number of bars into future space (Default: 20 bars)</span>
+                        </div>
+                        <input
+                          id="settings-pro-ob-extend-bars"
+                          type="number"
+                          min="5"
+                          max="60"
+                          value={settings.indicators.proObExtendBars ?? 20}
+                          onChange={(e) => handleUpdateIndicators('proObExtendBars', Math.max(5, parseInt(e.target.value) || 20))}
+                          className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-right text-sm text-gray-200"
+                        />
+                      </div>
+
+                      {/* 8-FACTOR SCORING & STRENGTH HEADER */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-amber-400 border-b border-neutral-800 pb-1 pt-2">
+                        8-Factor Scoring &amp; Confluence Strength
+                      </div>
+
+                      {/* Minimum Score Filter */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Minimum Confluence Score</span>
+                          <span className="text-xs text-gray-500">Filter out weak blocks (1 = All, 4 = Standard, 6+ = High Conviction)</span>
+                        </div>
+                        <select
+                          id="settings-pro-ob-min-score"
+                          value={settings.indicators.proObMinScore ?? 4}
+                          onChange={(e) => handleUpdateIndicators('proObMinScore', parseInt(e.target.value))}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-sm text-gray-200 cursor-pointer"
+                        >
+                          <option value="1">1 / 8 (Show All)</option>
+                          <option value="2">2 / 8 (25%+ Strength)</option>
+                          <option value="3">3 / 8 (38%+ Strength)</option>
+                          <option value="4">4 / 8 (50%+ Standard)</option>
+                          <option value="5">5 / 8 (63%+ Moderate)</option>
+                          <option value="6">6 / 8 (75%+ Strong)</option>
+                          <option value="7">7 / 8 (88%+ High Institutional)</option>
+                          <option value="8">8 / 8 (100% Ultra Conviction)</option>
+                        </select>
+                      </div>
+
+                      {/* Show Strength % Inside Shadow */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Display Strength % inside Shadow</span>
+                          <span className="text-xs text-gray-500">Shows calculated strength percentage from 100% inside shadow</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-pro-ob-show-strength"
+                            type="checkbox"
+                            checked={settings.indicators.proObShowStrengthPercent ?? true}
+                            onChange={(e) => handleUpdateIndicators('proObShowStrengthPercent', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Show [X/8] Score inside Shadow */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Display Score [1-8] inside Shadow</span>
+                          <span className="text-xs text-gray-500">Shows [X/8] factor count inside the shadow zone</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-pro-ob-show-score"
+                            type="checkbox"
+                            checked={settings.indicators.proObShowScore ?? true}
+                            onChange={(e) => handleUpdateIndicators('proObShowScore', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Show Only Unmitigated Blocks */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Only Fresh Unmitigated Blocks</span>
+                          <span className="text-xs text-gray-500">Hide touched/mitigated blocks to prioritize virgin liquidity</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-pro-ob-unmitigated"
+                            type="checkbox"
+                            checked={settings.indicators.proObShowOnlyUnmitigated ?? false}
+                            onChange={(e) => handleUpdateIndicators('proObShowOnlyUnmitigated', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* AESTHETICS & COLORS HEADER */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-blue-400 border-b border-neutral-800 pb-1 pt-2">
+                        Colors &amp; Styling
+                      </div>
+
+                      {/* Bullish Color */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Bullish Demand Color</span>
+                          <span className="text-xs text-gray-500">Color for Bullish Order Block &amp; Shadow</span>
+                        </div>
+                        <input
+                          id="settings-pro-ob-bull-color"
+                          type="color"
+                          value={settings.indicators.proObBullishColor ?? '#10b981'}
+                          onChange={(e) => handleUpdateIndicators('proObBullishColor', e.target.value)}
+                          className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Bearish Color */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Bearish Supply Color</span>
+                          <span className="text-xs text-gray-500">Color for Bearish Order Block &amp; Shadow</span>
+                        </div>
+                        <input
+                          id="settings-pro-ob-bear-color"
+                          type="color"
+                          value={settings.indicators.proObBearishColor ?? '#f43f5e'}
+                          onChange={(e) => handleUpdateIndicators('proObBearishColor', e.target.value)}
+                          className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 21: Market Structure Target Tracker [MarkitTick] */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMsttActive) || (indicatorFilter === 'not_added' && !isMsttActive)) && (
+                <div className="p-4 bg-neutral-950 rounded-xl border border-neutral-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-amber-500/10 rounded-lg text-amber-400">
+                        <SlidersHorizontal className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-200">Market Structure Target Tracker [MarkitTick]</span>
+                          <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full">
+                            OFFICIAL PINE v6
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          BOS/CHoCH breakouts, automatic target projection (prev swing high/low), auto-invalidation, Entry/SL/TP1/TP2/TP3 lines &amp; live dashboard.
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      id="settings-toggle-mstt"
+                      type="checkbox"
+                      checked={isMsttActive}
+                      onChange={(e) => handleUpdateIndicators('showMarketStructureTargetTracker', e.target.checked)}
+                      className="w-4 h-4 text-amber-500 bg-neutral-800 rounded border-neutral-700 focus:ring-amber-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isMsttActive && (
+                    <div className="pl-12 space-y-3 pt-2 border-t border-neutral-900">
+                      {/* GROUP: BOS */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-amber-400 border-b border-neutral-800 pb-1">
+                        BOS Settings
+                      </div>
+
+                      {/* Swing Length */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Swing Length</span>
+                          <span className="text-xs text-gray-500">Pivot detection lookback bars (min: 1, max: 100, default: 5)</span>
+                        </div>
+                        <input
+                          id="settings-mstt-swing-len"
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={settings.indicators.msttSwingLen ?? 5}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === '') {
+                              handleUpdateIndicators('msttSwingLen', 5);
+                              return;
+                            }
+                            const val = parseInt(raw, 10);
+                            if (!isNaN(val)) {
+                              handleUpdateIndicators('msttSwingLen', Math.min(100, Math.max(1, val)));
+                            }
+                          }}
+                          className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-amber-500 text-center font-mono"
+                        />
+                      </div>
+
+                      {/* GROUP: VISIBILITY & APPEARANCE */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-blue-400 border-b border-neutral-800 pb-1 pt-2">
+                        Visibility &amp; Appearance
+                      </div>
+
+                      {/* Show BOS Line */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show BOS Line</span>
+                          <span className="text-xs text-gray-500">Display dashed structural breakout line</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-show-bos-line"
+                            type="checkbox"
+                            checked={settings.indicators.msttShowBosLine ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttShowBosLine', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Show Labels */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Labels</span>
+                          <span className="text-xs text-gray-500">Display ▲ BOS / ▼ CHoCH structure labels</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-show-label"
+                            type="checkbox"
+                            checked={settings.indicators.msttShowLabel ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttShowLabel', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Auto-Invalidate */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Auto-Invalidate</span>
+                          <span className="text-xs text-gray-500">Automatically cancel active structure when price breaks opposite invalid swing</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-invalidate-mode"
+                            type="checkbox"
+                            checked={settings.indicators.msttInvalidateMode ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttInvalidateMode', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Colors: Bull BOS, Bear BOS, Target, Target Hit */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-xs font-medium text-gray-300">Bull BOS Color</span>
+                          <input
+                            id="settings-mstt-col-bull-bos"
+                            type="color"
+                            value={toHexColor(settings.indicators.msttColBullBos, '#00c878')}
+                            onChange={(e) => handleUpdateIndicators('msttColBullBos', e.target.value)}
+                            className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-xs font-medium text-gray-300">Bear BOS Color</span>
+                          <input
+                            id="settings-mstt-col-bear-bos"
+                            type="color"
+                            value={toHexColor(settings.indicators.msttColBearBos, '#dc3232')}
+                            onChange={(e) => handleUpdateIndicators('msttColBearBos', e.target.value)}
+                            className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-xs font-medium text-gray-300">Target Color</span>
+                          <input
+                            id="settings-mstt-col-target"
+                            type="color"
+                            value={toHexColor(settings.indicators.msttColTarget, '#ffc800')}
+                            onChange={(e) => handleUpdateIndicators('msttColTarget', e.target.value)}
+                            className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-xs font-medium text-gray-300">Target Hit Color</span>
+                          <input
+                            id="settings-mstt-col-hit"
+                            type="color"
+                            value={toHexColor(settings.indicators.msttColHit, '#b464ff')}
+                            onChange={(e) => handleUpdateIndicators('msttColHit', e.target.value)}
+                            className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                          />
+                        </div>
+                      </div>
+
+                      {/* GROUP: SL / TP */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-neutral-800 pb-1 pt-2">
+                        SL &amp; TP Settings
+                      </div>
+
+                      {/* Show Entry/SL/TP */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Entry/SL/TP (Master)</span>
+                          <span className="text-xs text-gray-500">Master switch for entry bracket, targets and shaded zones</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-show-tpsl"
+                            type="checkbox"
+                            checked={settings.indicators.msttShowTpSl ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttShowTpSl', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
+                      </div>
+
+                      {/* TARGETS VISIBILITY (Each On/Off Method) */}
+                      <div className="space-y-2 p-3 bg-neutral-900/80 rounded-lg border border-neutral-800">
+                        <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider block">
+                          Target Visibility (On / Off)
+                        </span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {/* SL Toggle */}
+                          <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-rose-400">✕ SL</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                id="settings-mstt-show-sl"
+                                type="checkbox"
+                                checked={settings.indicators.msttShowSl ?? true}
+                                onChange={(e) => handleUpdateIndicators('msttShowSl', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-7 h-3.5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-rose-500"></div>
+                            </label>
+                          </div>
+
+                          {/* TP1 Toggle */}
+                          <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-emerald-400">● TP1</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                id="settings-mstt-show-tp1"
+                                type="checkbox"
+                                checked={settings.indicators.msttShowTp1 ?? true}
+                                onChange={(e) => handleUpdateIndicators('msttShowTp1', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-7 h-3.5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                            </label>
+                          </div>
+
+                          {/* TP2 Toggle */}
+                          <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-teal-400">★ TP2</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                id="settings-mstt-show-tp2"
+                                type="checkbox"
+                                checked={settings.indicators.msttShowTp2 ?? true}
+                                onChange={(e) => handleUpdateIndicators('msttShowTp2', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-7 h-3.5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-teal-500"></div>
+                            </label>
+                          </div>
+
+                          {/* TP3 Toggle */}
+                          <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-cyan-400">◆ TP3</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                id="settings-mstt-show-tp3"
+                                type="checkbox"
+                                checked={settings.indicators.msttShowTp3 ?? true}
+                                onChange={(e) => handleUpdateIndicators('msttShowTp3', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-7 h-3.5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* SHADES VISIBILITY (Each On/Off Method) */}
+                      <div className="space-y-2 p-3 bg-neutral-900/80 rounded-lg border border-neutral-800">
+                        <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider block">
+                          Shade Area Visibility (On / Off)
+                        </span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {/* SL Shade Toggle */}
+                          <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-rose-300">SL Shade</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                id="settings-mstt-show-sl-shade"
+                                type="checkbox"
+                                checked={settings.indicators.msttShowSlShade ?? true}
+                                onChange={(e) => handleUpdateIndicators('msttShowSlShade', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-7 h-3.5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-rose-500"></div>
+                            </label>
+                          </div>
+
+                          {/* TP1 Shade Toggle */}
+                          <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-emerald-300">TP1 Shade</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                id="settings-mstt-show-tp1-shade"
+                                type="checkbox"
+                                checked={settings.indicators.msttShowTp1Shade ?? true}
+                                onChange={(e) => handleUpdateIndicators('msttShowTp1Shade', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-7 h-3.5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                            </label>
+                          </div>
+
+                          {/* TP2 Shade Toggle */}
+                          <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-teal-300">TP2 Shade</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                id="settings-mstt-show-tp2-shade"
+                                type="checkbox"
+                                checked={settings.indicators.msttShowTp2Shade ?? true}
+                                onChange={(e) => handleUpdateIndicators('msttShowTp2Shade', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-7 h-3.5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-teal-500"></div>
+                            </label>
+                          </div>
+
+                          {/* TP3 Shade Toggle */}
+                          <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-cyan-300">TP3 Shade</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                id="settings-mstt-show-tp3-shade"
+                                type="checkbox"
+                                checked={settings.indicators.msttShowTp3Shade ?? true}
+                                onChange={(e) => handleUpdateIndicators('msttShowTp3Shade', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-7 h-3.5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* CUSTOM COLORS & SHADE COLORS */}
+                      <div className="space-y-2 p-3 bg-neutral-900/80 rounded-lg border border-neutral-800">
+                        <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider block">
+                          Custom Line &amp; Shade Colors
+                        </span>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {/* Entry Line Color */}
+                          <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-sky-400">► Entry Line</span>
+                            <input
+                              id="settings-mstt-col-entry"
+                              type="color"
+                              value={toHexColor(settings.indicators.msttColEntry, '#64b4ff')}
+                              onChange={(e) => handleUpdateIndicators('msttColEntry', e.target.value)}
+                              className="w-10 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                            />
+                          </div>
+
+                          {/* SL Line & Shade Colors */}
+                          <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-rose-400">✕ SL Line &amp; Shade</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                id="settings-mstt-col-sl"
+                                type="color"
+                                title="SL Line Color"
+                                value={toHexColor(settings.indicators.msttColSl, '#ff3c3c')}
+                                onChange={(e) => handleUpdateIndicators('msttColSl', e.target.value)}
+                                className="w-7 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                              />
+                              <input
+                                id="settings-mstt-col-sl-shade"
+                                type="color"
+                                title="SL Shade Color"
+                                value={toHexColor(settings.indicators.msttColSlShade, '#ff3c3c')}
+                                onChange={(e) => handleUpdateIndicators('msttColSlShade', e.target.value)}
+                                className="w-7 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                              />
+                            </div>
+                          </div>
+
+                          {/* TP1 Line & Shade Colors */}
+                          <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-emerald-400">● TP1 Line &amp; Shade</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                id="settings-mstt-col-tp1"
+                                type="color"
+                                title="TP1 Line Color"
+                                value={toHexColor(settings.indicators.msttColTp1, '#00dc82')}
+                                onChange={(e) => handleUpdateIndicators('msttColTp1', e.target.value)}
+                                className="w-7 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                              />
+                              <input
+                                id="settings-mstt-col-tp1-shade"
+                                type="color"
+                                title="TP1 Shade Color"
+                                value={toHexColor(settings.indicators.msttColTp1Shade, '#00dc82')}
+                                onChange={(e) => handleUpdateIndicators('msttColTp1Shade', e.target.value)}
+                                className="w-7 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                              />
+                            </div>
+                          </div>
+
+                          {/* TP2 Line & Shade Colors */}
+                          <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-teal-400">★ TP2 Line &amp; Shade</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                id="settings-mstt-col-tp2"
+                                type="color"
+                                title="TP2 Line Color"
+                                value={toHexColor(settings.indicators.msttColTp2, '#00ffb4')}
+                                onChange={(e) => handleUpdateIndicators('msttColTp2', e.target.value)}
+                                className="w-7 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                              />
+                              <input
+                                id="settings-mstt-col-tp2-shade"
+                                type="color"
+                                title="TP2 Shade Color"
+                                value={toHexColor(settings.indicators.msttColTp2Shade, '#00ffb4')}
+                                onChange={(e) => handleUpdateIndicators('msttColTp2Shade', e.target.value)}
+                                className="w-7 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                              />
+                            </div>
+                          </div>
+
+                          {/* TP3 Line & Shade Colors */}
+                          <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded border border-neutral-800">
+                            <span className="text-xs font-medium text-cyan-400">◆ TP3 Line &amp; Shade</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                id="settings-mstt-col-tp3"
+                                type="color"
+                                title="TP3 Line Color"
+                                value={toHexColor(settings.indicators.msttColTp3, '#00ffff')}
+                                onChange={(e) => handleUpdateIndicators('msttColTp3', e.target.value)}
+                                className="w-7 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                              />
+                              <input
+                                id="settings-mstt-col-tp3-shade"
+                                type="color"
+                                title="TP3 Shade Color"
+                                value={toHexColor(settings.indicators.msttColTp3Shade, '#00ffff')}
+                                onChange={(e) => handleUpdateIndicators('msttColTp3Shade', e.target.value)}
+                                className="w-7 h-7 bg-neutral-950 border border-neutral-800 rounded cursor-pointer"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Shade Opacities */}
+                        <div className="pt-2 border-t border-neutral-800">
+                          <span className="text-[11px] font-semibold text-gray-400 block mb-1">
+                            Shade Opacity (%)
+                          </span>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                              <span className="text-[10px] text-gray-400">SL</span>
+                              <input
+                                id="settings-mstt-sl-alpha"
+                                type="number"
+                                min={1}
+                                max={100}
+                                value={Math.round((settings.indicators.msttSlShadeAlpha ?? 0.30) * 100)}
+                                onChange={(e) => handleUpdateIndicators('msttSlShadeAlpha', Math.max(1, Math.min(100, parseInt(e.target.value) || 30)) / 100)}
+                                className="w-12 px-1 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-[11px] text-white text-center font-mono"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                              <span className="text-[10px] text-gray-400">TP1</span>
+                              <input
+                                id="settings-mstt-tp1-alpha"
+                                type="number"
+                                min={1}
+                                max={100}
+                                value={Math.round((settings.indicators.msttTp1ShadeAlpha ?? 0.30) * 100)}
+                                onChange={(e) => handleUpdateIndicators('msttTp1ShadeAlpha', Math.max(1, Math.min(100, parseInt(e.target.value) || 30)) / 100)}
+                                className="w-12 px-1 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-[11px] text-white text-center font-mono"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                              <span className="text-[10px] text-gray-400">TP2</span>
+                              <input
+                                id="settings-mstt-tp2-alpha"
+                                type="number"
+                                min={1}
+                                max={100}
+                                value={Math.round((settings.indicators.msttTp2ShadeAlpha ?? 0.15) * 100)}
+                                onChange={(e) => handleUpdateIndicators('msttTp2ShadeAlpha', Math.max(1, Math.min(100, parseInt(e.target.value) || 15)) / 100)}
+                                className="w-12 px-1 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-[11px] text-white text-center font-mono"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between p-2 bg-neutral-950 rounded border border-neutral-800">
+                              <span className="text-[10px] text-gray-400">TP3</span>
+                              <input
+                                id="settings-mstt-tp3-alpha"
+                                type="number"
+                                min={1}
+                                max={100}
+                                value={Math.round((settings.indicators.msttTp3ShadeAlpha ?? 0.05) * 100)}
+                                onChange={(e) => handleUpdateIndicators('msttTp3ShadeAlpha', Math.max(1, Math.min(100, parseInt(e.target.value) || 5)) / 100)}
+                                className="w-12 px-1 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-[11px] text-white text-center font-mono"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ATR Multipliers Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">SL ATR Multi</span>
+                          <input
+                            id="settings-mstt-sl-multi"
+                            type="number"
+                            step={0.1}
+                            min={0.1}
+                            max={10.0}
+                            value={settings.indicators.msttSlMulti ?? 1.0}
+                            onChange={(e) => handleUpdateIndicators('msttSlMulti', parseFloat(e.target.value) || 1.0)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">TP1 ATR Multi</span>
+                          <input
+                            id="settings-mstt-tp1-multi"
+                            type="number"
+                            step={0.1}
+                            min={0.1}
+                            max={20.0}
+                            value={settings.indicators.msttTp1Multi ?? 1.5}
+                            onChange={(e) => handleUpdateIndicators('msttTp1Multi', parseFloat(e.target.value) || 1.5)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">TP2 ATR Multi</span>
+                          <input
+                            id="settings-mstt-tp2-multi"
+                            type="number"
+                            step={0.1}
+                            min={0.1}
+                            max={20.0}
+                            value={settings.indicators.msttTp2Multi ?? 3.0}
+                            onChange={(e) => handleUpdateIndicators('msttTp2Multi', parseFloat(e.target.value) || 3.0)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">TP3 ATR Multi</span>
+                          <input
+                            id="settings-mstt-tp3-multi"
+                            type="number"
+                            step={0.1}
+                            min={0.1}
+                            max={20.0}
+                            value={settings.indicators.msttTp3Multi ?? 5.0}
+                            onChange={(e) => handleUpdateIndicators('msttTp3Multi', parseFloat(e.target.value) || 5.0)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {/* ATR Length */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">ATR Length</span>
+                          <span className="text-xs text-gray-500">Period for volatility calculations (min: 1, max: 50, default: 14)</span>
+                        </div>
+                        <input
+                          id="settings-mstt-atr-len"
+                          type="number"
+                          min={1}
+                          max={50}
+                          value={settings.indicators.msttAtrLen ?? 14}
+                          onChange={(e) => handleUpdateIndicators('msttAtrLen', Math.min(50, Math.max(1, parseInt(e.target.value) || 14)))}
+                          className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white text-center font-mono"
+                        />
+                      </div>
+
+                      {/* GROUP: HTF FILTER */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-purple-400 border-b border-neutral-800 pb-1 pt-2">
+                        Higher Timeframe (HTF) Filter
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">HTF Filter via RSI</span>
+                          <span className="text-xs text-gray-500">Only take Bull BOS when HTF RSI &gt; 50, Bear BOS when HTF RSI &lt; 50</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-htf-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseHtfFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseHtfFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-purple-500"></div>
+                        </label>
+                      </div>
+
+                      {/* HTF Resolution */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">HTF Timeframe (Res)</span>
+                          <span className="text-xs text-gray-500">Higher timeframe resolution for macro trend filtering</span>
+                        </div>
+                        <select
+                          id="settings-mstt-htf-res"
+                          value={settings.indicators.msttHtfRes ?? '240'}
+                          onChange={(e) => handleUpdateIndicators('msttHtfRes', e.target.value)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
+                        >
+                          <option value="15">15M (15 Minutes)</option>
+                          <option value="30">30M (30 Minutes)</option>
+                          <option value="60">1H (60 Minutes)</option>
+                          <option value="120">2H (120 Minutes)</option>
+                          <option value="240">4H (240 Minutes - Default)</option>
+                          <option value="1440">1D (Daily - 1440m)</option>
+                        </select>
+                      </div>
+
+                      {/* HTF RSI Length */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">HTF RSI Length</span>
+                          <span className="text-xs text-gray-500">Period for higher timeframe RSI calculation (min: 2, max: 100, default: 14)</span>
+                        </div>
+                        <input
+                          id="settings-mstt-htf-rsi-len"
+                          type="number"
+                          min={2}
+                          max={100}
+                          value={settings.indicators.msttHtfRsiLen ?? 14}
+                          onChange={(e) => handleUpdateIndicators('msttHtfRsiLen', Math.max(2, Math.min(100, parseInt(e.target.value) || 14)))}
+                          className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white text-center font-mono focus:outline-none focus:border-purple-500"
+                        />
+                      </div>
+
+                      {/* GROUP: DASHBOARD TABLE */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-cyan-400 border-b border-neutral-800 pb-1 pt-2">
+                        Dashboard Table
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show HUD Dashboard</span>
+                          <span className="text-xs text-gray-500">Display top-right table with trend, HTF RSI bar, target status &amp; R:R</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-show-dashboard"
+                            type="checkbox"
+                            checked={settings.indicators.msttShowDashboard ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttShowDashboard', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator: VIP Market Scanner™ (VIP Algos) - Single Pair */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isVipScannerActive) || (indicatorFilter === 'not_added' && !isVipScannerActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-sky-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-sky-400 flex items-center gap-1.5">
+                          ⚡ VIP Market Scanner™
+                        </span>
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40 rounded font-mono">
+                          VIP Algos
+                        </span>
+                        {isVipScannerActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        Multi-timeframe momentum, trend, volatility &amp; confluence matrix scanner for the active symbol (clean HUD without promotional watermarks)
+                      </span>
+                    </div>
+                    <input
+                      id="settings-toggle-vip-scanner"
+                      type="checkbox"
+                      checked={isVipScannerActive}
+                      onChange={(e) => handleUpdateIndicators('showVipMarketScanner', e.target.checked)}
+                      className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isVipScannerActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-sky-500/30 pt-1">
+                      {/* Show Scanner HUD */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Scanner HUD Table</span>
+                          <span className="text-xs text-gray-500">Displays multi-timeframe matrix table on chart</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-vip-show-hud"
+                            type="checkbox"
+                            checked={settings.indicators.vipScannerShowHud ?? true}
+                            onChange={(e) => handleUpdateIndicators('vipScannerShowHud', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-sky-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Scanner HUD Position */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Scanner HUD Position</span>
+                          <span className="text-xs text-gray-500">Placement anchor on chart canvas</span>
+                        </div>
+                        <select
+                          id="settings-vip-position"
+                          value={settings.indicators.vipScannerPosition ?? 'Top Left'}
+                          onChange={(e) => handleUpdateIndicators('vipScannerPosition', e.target.value as any)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-sky-500 font-medium"
+                        >
+                          <option value="Top Left">Top Left</option>
+                          <option value="Top Right">Top Right</option>
+                          <option value="Bottom Left">Bottom Left</option>
+                          <option value="Bottom Right">Bottom Right</option>
+                        </select>
+                      </div>
+
+                      {/* Technical Periods Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">RSI Period</span>
+                          <input
+                            type="number"
+                            min={2}
+                            max={50}
+                            value={settings.indicators.vipScannerRsiPeriod ?? 14}
+                            onChange={(e) => handleUpdateIndicators('vipScannerRsiPeriod', parseInt(e.target.value) || 14)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Fast EMA</span>
+                          <input
+                            type="number"
+                            min={2}
+                            max={50}
+                            value={settings.indicators.vipScannerFastEma ?? 9}
+                            onChange={(e) => handleUpdateIndicators('vipScannerFastEma', parseInt(e.target.value) || 9)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Slow EMA</span>
+                          <input
+                            type="number"
+                            min={5}
+                            max={100}
+                            value={settings.indicators.vipScannerSlowEma ?? 21}
+                            onChange={(e) => handleUpdateIndicators('vipScannerSlowEma', parseInt(e.target.value) || 21)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Baseline EMA</span>
+                          <input
+                            type="number"
+                            min={10}
+                            max={200}
+                            value={settings.indicators.vipScannerSignalEma ?? 50}
+                            onChange={(e) => handleUpdateIndicators('vipScannerSignalEma', parseInt(e.target.value) || 50)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Show Multi-TF Alignment Alerts */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Multi-TF Confluence Alerts</span>
+                          <span className="text-xs text-gray-500">Alerts when 4 or more timeframes align direction</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.vipScannerShowSignals ?? true}
+                            onChange={(e) => handleUpdateIndicators('vipScannerShowSignals', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-sky-500"></div>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator: Premium Signals with Dynamic TP & SL Optimization */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isDynamicTpSlActive) || (indicatorFilter === 'not_added' && !isDynamicTpSlActive)) && (
+                <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-emerald-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-emerald-400 flex items-center gap-1.5">
+                          🎯 Premium Signals with Dynamic TP &amp; SL
+                        </span>
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded font-mono">
+                          Dual Channels + TP/SL
+                        </span>
+                        {isDynamicTpSlActive ? (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-neutral-950 text-neutral-500 border border-neutral-800 rounded-full">
+                            Not Added
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        Dual dynamic volatility channels, strict 2-candle confirmation, 3 dynamic Take Profit levels (TP1/TP2/TP3), 50% TP3 volatility-adaptive Stop Loss, and real-time operation tracking
+                      </span>
+                    </div>
+                    <input
+                      id="settings-toggle-dynamic-tpsl"
+                      type="checkbox"
+                      checked={isDynamicTpSlActive}
+                      onChange={(e) => handleUpdateIndicators('showDynamicTpSlSignals', e.target.checked)}
+                      className="w-4 h-4 text-emerald-600 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                  </div>
+
+                  {isDynamicTpSlActive && (
+                    <div className="space-y-3.5 pl-3 border-l-2 border-emerald-500/30 pt-1">
+                      {/* GROUP: DUAL CHANNELS */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-sky-400 border-b border-neutral-800 pb-1">
+                        1️⃣ Dual Dynamic Channel Calculation
+                      </div>
+
+                      {/* Price Source */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Price Source</span>
+                          <span className="text-xs text-gray-500">Applied source price for channel averages</span>
+                        </div>
+                        <select
+                          value={settings.indicators.dynPriceSource ?? 'close'}
+                          onChange={(e) => handleUpdateIndicators('dynPriceSource', e.target.value as any)}
+                          className="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white focus:outline-none focus:border-emerald-500 font-medium"
+                        >
+                          <option value="close">Close</option>
+                          <option value="open">Open</option>
+                          <option value="high">High</option>
+                          <option value="low">Low</option>
+                          <option value="hl2">HL2 (High + Low) / 2</option>
+                          <option value="hlc3">HLC3 (High + Low + Close) / 3</option>
+                          <option value="ohlc4">OHLC4</option>
+                        </select>
+                      </div>
+
+                      {/* Channel Periods & Multipliers */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-sky-300">Channel 1 Period</span>
+                          <input
+                            type="number"
+                            min={3}
+                            max={100}
+                            value={settings.indicators.dynPeriod1 ?? 14}
+                            onChange={(e) => handleUpdateIndicators('dynPeriod1', parseInt(e.target.value) || 14)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-sky-300">Channel 1 Mult</span>
+                          <input
+                            type="number"
+                            step={0.1}
+                            min={0.1}
+                            max={10}
+                            value={settings.indicators.dynMultiplier1 ?? 1.5}
+                            onChange={(e) => handleUpdateIndicators('dynMultiplier1', parseFloat(e.target.value) || 1.5)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-indigo-300">Channel 2 Period</span>
+                          <input
+                            type="number"
+                            min={5}
+                            max={200}
+                            value={settings.indicators.dynPeriod2 ?? 34}
+                            onChange={(e) => handleUpdateIndicators('dynPeriod2', parseInt(e.target.value) || 34)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-indigo-300">Channel 2 Mult</span>
+                          <input
+                            type="number"
+                            step={0.1}
+                            min={0.1}
+                            max={10}
+                            value={settings.indicators.dynMultiplier2 ?? 2.5}
+                            onChange={(e) => handleUpdateIndicators('dynMultiplier2', parseFloat(e.target.value) || 2.5)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {/* GROUP: DYNAMIC TP & SL OPTIMIZATION */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-neutral-800 pb-1 pt-2">
+                        2️⃣ Dynamic TP &amp; SL Optimization
+                      </div>
+
+                      {/* TP1, TP2, TP3 factors & SL Ratio */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-emerald-300">TP1 Factor</span>
+                          <input
+                            type="number"
+                            step={0.1}
+                            min={0.1}
+                            max={10}
+                            value={settings.indicators.dynTp1Factor ?? 1.0}
+                            onChange={(e) => handleUpdateIndicators('dynTp1Factor', parseFloat(e.target.value) || 1.0)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-emerald-300">TP2 Factor</span>
+                          <input
+                            type="number"
+                            step={0.1}
+                            min={0.1}
+                            max={15}
+                            value={settings.indicators.dynTp2Factor ?? 2.0}
+                            onChange={(e) => handleUpdateIndicators('dynTp2Factor', parseFloat(e.target.value) || 2.0)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-emerald-300">TP3 Factor</span>
+                          <input
+                            type="number"
+                            step={0.1}
+                            min={0.1}
+                            max={20}
+                            value={settings.indicators.dynTp3Factor ?? 3.0}
+                            onChange={(e) => handleUpdateIndicators('dynTp3Factor', parseFloat(e.target.value) || 3.0)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-rose-300">SL Ratio (% of TP3)</span>
+                          <input
+                            type="number"
+                            step={0.05}
+                            min={0.1}
+                            max={1.5}
+                            value={settings.indicators.dynSlRatio ?? 0.50}
+                            onChange={(e) => handleUpdateIndicators('dynSlRatio', parseFloat(e.target.value) || 0.50)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Recent Amplitude Lookback */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Recent Price Range Lookback</span>
+                          <span className="text-xs text-gray-500">Bars lookback to measure maximum/minimum range amplitude for TP/SL</span>
+                        </div>
+                        <input
+                          type="number"
+                          min={3}
+                          max={50}
+                          value={settings.indicators.dynRangeLookback ?? 10}
+                          onChange={(e) => handleUpdateIndicators('dynRangeLookback', Math.max(3, parseInt(e.target.value) || 10))}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-emerald-500 text-center font-mono"
+                        />
+                      </div>
+
+                      {/* GROUP: REAL-TIME TRACKING & DISPLAY */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-amber-400 border-b border-neutral-800 pb-1 pt-2">
+                        3️⃣ Real-Time Tracking &amp; Chart Displays
+                      </div>
+
+                      {/* Show Tracking Information Table */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Real-Time Tracking Table HUD</span>
+                          <span className="text-xs text-gray-500">Quick view of active operation status, TP1/2/3 hits &amp; SL level</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.dynShowTable ?? true}
+                            onChange={(e) => handleUpdateIndicators('dynShowTable', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Show Buy / Sell Signals */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show 2-Candle Confirmed Signals</span>
+                          <span className="text-xs text-gray-500">Marks confirmed BUY 🟢 and SELL 🔴 entries on 2nd candle close</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.dynShowSignals ?? true}
+                            onChange={(e) => handleUpdateIndicators('dynShowSignals', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Show TP & SL Lines */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Dynamic TP &amp; SL Target Lines</span>
+                          <span className="text-xs text-gray-500">Draws TP1, TP2, TP3 and SL rays on active trade operation</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.dynShowTpSlLines ?? true}
+                            onChange={(e) => handleUpdateIndicators('dynShowTpSlLines', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Show Dual Channels on Chart */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Dual Channels &amp; Fill</span>
+                          <span className="text-xs text-gray-500">Renders Channel 1 &amp; Channel 2 boundary lines on canvas</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.dynShowChannels ?? true}
+                            onChange={(e) => handleUpdateIndicators('dynShowChannels', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 24: Trade Planner Buy Sell Signals, Stop Loss, TP & Lot Size [LunqFX] */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isTradePlannerActive) || (indicatorFilter === 'not_added' && !isTradePlannerActive)) && (
+                <div className={`p-4 rounded-xl border transition-all ${
+                  isTradePlannerActive
+                    ? 'bg-neutral-900/60 border-neutral-750 shadow-md'
+                    : 'bg-neutral-950/40 border-neutral-850 opacity-80 hover:opacity-100'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
+                        isTradePlannerActive ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'bg-neutral-800 text-neutral-400'
+                      }`}>
+                        24
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-200">Trade Planner Buy Sell Signals, Stop Loss, TP &amp; Lot Size [LunqFX]</span>
+                          <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-cyan-900/50 text-cyan-300 border border-cyan-700/50">
+                            Pine Script v6
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          Complete trade plan printed on bar close: Entry, ATR stop, 1R/2R/3R targets, account position sizing, and water-like value zone
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded-md">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isTradePlannerActive ? 'bg-cyan-400 animate-pulse' : 'bg-neutral-600'}`} />
+                        <span className={`text-[10px] font-mono font-bold ${isTradePlannerActive ? 'text-cyan-400' : 'text-neutral-500'}`}>
+                          {isTradePlannerActive ? 'ACTIVE' : 'INACTIVE'}
+                        </span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isTradePlannerActive}
+                          onChange={(e) => handleUpdateIndicators('showTradePlanner', e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-500"></div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {isTradePlannerActive && (
+                    <div className="mt-4 pt-4 border-t border-neutral-800 space-y-4">
+                      {/* GROUP 1: SETUP & MOVING TREND */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-cyan-400 border-b border-neutral-800 pb-1">
+                        1️⃣ Setup &amp; Trend Engine (Value Zone &amp; Moving EMA Lines)
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Fast EMA (Value Zone)</span>
+                          <input
+                            type="number"
+                            min={2}
+                            max={200}
+                            value={settings.indicators.tpFastLen ?? 21}
+                            onChange={(e) => handleUpdateIndicators('tpFastLen', Math.max(2, Math.min(200, parseInt(e.target.value) || 21)))}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Slow EMA (Trend)</span>
+                          <input
+                            type="number"
+                            min={5}
+                            max={400}
+                            value={settings.indicators.tpSlowLen ?? 50}
+                            onChange={(e) => handleUpdateIndicators('tpSlowLen', Math.max(5, Math.min(400, parseInt(e.target.value) || 50)))}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Momentum (RSI)</span>
+                          <input
+                            type="number"
+                            min={2}
+                            max={50}
+                            value={settings.indicators.tpRsiLen ?? 14}
+                            onChange={(e) => handleUpdateIndicators('tpRsiLen', Math.max(2, Math.min(50, parseInt(e.target.value) || 14)))}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Pullback Lookback (bars)</span>
+                          <input
+                            type="number"
+                            min={2}
+                            max={50}
+                            value={settings.indicators.tpPbBars ?? 10}
+                            onChange={(e) => handleUpdateIndicators('tpPbBars', Math.max(2, Math.min(50, parseInt(e.target.value) || 10)))}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-cyan-300">Zone Width (× ATR)</span>
+                          <input
+                            type="number"
+                            step={0.05}
+                            min={0.0}
+                            max={2.0}
+                            value={settings.indicators.tpZoneW ?? 0.25}
+                            onChange={(e) => handleUpdateIndicators('tpZoneW', parseFloat(e.target.value) || 0.25)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-rose-300">Stop Buffer (× ATR)</span>
+                          <input
+                            type="number"
+                            step={0.05}
+                            min={0.0}
+                            max={2.0}
+                            value={settings.indicators.tpSlBuf ?? 0.20}
+                            onChange={(e) => handleUpdateIndicators('tpSlBuf', parseFloat(e.target.value) || 0.20)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-rose-300">Min Stop (× ATR)</span>
+                          <input
+                            type="number"
+                            step={0.05}
+                            min={0.1}
+                            max={3.0}
+                            value={settings.indicators.tpMinStop ?? 0.50}
+                            onChange={(e) => handleUpdateIndicators('tpMinStop', parseFloat(e.target.value) || 0.50)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-rose-300">Max Stop (× ATR)</span>
+                          <input
+                            type="number"
+                            step={0.25}
+                            min={0.5}
+                            max={10.0}
+                            value={settings.indicators.tpMaxStop ?? 3.0}
+                            onChange={(e) => handleUpdateIndicators('tpMaxStop', parseFloat(e.target.value) || 3.0)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {/* GROUP 2: ACCOUNT & RISK */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-amber-400 border-b border-neutral-800 pb-1 pt-2">
+                        2️⃣ Account &amp; Risk Sizing
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Account Balance</span>
+                          <input
+                            type="number"
+                            min={1}
+                            step={100}
+                            value={settings.indicators.tpBalance ?? 10000}
+                            onChange={(e) => handleUpdateIndicators('tpBalance', Math.max(1, parseFloat(e.target.value) || 10000))}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-amber-300">Risk per Trade %</span>
+                          <input
+                            type="number"
+                            step={0.1}
+                            min={0.01}
+                            max={10}
+                            value={settings.indicators.tpRiskPct ?? 1.0}
+                            onChange={(e) => handleUpdateIndicators('tpRiskPct', parseFloat(e.target.value) || 1.0)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Account Currency</span>
+                          <select
+                            value={settings.indicators.tpAccCur ?? 'USD'}
+                            onChange={(e) => handleUpdateIndicators('tpAccCur', e.target.value)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white font-mono"
+                          >
+                            {['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'AUD', 'CAD', 'NZD', 'USDT'].map((cur) => (
+                              <option key={cur} value={cur}>{cur}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Units/Lot (0=Auto)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={settings.indicators.tpLotOver ?? 0}
+                            onChange={(e) => handleUpdateIndicators('tpLotOver', Math.max(0, parseFloat(e.target.value) || 0))}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {/* GROUP 3: TARGETS & MANAGEMENT */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-neutral-800 pb-1 pt-2">
+                        3️⃣ Targets &amp; Trade Management
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-amber-300">TP1 (R Multiple)</span>
+                          <input
+                            type="number"
+                            step={0.25}
+                            min={0.25}
+                            max={20}
+                            value={settings.indicators.tpR1 ?? 1.0}
+                            onChange={(e) => handleUpdateIndicators('tpR1', parseFloat(e.target.value) || 1.0)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-emerald-300">TP2 (R Multiple)</span>
+                          <input
+                            type="number"
+                            step={0.25}
+                            min={0.25}
+                            max={20}
+                            value={settings.indicators.tpR2 ?? 2.0}
+                            onChange={(e) => handleUpdateIndicators('tpR2', parseFloat(e.target.value) || 2.0)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-cyan-300">TP3 (R Multiple)</span>
+                          <input
+                            type="number"
+                            step={0.25}
+                            min={0.25}
+                            max={20}
+                            value={settings.indicators.tpR3 ?? 3.0}
+                            onChange={(e) => handleUpdateIndicators('tpR3', parseFloat(e.target.value) || 3.0)}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Move Stop to Entry After TP1</span>
+                            <span className="text-xs text-gray-500">Breakeven protection once TP1 is secured</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpBeOn ?? false}
+                              onChange={(e) => handleUpdateIndicators('tpBeOn', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Close on Opposite Signal</span>
+                            <span className="text-xs text-gray-500">Auto-exit open plan if counter-trend signal fires</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpOppOn ?? true}
+                              onChange={(e) => handleUpdateIndicators('tpOppOn', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* GROUP 4: VISUALS, TOGGLES & HUD */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-pink-400 border-b border-neutral-800 pb-1 pt-2">
+                        4️⃣ Visuals, Display Toggles &amp; HUD Panel
+                      </div>
+
+                      {/* Candle Palette */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Candle Palette</span>
+                          <span className="text-xs text-gray-500">Choose custom neon or classic candle coloring</span>
+                        </div>
+                        <select
+                          value={settings.indicators.tpCandSty ?? 'Neon Bloom'}
+                          onChange={(e) => handleUpdateIndicators('tpCandSty', e.target.value as any)}
+                          className="px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white font-mono"
+                        >
+                          {['Neon Bloom', 'Midnight Cyan', 'Vibrant Neon', 'Classic Soft', 'Cool Blue', 'Off'].map((sty) => (
+                            <option key={sty} value={sty}>{sty}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Core On/Off Switches */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Show Water-Like Value Zone</span>
+                            <span className="text-xs text-gray-500">Translucent flowing ribbon along Fast EMA</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpShowZone ?? true}
+                              onChange={(e) => handleUpdateIndicators('tpShowZone', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Show EMA Moving Lines</span>
+                            <span className="text-xs text-gray-500">Fast EMA (width 2) &amp; Slow EMA (width 1.2)</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpShowEmaLines ?? true}
+                              onChange={(e) => handleUpdateIndicators('tpShowEmaLines', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Show Buy &amp; Sell Signals</span>
+                            <span className="text-xs text-gray-500">Arrows &amp; entry badges with exact calculated lot size</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpShowSignals ?? true}
+                              onChange={(e) => handleUpdateIndicators('tpShowSignals', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Show Risk &amp; Reward Boxes</span>
+                            <span className="text-xs text-gray-500">Shaded risk (red) and reward (cyan/pink) zones</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpShowPlans ?? true}
+                              onChange={(e) => handleUpdateIndicators('tpShowPlans', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Individual Target Toggles */}
+                      <div className="p-3 bg-neutral-900/90 rounded-lg border border-neutral-800 space-y-2">
+                        <span className="text-xs font-semibold text-gray-300">Individual Target Lines &amp; Tags</span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-850 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpShowSl ?? true}
+                              onChange={(e) => handleUpdateIndicators('tpShowSl', e.target.checked)}
+                              className="rounded text-rose-500 focus:ring-0 bg-neutral-900 border-neutral-700"
+                            />
+                            <span className="text-xs font-mono text-rose-400">Show SL</span>
+                          </label>
+                          <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-850 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpShowTp1 ?? true}
+                              onChange={(e) => handleUpdateIndicators('tpShowTp1', e.target.checked)}
+                              className="rounded text-amber-500 focus:ring-0 bg-neutral-900 border-neutral-700"
+                            />
+                            <span className="text-xs font-mono text-amber-300">Show TP1</span>
+                          </label>
+                          <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-850 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpShowTp2 ?? true}
+                              onChange={(e) => handleUpdateIndicators('tpShowTp2', e.target.checked)}
+                              className="rounded text-emerald-500 focus:ring-0 bg-neutral-900 border-neutral-700"
+                            />
+                            <span className="text-xs font-mono text-emerald-300">Show TP2</span>
+                          </label>
+                          <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-850 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpShowTp3 ?? true}
+                              onChange={(e) => handleUpdateIndicators('tpShowTp3', e.target.checked)}
+                              className="rounded text-cyan-500 focus:ring-0 bg-neutral-900 border-neutral-700"
+                            />
+                            <span className="text-xs font-mono text-cyan-300">Show TP3</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* HUD Panel & Positioning */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Show HUD Panel</span>
+                            <span className="text-xs text-gray-500">Live position table</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpShowHud ?? true}
+                              onChange={(e) => handleUpdateIndicators('tpShowHud', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">HUD Position</span>
+                          <select
+                            value={settings.indicators.tpHudPos ?? 'Top Right'}
+                            onChange={(e) => handleUpdateIndicators('tpHudPos', e.target.value as any)}
+                            className="px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white font-mono"
+                          >
+                            {['Top Right', 'Top Left', 'Bottom Right', 'Bottom Left', 'Middle Right'].map((pos) => (
+                              <option key={pos} value={pos}>{pos}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Level Tag Size</span>
+                          <select
+                            value={settings.indicators.tpTagSize ?? 'Normal'}
+                            onChange={(e) => handleUpdateIndicators('tpTagSize', e.target.value as any)}
+                            className="px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white font-mono"
+                          >
+                            {['Small', 'Normal', 'Large', 'Huge'].map((sz) => (
+                              <option key={sz} value={sz}>{sz}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Plans kept on chart */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Plans Kept on Chart (keepN)</span>
+                          <span className="text-xs text-gray-500">How many recent completed trade plans remain drawn</span>
+                        </div>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={settings.indicators.tpKeepN ?? 2}
+                          onChange={(e) => handleUpdateIndicators('tpKeepN', Math.max(1, Math.min(10, parseInt(e.target.value) || 2)))}
+                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-cyan-500 text-center font-mono"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 25: Fibonacci Sequence Swing [ChartPrime] */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isFibSwingActive) || (indicatorFilter === 'not_added' && !isFibSwingActive)) && (
+                <div className={`p-4 rounded-xl border transition-all ${
+                  isFibSwingActive
+                    ? 'bg-neutral-900/60 border-neutral-750 shadow-md'
+                    : 'bg-neutral-950/40 border-neutral-850 opacity-80 hover:opacity-100'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
+                        isFibSwingActive ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-neutral-800 text-neutral-400'
+                      }`}>
+                        25
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-200">Fibonacci Sequence Swing [ChartPrime]</span>
+                          <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-indigo-900/50 text-indigo-300 border border-indigo-700/50">
+                            ChartPrime Official
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          ZigZag swing projections with Fibonacci sequence (0, 1, 1, 2, 3, 5, 8, 13, 21), retest frequency gradient, and advance pivot tell arrows
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded-md">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isFibSwingActive ? 'bg-indigo-400 animate-pulse' : 'bg-neutral-600'}`} />
+                        <span className={`text-[10px] font-mono font-bold ${isFibSwingActive ? 'text-indigo-400' : 'text-neutral-500'}`}>
+                          {isFibSwingActive ? 'ACTIVE' : 'INACTIVE'}
+                        </span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isFibSwingActive}
+                          onChange={(e) => handleUpdateIndicators('showFibonacciSequenceSwing', e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500"></div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {isFibSwingActive && (
+                    <div className="mt-4 pt-4 border-t border-neutral-800 space-y-4">
+                      {/* Section 1: Swing Core Inputs */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-indigo-400 border-b border-neutral-800 pb-1">
+                        1️⃣ Live Candle 0 Early Predictor &amp; Swing Depth
+                      </div>
+
+                      {/* Live Candle 0 Early Turn Predictor Toggle */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-200">Live Candle 0 Early Turn Predictor</span>
+                            <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-emerald-900/60 text-emerald-300 border border-emerald-700/50">
+                              RECOMMENDED
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-400">
+                            Detects early reversal turns right on live candle 0, projecting advance tell arrows and Fibonacci levels BEFORE price completes the move
+                          </span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={settings.indicators.fibEarlyTurnMode ?? true}
+                            onChange={(e) => handleUpdateIndicators('fibEarlyTurnMode', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Quick Presets */}
+                      <div className="flex flex-wrap items-center gap-2 p-2.5 bg-neutral-950 rounded-lg border border-neutral-800">
+                        <span className="text-xs font-semibold text-gray-400">Speed Presets:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleUpdateIndicators('fibDepth', 10);
+                            handleUpdateIndicators('fibEarlyDepth', 8);
+                          }}
+                          className={`px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+                            (settings.indicators.fibDepth ?? 20) === 10
+                              ? 'bg-indigo-600 text-white font-bold shadow'
+                              : 'bg-neutral-850 text-gray-300 hover:text-white hover:bg-neutral-800'
+                          }`}
+                        >
+                          ⚡ Live Scalping (10)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleUpdateIndicators('fibDepth', 20);
+                            handleUpdateIndicators('fibEarlyDepth', 12);
+                          }}
+                          className={`px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+                            (settings.indicators.fibDepth ?? 20) === 20
+                              ? 'bg-indigo-600 text-white font-bold shadow'
+                              : 'bg-neutral-850 text-gray-300 hover:text-white hover:bg-neutral-800'
+                          }`}
+                        >
+                          🎯 Day Trading (20)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleUpdateIndicators('fibDepth', 150);
+                            handleUpdateIndicators('fibEarlyDepth', 25);
+                          }}
+                          className={`px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+                            (settings.indicators.fibDepth ?? 20) === 150
+                              ? 'bg-indigo-600 text-white font-bold shadow'
+                              : 'bg-neutral-850 text-gray-300 hover:text-white hover:bg-neutral-800'
+                          }`}
+                        >
+                          🏛 Macro ZigZag (150)
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">ZigZag Depth</span>
+                          <span className="text-[10px] text-gray-500">Lookback bars for macro swings</span>
+                          <input
+                            type="number"
+                            min={5}
+                            max={500}
+                            value={settings.indicators.fibDepth ?? 20}
+                            onChange={(e) => handleUpdateIndicators('fibDepth', Math.max(5, Math.min(500, parseInt(e.target.value) || 20)))}
+                            className="w-full mt-1 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-indigo-500 text-center font-mono"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-emerald-300">Early Sensitivity</span>
+                          <span className="text-[10px] text-gray-500">Lookback for Candle 0 turns</span>
+                          <input
+                            type="number"
+                            min={3}
+                            max={50}
+                            value={settings.indicators.fibEarlyDepth ?? 12}
+                            onChange={(e) => handleUpdateIndicators('fibEarlyDepth', Math.max(3, Math.min(50, parseInt(e.target.value) || 12)))}
+                            className="w-full mt-1 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-indigo-500 text-center font-mono"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">Retest Limit</span>
+                          <span className="text-[10px] text-gray-500">Normalizes retest gradient</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={settings.indicators.fibMaxRetest ?? 30}
+                            onChange={(e) => handleUpdateIndicators('fibMaxRetest', Math.max(1, Math.min(100, parseInt(e.target.value) || 30)))}
+                            className="w-full mt-1 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-indigo-500 text-center font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Section 2: Colors */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-amber-400 border-b border-neutral-800 pb-1 pt-2">
+                        2️⃣ Color Customization
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-gray-300">ZigZag Color</span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <input
+                              type="color"
+                              value={toHexColor(settings.indicators.fibZigCol, '#9297a7')}
+                              onChange={(e) => handleUpdateIndicators('fibZigCol', e.target.value)}
+                              className="w-8 h-7 rounded border border-neutral-700 cursor-pointer bg-transparent"
+                            />
+                            <span className="text-xs font-mono text-gray-400 uppercase">
+                              {toHexColor(settings.indicators.fibZigCol, '#9297a7')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-emerald-400">Up Levels Color</span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <input
+                              type="color"
+                              value={toHexColor(settings.indicators.fibColUp, '#22c55e')}
+                              onChange={(e) => handleUpdateIndicators('fibColUp', e.target.value)}
+                              className="w-8 h-7 rounded border border-neutral-700 cursor-pointer bg-transparent"
+                            />
+                            <span className="text-xs font-mono text-gray-400 uppercase">
+                              {toHexColor(settings.indicators.fibColUp, '#22c55e')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-[11px] font-semibold text-rose-400">Down Levels Color</span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <input
+                              type="color"
+                              value={toHexColor(settings.indicators.fibColDn, '#ef4444')}
+                              onChange={(e) => handleUpdateIndicators('fibColDn', e.target.value)}
+                              className="w-8 h-7 rounded border border-neutral-700 cursor-pointer bg-transparent"
+                            />
+                            <span className="text-xs font-mono text-gray-400 uppercase">
+                              {toHexColor(settings.indicators.fibColDn, '#ef4444')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 3: Visual Elements & Toggles */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-cyan-400 border-b border-neutral-800 pb-1 pt-2">
+                        3️⃣ Chart Display &amp; Tell Arrow Toggles
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Show Pivot Tell Arrows (▲ / ▼)</span>
+                            <span className="text-xs text-gray-500">Advance swing signals printed before future price unfolds</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.fibShowArrows ?? true}
+                              onChange={(e) => handleUpdateIndicators('fibShowArrows', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-500"></div>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Show Fibonacci Sequence Levels</span>
+                            <span className="text-xs text-gray-500">0, 1, 1, 2, 3, 5, 8, 13, 21 harmonic grid lines</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.fibShowLevels ?? true}
+                              onChange={(e) => handleUpdateIndicators('fibShowLevels', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-500"></div>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Show Retest Frequency Tags</span>
+                            <span className="text-xs text-gray-500">Retest count badges projected to bar + 5 (e.g. 8 -◆- 14)</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.fibShowLabels ?? true}
+                              onChange={(e) => handleUpdateIndicators('fibShowLabels', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-500"></div>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Show ZigZag Dashed Trend</span>
+                            <span className="text-xs text-gray-500">Connecting swing highs &amp; lows</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.fibShowZigZag ?? true}
+                              onChange={(e) => handleUpdateIndicators('fibShowZigZag', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-500"></div>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850 sm:col-span-2">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Show Historical Swings &amp; Levels</span>
+                            <span className="text-xs text-gray-500">Preserves recent completed Fibonacci grids on chart</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.fibShowHistorical ?? true}
+                              onChange={(e) => handleUpdateIndicators('fibShowHistorical', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-500"></div>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 26: Multi-Timeframe EMA 15m 1H */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMtfEmaActive) || (indicatorFilter === 'not_added' && !isMtfEmaActive)) && (
+                <div className={`p-4 rounded-xl border transition-all ${
+                  isMtfEmaActive
+                    ? 'bg-neutral-900/90 border-blue-500/40 shadow-lg'
+                    : 'bg-neutral-900/50 border-neutral-800'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-lg ${
+                        isMtfEmaActive ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'bg-neutral-800 text-neutral-400'
+                      }`}>
+                        <TrendingUp className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-200">Multi-Timeframe EMA 15m 1H</span>
+                          <span className="text-[10px] bg-blue-900/70 text-blue-300 px-2 py-0.5 rounded font-mono font-bold border border-blue-500/30">
+                            Pine Script v6 Exact
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Smooth higher-timeframe-equivalent EMAs (15m: 3×, 1H: 12×) calculated on continuous candle data without stepping
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-neutral-950 border border-neutral-800">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isMtfEmaActive ? 'bg-blue-400 animate-pulse' : 'bg-neutral-600'}`} />
+                        <span className={`text-[10px] font-mono font-bold ${isMtfEmaActive ? 'text-blue-400' : 'text-neutral-500'}`}>
+                          {isMtfEmaActive ? 'ACTIVE' : 'INACTIVE'}
+                        </span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isMtfEmaActive}
+                          onChange={(e) => handleUpdateIndicators('showMultiTimeframeEma', e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {isMtfEmaActive && (
+                    <div className="mt-4 pt-4 border-t border-neutral-800 space-y-4">
+                      {/* Description & Pine Script Formula Callout */}
+                      <div className="p-3 bg-blue-950/20 border border-blue-500/20 rounded-lg text-xs text-blue-200/90 leading-relaxed font-mono">
+                        <div className="text-[11px] font-bold text-blue-300 mb-1">PINE SCRIPT v6 FORMULA:</div>
+                        <div>• 15-minute EMA = smooth_ema(close, length * 3)</div>
+                        <div>• 1-hour EMA = smooth_ema(close, length * 12)</div>
+                        <div className="text-[10px] text-gray-400 mt-1 font-sans">Preserves continuous, un-stepped smooth line behavior directly on your active chart.</div>
+                      </div>
+
+                      {/* Main Settings Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* EMA Length */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-300 flex items-center justify-between">
+                            <span>EMA Length (Length)</span>
+                            <span className="text-[10px] font-mono text-gray-500">minval: 1</span>
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="500"
+                            value={settings.indicators.mtfEmaLength ?? 20}
+                            onChange={(e) => handleUpdateIndicators('mtfEmaLength', Math.max(1, Math.min(500, parseInt(e.target.value) || 20)))}
+                            className="w-full px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-gray-200 focus:outline-none focus:border-blue-500 font-mono"
+                          />
+                        </div>
+
+                        {/* Pine Script v6 Exact Multipliers Callout */}
+                        <div className="flex items-center justify-between p-2.5 bg-neutral-950/60 rounded-lg border border-neutral-800/80">
+                          <div>
+                            <div className="text-xs font-medium text-gray-300">TradingView Pine Script Execution</div>
+                            <div className="text-[10px] text-emerald-400 font-mono">
+                              15m EMA: length × 3 (60) • 1H EMA: length × 12 (240)
+                            </div>
+                          </div>
+                          <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-mono font-bold border border-emerald-500/30">
+                            1:1 EXACT
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Visual Render Style Selector: Water Glaze vs Classic Line */}
+                      <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800/80 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-xs font-semibold text-gray-200">Line Visual Style (የላይኑ ስታይል)</div>
+                            <div className="text-[11px] text-gray-400">Choose between the aesthetic Water Glaze or Classic Flat Line</div>
+                          </div>
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold border ${
+                            (settings.indicators.mtfEmaRenderStyle ?? 'water_glaze') === 'water_glaze'
+                              ? 'bg-teal-500/20 text-teal-300 border-teal-500/40'
+                              : 'bg-neutral-800 text-neutral-300 border-neutral-700'
+                          }`}>
+                            {(settings.indicators.mtfEmaRenderStyle ?? 'water_glaze') === 'water_glaze' ? '💧 WATER GLAZE' : '📏 CLASSIC LINE'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          {/* Option 1: Water Glaze */}
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateIndicators('mtfEmaRenderStyle', 'water_glaze')}
+                            className={`flex flex-col items-start p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                              (settings.indicators.mtfEmaRenderStyle ?? 'water_glaze') === 'water_glaze'
+                                ? 'bg-teal-950/40 border-teal-500/70 ring-1 ring-teal-500/50 shadow-sm'
+                                : 'bg-neutral-900/60 border-neutral-800 hover:border-neutral-700 text-gray-400'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between w-full mb-1">
+                              <span className="text-xs font-bold text-teal-300 flex items-center gap-1.5">
+                                <span>💧</span> Water Glaze
+                              </span>
+                              {(settings.indicators.mtfEmaRenderStyle ?? 'water_glaze') === 'water_glaze' && (
+                                <span className="w-2 h-2 rounded-full bg-teal-400"></span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-gray-300 leading-tight">
+                              Glossy Teal + Glazed Ceramic with luminous water body &amp; tiny edge boundary lines.
+                            </span>
+                          </button>
+
+                          {/* Option 2: Classic Line */}
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateIndicators('mtfEmaRenderStyle', 'line')}
+                            className={`flex flex-col items-start p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                              settings.indicators.mtfEmaRenderStyle === 'line'
+                                ? 'bg-blue-950/40 border-blue-500/70 ring-1 ring-blue-500/50 shadow-sm'
+                                : 'bg-neutral-900/60 border-neutral-800 hover:border-neutral-700 text-gray-400'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between w-full mb-1">
+                              <span className="text-xs font-bold text-gray-200 flex items-center gap-1.5">
+                                <span>📏</span> Classic Line
+                              </span>
+                              {settings.indicators.mtfEmaRenderStyle === 'line' && (
+                                <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-gray-300 leading-tight">
+                              Standard clean solid 2px line with customizable flat colors (#00008B / #FF0000).
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 15m and 1H EMA Toggles & Color Controls */}
+                      <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800/80 space-y-3">
+                        <div className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Lines &amp; Visuals</div>
+
+                        {/* 15-minute EMA */}
+                        <div className="flex items-center justify-between py-1">
+                          <div className="flex items-center gap-2">
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.indicators.mtfEmaShow15min ?? true}
+                                onChange={(e) => handleUpdateIndicators('mtfEmaShow15min', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-teal-500"></div>
+                            </label>
+                            <span className="text-xs font-medium text-gray-300">Show 15-minute EMA (Fast Ribbon)</span>
+                            <span className="text-[10px] text-gray-500 font-mono">({(settings.indicators.mtfEmaLength ?? 20) * 3} bars)</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="color"
+                              value={toHexColor(settings.indicators.mtfEmaColor15min, '#0d9488')}
+                              onChange={(e) => handleUpdateIndicators('mtfEmaColor15min', e.target.value)}
+                              className="w-7 h-7 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                            />
+                            <span className="text-[10px] font-mono text-gray-400 uppercase">
+                              {toHexColor(settings.indicators.mtfEmaColor15min, '#0d9488')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 1-hour EMA */}
+                        <div className="flex items-center justify-between py-1 border-t border-neutral-850">
+                          <div className="flex items-center gap-2">
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.indicators.mtfEmaShow60min ?? true}
+                                onChange={(e) => handleUpdateIndicators('mtfEmaShow60min', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-sky-500"></div>
+                            </label>
+                            <span className="text-xs font-medium text-gray-300">Show 1-hour EMA (Slow Ribbon)</span>
+                            <span className="text-[10px] text-gray-500 font-mono">({(settings.indicators.mtfEmaLength ?? 20) * 12} bars)</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="color"
+                              value={toHexColor(settings.indicators.mtfEmaColor60min, '#0284c7')}
+                              onChange={(e) => handleUpdateIndicators('mtfEmaColor60min', e.target.value)}
+                              className="w-7 h-7 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                            />
+                            <span className="text-[10px] font-mono text-gray-400 uppercase">
+                              {toHexColor(settings.indicators.mtfEmaColor60min, '#0284c7')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Quick Reset to Pine Script Defaults */}
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleUpdateIndicators('mtfEmaLength', 20);
+                            handleUpdateIndicators('mtfEmaShow15min', true);
+                            handleUpdateIndicators('mtfEmaShow60min', true);
+                            handleUpdateIndicators('mtfEmaColor15min', '#00008B');
+                            handleUpdateIndicators('mtfEmaColor60min', '#FF0000');
+                            handleUpdateIndicators('mtfEmaAdaptiveTf', true);
+                          }}
+                          className="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-xs text-gray-300 rounded-md transition-colors font-medium cursor-pointer"
+                        >
+                          Reset to Pine Script Defaults
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 27: Mrov Trade: Opening Range (Pine Script v6 Exact Implementation) */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMrovTradeActive) || (indicatorFilter === 'not_added' && !isMrovTradeActive)) && (
+                <div className={`p-4 rounded-xl border transition-all ${
+                  isMrovTradeActive
+                    ? 'bg-neutral-900/90 border-blue-500/40 shadow-lg'
+                    : 'bg-neutral-900/50 border-neutral-800'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 font-black text-sm">
+                        OR
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-bold text-white">Mrov Trade: Opening Range</h4>
+                          <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded">
+                            Pine Script v6
+                          </span>
+                          <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded">
+                            NY 09:30–10:00
+                          </span>
+                        </div>
+                        <p className="text-xs text-neutral-400 mt-0.5">
+                          High-precision New York 09:30–10:00 Opening Range with breakout signals, dynamic R:R trade grid &amp; real-time performance statistics
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-neutral-950 border border-neutral-800">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isMrovTradeActive ? 'bg-blue-400 animate-pulse' : 'bg-neutral-600'}`} />
+                        <span className={`text-[10px] font-mono font-bold ${isMrovTradeActive ? 'text-blue-400' : 'text-neutral-500'}`}>
+                          {isMrovTradeActive ? 'ACTIVE' : 'INACTIVE'}
+                        </span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isMrovTradeActive}
+                          onChange={(e) => handleUpdateIndicators('showMrovOpeningRange', e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {isMrovTradeActive && (
+                    <div className="mt-4 pt-4 border-t border-neutral-800 space-y-4">
+                      {/* Group 1: Opening Range */}
+                      <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800/80 space-y-3">
+                        <div className="text-xs font-semibold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>📦</span> Group: Opening Range (09:30–10:00 NY)
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          {/* Range Color */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">Range Color</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={toHexColor(settings.indicators.mrovRangeColor, '#2979ff')}
+                                onChange={(e) => handleUpdateIndicators('mrovRangeColor', e.target.value)}
+                                className="w-7 h-7 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                              />
+                              <span className="text-[10px] font-mono text-gray-400 uppercase">
+                                {toHexColor(settings.indicators.mrovRangeColor, '#2979ff')}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Range Transparency (0..100) */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">Range Transparency</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                value={settings.indicators.mrovFillTransparency ?? 88}
+                                onChange={(e) => handleUpdateIndicators('mrovFillTransparency', parseInt(e.target.value))}
+                                className="w-24 accent-blue-500 cursor-pointer"
+                              />
+                              <span className="text-xs font-mono text-gray-300 w-10 text-right">
+                                {settings.indicators.mrovFillTransparency ?? 88}%
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Border Width (1..4) */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">Border Width</span>
+                            <div className="flex items-center gap-1">
+                              {[1, 2, 3, 4].map((w) => (
+                                <button
+                                  key={w}
+                                  type="button"
+                                  onClick={() => handleUpdateIndicators('mrovBorderWidth', w)}
+                                  className={`px-2.5 py-0.5 rounded text-xs font-mono font-bold transition-all ${
+                                    (settings.indicators.mrovBorderWidth ?? 2) === w
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-neutral-800 text-gray-400 hover:text-white'
+                                  }`}
+                                >
+                                  {w}px
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Level Width (1..4) */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">Level Width</span>
+                            <div className="flex items-center gap-1">
+                              {[1, 2, 3, 4].map((w) => (
+                                <button
+                                  key={w}
+                                  type="button"
+                                  onClick={() => handleUpdateIndicators('mrovLevelWidth', w)}
+                                  className={`px-2.5 py-0.5 rounded text-xs font-mono font-bold transition-all ${
+                                    (settings.indicators.mrovLevelWidth ?? 2) === w
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-neutral-800 text-gray-400 hover:text-white'
+                                  }`}
+                                >
+                                  {w}px
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Show Range Caption */}
+                        <div className="flex items-center justify-between pt-2 border-t border-neutral-850">
+                          <span className="text-xs font-medium text-gray-300">Show Opening Range Label</span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.mrovShowRangeCaption ?? true}
+                              onChange={(e) => handleUpdateIndicators('mrovShowRangeCaption', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Group 2: Signal */}
+                      <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800/80 space-y-3">
+                        <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>⚡</span> Group: Signal
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          {/* LONG Color */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">LONG Color</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={toHexColor(settings.indicators.mrovLongColor, '#00c878')}
+                                onChange={(e) => handleUpdateIndicators('mrovLongColor', e.target.value)}
+                                className="w-7 h-7 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                              />
+                              <span className="text-[10px] font-mono text-gray-400 uppercase">
+                                {toHexColor(settings.indicators.mrovLongColor, '#00c878')}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* SHORT Color */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">SHORT Color</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={toHexColor(settings.indicators.mrovShortColor, '#e64646')}
+                                onChange={(e) => handleUpdateIndicators('mrovShortColor', e.target.value)}
+                                className="w-7 h-7 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                              />
+                              <span className="text-[10px] font-mono text-gray-400 uppercase">
+                                {toHexColor(settings.indicators.mrovShortColor, '#e64646')}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 pt-2 border-t border-neutral-850">
+                          {/* Highlight Breakout Candle */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-gray-300">Highlight Breakout Candle</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.indicators.mrovHighlightBreakout ?? true}
+                                onChange={(e) => handleUpdateIndicators('mrovHighlightBreakout', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                            </label>
+                          </div>
+
+                          {/* Show LONG / SHORT Labels */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-gray-300">Show LONG / SHORT Labels</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.indicators.mrovShowSignalLabels ?? true}
+                                onChange={(e) => handleUpdateIndicators('mrovShowSignalLabels', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                            </label>
+                          </div>
+
+                          {/* Show Entry Marker */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-gray-300">Show Entry Marker</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.indicators.mrovShowBreakoutMarker ?? true}
+                                onChange={(e) => handleUpdateIndicators('mrovShowBreakoutMarker', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Group 3: Trade (Risk / Reward & Grid) */}
+                      <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800/80 space-y-3">
+                        <div className="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>🎯</span> Group: Trade (Risk / Reward &amp; Grid)
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          {/* Risk / Reward ratio */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">Risk / Reward (R:R)</span>
+                            <div className="flex items-center gap-1">
+                              {[1.5, 2.0, 3.0, 4.0, 5.0].map((val) => (
+                                <button
+                                  key={val}
+                                  type="button"
+                                  onClick={() => handleUpdateIndicators('mrovRR', val)}
+                                  className={`px-2 py-0.5 rounded text-xs font-mono font-bold transition-all ${
+                                    (settings.indicators.mrovRR ?? 3.0) === val
+                                      ? 'bg-amber-600 text-white'
+                                      : 'bg-neutral-800 text-gray-400 hover:text-white'
+                                  }`}
+                                >
+                                  {val}R
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Custom R:R Input */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">Custom R:R Ratio</span>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0.1"
+                              max="20"
+                              value={settings.indicators.mrovRR ?? 3.0}
+                              onChange={(e) => handleUpdateIndicators('mrovRR', parseFloat(e.target.value) || 3.0)}
+                              className="w-20 px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-xs font-mono text-white text-right"
+                            />
+                          </div>
+
+                          {/* Risk Zone Color */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">Risk Zone Color</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={toHexColor(settings.indicators.mrovRiskColor, '#dc4155')}
+                                onChange={(e) => handleUpdateIndicators('mrovRiskColor', e.target.value)}
+                                className="w-7 h-7 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                              />
+                              <span className="text-[10px] font-mono text-gray-400 uppercase">
+                                {toHexColor(settings.indicators.mrovRiskColor, '#dc4155')}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Reward Zone Color */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">Reward Zone Color</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={toHexColor(settings.indicators.mrovRewardColor, '#00a078')}
+                                onChange={(e) => handleUpdateIndicators('mrovRewardColor', e.target.value)}
+                                className="w-7 h-7 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                              />
+                              <span className="text-[10px] font-mono text-gray-400 uppercase">
+                                {toHexColor(settings.indicators.mrovRewardColor, '#00a078')}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Entry Color */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">Entry Line Color</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={toHexColor(settings.indicators.mrovEntryColor, '#e6e6e6')}
+                                onChange={(e) => handleUpdateIndicators('mrovEntryColor', e.target.value)}
+                                className="w-7 h-7 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                              />
+                              <span className="text-[10px] font-mono text-gray-400 uppercase">
+                                {toHexColor(settings.indicators.mrovEntryColor, '#e6e6e6')}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Zone Transparency (0..100) */}
+                          <div className="flex items-center justify-between py-1">
+                            <span className="text-xs font-medium text-gray-300">Zone Transparency</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                value={settings.indicators.mrovZoneTransparency ?? 78}
+                                onChange={(e) => handleUpdateIndicators('mrovZoneTransparency', parseInt(e.target.value))}
+                                className="w-24 accent-amber-500 cursor-pointer"
+                              />
+                              <span className="text-xs font-mono text-gray-300 w-10 text-right">
+                                {settings.indicators.mrovZoneTransparency ?? 78}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 pt-2 border-t border-neutral-850">
+                          {/* Show Trade Grid */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-gray-300">Show Trade Grid</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.indicators.mrovShowTradeGrid ?? true}
+                                onChange={(e) => handleUpdateIndicators('mrovShowTradeGrid', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                            </label>
+                          </div>
+
+                          {/* Show Statistics Table HUD */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-gray-300">Show Statistics Table HUD</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.indicators.mrovShowStatsTable ?? true}
+                                onChange={(e) => handleUpdateIndicators('mrovShowStatsTable', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Reset to Pine Script Defaults */}
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleUpdateIndicators('mrovRangeColor', '#2979ff');
+                            handleUpdateIndicators('mrovFillTransparency', 88);
+                            handleUpdateIndicators('mrovBorderWidth', 2);
+                            handleUpdateIndicators('mrovLevelWidth', 2);
+                            handleUpdateIndicators('mrovShowRangeCaption', true);
+                            handleUpdateIndicators('mrovLongColor', '#00c878');
+                            handleUpdateIndicators('mrovShortColor', '#e64646');
+                            handleUpdateIndicators('mrovHighlightBreakout', true);
+                            handleUpdateIndicators('mrovShowSignalLabels', true);
+                            handleUpdateIndicators('mrovShowBreakoutMarker', true);
+                            handleUpdateIndicators('mrovRR', 3.0);
+                            handleUpdateIndicators('mrovShowTradeGrid', true);
+                            handleUpdateIndicators('mrovRiskColor', '#dc4155');
+                            handleUpdateIndicators('mrovRewardColor', '#00a078');
+                            handleUpdateIndicators('mrovEntryColor', '#e6e6e6');
+                            handleUpdateIndicators('mrovZoneTransparency', 78);
+                            handleUpdateIndicators('mrovShowStatsTable', true);
+                          }}
+                          className="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-xs text-gray-300 rounded-md transition-colors font-medium cursor-pointer"
+                        >
+                          Reset to Pine Script Defaults
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 28: EMA 50/100 + Candle Trend | Albert Setups (Pine Script v6 Exact Implementation) */}
+              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isEma50100Active) || (indicatorFilter === 'not_added' && !isEma50100Active)) && (
+                <div className={`p-4 rounded-xl border transition-all ${
+                  isEma50100Active
+                    ? 'bg-neutral-900/90 border-emerald-500/40 shadow-lg'
+                    : 'bg-neutral-900/50 border-neutral-800'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-black text-xs font-mono">
+                        50/100
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-bold text-white">EMA 50/100 + Candle Trend</h4>
+                          <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded">
+                            Albert Setups
+                          </span>
+                          <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded">
+                            Pine Script v6
+                          </span>
+                        </div>
+                        <p className="text-xs text-neutral-400 mt-0.5">
+                          Dual EMA 50/100 trend filter with confirmed crossover BUY/SELL signal labels, trend candle coloring (lime/red), and optional background cloud
+                        </p>
+                        {/* Quick EMA Line On/Off Toggles directly on the Card */}
+                        <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-neutral-800/60">
+                          <span className="text-[11px] font-semibold text-gray-400">Line Visibility:</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUpdateIndicators('ema50100ShowFastEma', !(settings.indicators.ema50100ShowFastEma ?? true));
+                            }}
+                            className={`px-2.5 py-0.5 rounded text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                              (settings.indicators.ema50100ShowFastEma ?? true)
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-500/30 shadow-sm'
+                                : 'bg-neutral-950 text-gray-500 border border-neutral-800 line-through opacity-70 hover:opacity-100 hover:border-neutral-700'
+                            }`}
+                            title="Toggle Fast EMA line on/off"
+                          >
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: settings.indicators.ema50100FastColor || '#00e676' }} />
+                            Fast EMA ({settings.indicators.ema50100FastLength ?? 50}): {(settings.indicators.ema50100ShowFastEma ?? true) ? 'ON' : 'OFF'}
+                            <span className="text-[10px]">{(settings.indicators.ema50100ShowFastEma ?? true) ? '👁' : '✕'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUpdateIndicators('ema50100ShowSlowEma', !(settings.indicators.ema50100ShowSlowEma ?? true));
+                            }}
+                            className={`px-2.5 py-0.5 rounded text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                              (settings.indicators.ema50100ShowSlowEma ?? true)
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 hover:bg-amber-500/30 shadow-sm'
+                                : 'bg-neutral-950 text-gray-500 border border-neutral-800 line-through opacity-70 hover:opacity-100 hover:border-neutral-700'
+                            }`}
+                            title="Toggle Slow EMA line on/off"
+                          >
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: settings.indicators.ema50100SlowColor || '#ff9800' }} />
+                            Slow EMA ({settings.indicators.ema50100SlowLength ?? 100}): {(settings.indicators.ema50100ShowSlowEma ?? true) ? 'ON' : 'OFF'}
+                            <span className="text-[10px]">{(settings.indicators.ema50100ShowSlowEma ?? true) ? '👁' : '✕'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-neutral-950 border border-neutral-800">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isEma50100Active ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-600'}`} />
+                        <span className={`text-[10px] font-mono font-bold ${isEma50100Active ? 'text-emerald-400' : 'text-neutral-500'}`}>
+                          {isEma50100Active ? 'ACTIVE' : 'INACTIVE'}
+                        </span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isEma50100Active}
+                          onChange={(e) => handleUpdateIndicators('showEma50100Trend', e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {isEma50100Active && (
+                    <div className="mt-4 pt-4 border-t border-neutral-800 space-y-4">
+                      {/* Description & Formula Pill */}
+                      <div className="p-3 bg-emerald-950/20 border border-emerald-500/20 rounded-lg text-xs text-emerald-200/90 leading-relaxed font-mono">
+                        <div className="text-[11px] font-bold text-emerald-300 mb-1">PINE SCRIPT v6 FORMULA:</div>
+                        <div>• Fast EMA: <strong>ta.ema(close, {settings.indicators.ema50100FastLength ?? 50})</strong> (color.lime)</div>
+                        <div>• Slow EMA: <strong>ta.ema(close, {settings.indicators.ema50100SlowLength ?? 100})</strong> (color.orange)</div>
+                        <div>• BUY Signal: <strong>ta.crossover(ema50, ema100)</strong> on confirmed bar</div>
+                        <div>• SELL Signal: <strong>ta.crossunder(ema50, ema100)</strong> on confirmed bar</div>
+                      </div>
+
+                      {/* Settings Group */}
+                      <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800/80 space-y-3">
+                        <div className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                          Indicator Parameters
+                        </div>
+
+                        <div className="space-y-3 pt-1">
+                          {/* Fast EMA Line (50) */}
+                          <div className={`p-3 rounded-lg border transition-all ${
+                            (settings.indicators.ema50100ShowFastEma ?? true)
+                              ? 'bg-neutral-900/80 border-emerald-500/30 shadow-sm'
+                              : 'bg-neutral-950/60 border-neutral-800/80 opacity-75'
+                          }`}>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={settings.indicators.ema50100ShowFastEma ?? true}
+                                    onChange={(e) => handleUpdateIndicators('ema50100ShowFastEma', e.target.checked)}
+                                    className="sr-only peer"
+                                  />
+                                  <div className="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                                </label>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-gray-200">Fast EMA Line</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateIndicators('ema50100ShowFastEma', !(settings.indicators.ema50100ShowFastEma ?? true))}
+                                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                                        (settings.indicators.ema50100ShowFastEma ?? true)
+                                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                          : 'bg-neutral-800 text-gray-400 border border-neutral-700'
+                                      }`}
+                                    >
+                                      {(settings.indicators.ema50100ShowFastEma ?? true) ? '✓ ON (VISIBLE)' : '✕ OFF (HIDDEN)'}
+                                    </button>
+                                  </div>
+                                  <span className="text-[10px] text-gray-400">Plot line on chart &amp; badge on price scale</span>
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-3 self-end sm:self-auto">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] text-gray-400 font-mono">Period:</span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="500"
+                                    value={settings.indicators.ema50100FastLength ?? 50}
+                                    onChange={(e) => handleUpdateIndicators('ema50100FastLength', parseInt(e.target.value) || 50)}
+                                    className="w-16 px-2 py-1 bg-neutral-950 border border-neutral-700 rounded text-xs font-mono text-white text-right focus:border-emerald-500 outline-none"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] text-gray-400 font-mono">Width:</span>
+                                  <select
+                                    value={settings.indicators.ema50100FastLineWidth ?? 2}
+                                    onChange={(e) => handleUpdateIndicators('ema50100FastLineWidth', parseInt(e.target.value) || 2)}
+                                    className="px-2 py-1 bg-neutral-950 border border-neutral-700 rounded text-xs font-mono text-white cursor-pointer focus:border-emerald-500 outline-none"
+                                  >
+                                    <option value={1}>1px</option>
+                                    <option value={2}>2px</option>
+                                    <option value={3}>3px</option>
+                                    <option value={4}>4px</option>
+                                  </select>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="color"
+                                    value={toHexColor(settings.indicators.ema50100FastColor, '#00e676')}
+                                    onChange={(e) => handleUpdateIndicators('ema50100FastColor', e.target.value)}
+                                    className="w-7 h-7 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                                  />
+                                  <span className="text-[10px] font-mono text-gray-400 uppercase w-14">
+                                    {toHexColor(settings.indicators.ema50100FastColor, '#00e676')}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Slow EMA Line (100) */}
+                          <div className={`p-3 rounded-lg border transition-all ${
+                            (settings.indicators.ema50100ShowSlowEma ?? true)
+                              ? 'bg-neutral-900/80 border-amber-500/30 shadow-sm'
+                              : 'bg-neutral-950/60 border-neutral-800/80 opacity-75'
+                          }`}>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={settings.indicators.ema50100ShowSlowEma ?? true}
+                                    onChange={(e) => handleUpdateIndicators('ema50100ShowSlowEma', e.target.checked)}
+                                    className="sr-only peer"
+                                  />
+                                  <div className="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                                </label>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-gray-200">Slow EMA Line</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateIndicators('ema50100ShowSlowEma', !(settings.indicators.ema50100ShowSlowEma ?? true))}
+                                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                                        (settings.indicators.ema50100ShowSlowEma ?? true)
+                                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                          : 'bg-neutral-800 text-gray-400 border border-neutral-700'
+                                      }`}
+                                    >
+                                      {(settings.indicators.ema50100ShowSlowEma ?? true) ? '✓ ON (VISIBLE)' : '✕ OFF (HIDDEN)'}
+                                    </button>
+                                  </div>
+                                  <span className="text-[10px] text-gray-400">Plot line on chart &amp; badge on price scale</span>
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-3 self-end sm:self-auto">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] text-gray-400 font-mono">Period:</span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="1000"
+                                    value={settings.indicators.ema50100SlowLength ?? 100}
+                                    onChange={(e) => handleUpdateIndicators('ema50100SlowLength', parseInt(e.target.value) || 100)}
+                                    className="w-16 px-2 py-1 bg-neutral-950 border border-neutral-700 rounded text-xs font-mono text-white text-right focus:border-amber-500 outline-none"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] text-gray-400 font-mono">Width:</span>
+                                  <select
+                                    value={settings.indicators.ema50100SlowLineWidth ?? 2}
+                                    onChange={(e) => handleUpdateIndicators('ema50100SlowLineWidth', parseInt(e.target.value) || 2)}
+                                    className="px-2 py-1 bg-neutral-950 border border-neutral-700 rounded text-xs font-mono text-white cursor-pointer focus:border-amber-500 outline-none"
+                                  >
+                                    <option value={1}>1px</option>
+                                    <option value={2}>2px</option>
+                                    <option value={3}>3px</option>
+                                    <option value={4}>4px</option>
+                                  </select>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="color"
+                                    value={toHexColor(settings.indicators.ema50100SlowColor, '#ff9800')}
+                                    onChange={(e) => handleUpdateIndicators('ema50100SlowColor', e.target.value)}
+                                    className="w-7 h-7 rounded border border-neutral-700 bg-transparent cursor-pointer"
+                                  />
+                                  <span className="text-[10px] font-mono text-gray-400 uppercase w-14">
+                                    {toHexColor(settings.indicators.ema50100SlowColor, '#ff9800')}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 pt-2 border-t border-neutral-850">
+                          {/* Show BUY / SELL */}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-xs font-medium text-gray-300 block">Show BUY / SELL Signals</span>
+                              <span className="text-[10px] text-gray-500">Displays shape.labelup &amp; shape.labeldown at confirmed crossover bars</span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.indicators.ema50100ShowSignals ?? true}
+                                onChange={(e) => handleUpdateIndicators('ema50100ShowSignals', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                            </label>
+                          </div>
+
+                          {/* Color Candles by Trend */}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-xs font-medium text-gray-300 block">Color Candles by Trend (barcolor)</span>
+                              <span className="text-[10px] text-gray-500">Bullish = Lime Green, Bearish = Red, Neutral = Gray</span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.indicators.ema50100ColorCandles ?? true}
+                                onChange={(e) => handleUpdateIndicators('ema50100ColorCandles', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                            </label>
+                          </div>
+
+                          {/* Show Trend Background (bgcolor) */}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-xs font-medium text-gray-300 block">Show Trend Background (bgcolor)</span>
+                              <span className="text-[10px] text-gray-500">Soft 90% transparent green/red tint behind active candles</span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.indicators.ema50100ShowBackground ?? false}
+                                onChange={(e) => handleUpdateIndicators('ema50100ShowBackground', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Reset to Pine Script Defaults */}
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleUpdateIndicators('ema50100FastLength', 50);
+                            handleUpdateIndicators('ema50100SlowLength', 100);
+                            handleUpdateIndicators('ema50100ShowFastEma', true);
+                            handleUpdateIndicators('ema50100ShowSlowEma', true);
+                            handleUpdateIndicators('ema50100ShowSignals', true);
+                            handleUpdateIndicators('ema50100ColorCandles', true);
+                            handleUpdateIndicators('ema50100ShowBackground', false);
+                            handleUpdateIndicators('ema50100FastColor', '#00e676');
+                            handleUpdateIndicators('ema50100SlowColor', '#ff9800');
+                            handleUpdateIndicators('ema50100FastLineWidth', 2);
+                            handleUpdateIndicators('ema50100SlowLineWidth', 2);
+                          }}
+                          className="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-xs text-gray-300 rounded-md transition-colors font-medium cursor-pointer"
+                        >
+                          Reset to Pine Script Defaults
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+          </div>
+        )}
+
+          {/* TAB 4: SERVER & CONNECTION OVERRIDES */}
+          {activeTab === 'connection' && (
+            <div className="space-y-4">
+              <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 rounded-lg leading-relaxed">
+                <strong>Connection Overrides:</strong> If the chart is stuck on &quot;Connecting&quot; or if you face security blocks or WebSocket timeout errors, you can override the target gateway server or enter your own App ID. Leave them empty to automatically rotate through global public gateways.
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Custom Server Domain</span>
+                <input
+                  id="connection-server-input"
+                  type="text"
+                  placeholder="e.g. ws.derivws.com (or green.binaryws.com)"
+                  value={settings.connection?.customServer || ''}
+                  onChange={(e) => handleUpdateConnection('customServer', e.target.value)}
+                  className="px-3 py-2 bg-neutral-900 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 placeholder-neutral-700 font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5 mt-2">
+                <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Registered App ID</span>
+                <input
+                  id="connection-appid-input"
+                  type="text"
+                  placeholder="e.g. 1089 (or your custom App ID)"
+                  value={settings.connection?.customAppId || ''}
+                  onChange={(e) => handleUpdateConnection('customAppId', e.target.value)}
+                  className="px-3 py-2 bg-neutral-900 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-blue-500 placeholder-neutral-700 font-mono"
+                />
+              </div>
+
+              <div className="pt-2 text-[11px] text-neutral-500 leading-relaxed border-t border-neutral-900">
+                <p>💡 <strong>Note:</strong> Custom App IDs must be registered in the <a href="https://api.deriv.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Deriv Developer Portal</a> for your current domain origins.</p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: INSTALL APP / ADD TO HOME SCREEN (PWA) */}
+          {activeTab === 'pwa' && (
+            <div className="space-y-5">
+              <div className="p-4 bg-gradient-to-br from-sky-950/40 via-neutral-900 to-neutral-950 border border-sky-900/40 rounded-xl space-y-3.5 shadow-inner">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-sky-600/20 border border-sky-500/30 rounded-xl flex items-center justify-center text-sky-400 shrink-0">
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>Add to Home Screen (PWA Application)</span>
+                        {isInstalled ? (
+                          <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-600/50 rounded-full flex items-center gap-1 font-mono">
+                            <Check className="w-3 h-3 text-emerald-400" /> Installed
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-bold bg-sky-900/60 text-sky-300 border border-sky-600/50 rounded-full font-mono">
+                            Stand-alone App
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-xs text-neutral-400">
+                        Use Mcharts as a full-screen, native-like standalone app on mobile and desktop without browser bars.
+                      </p>
+                    </div>
+                  </div>
+
+                  {isInstallable && (
+                    <button
+                      type="button"
+                      id="btn-settings-install-pwa"
+                      onClick={install}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold shadow-md flex items-center gap-2 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Install App Now</span>
+                    </button>
+                  )}
+                </div>
+
+                {isInstalled && (
+                  <div className="p-3 bg-emerald-950/30 border border-emerald-800/40 rounded-lg text-xs text-emerald-300 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Mcharts is currently installed and running as a standalone application!</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Step-by-Step Instructions by Device */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Android / Chrome Guide */}
+                <div className="p-4 bg-neutral-900/80 border border-neutral-800 rounded-xl space-y-3">
+                  <div className="flex items-center gap-2 text-sky-400 font-bold text-xs uppercase tracking-wider">
+                    <PlusSquare className="w-4 h-4" />
+                    <span>Android / Chrome Instructions</span>
+                  </div>
+                  <ol className="space-y-2.5 text-xs text-neutral-300 list-decimal list-inside leading-relaxed">
+                    <li>
+                      Click the <strong className="text-white">&quot;Install App Now&quot;</strong> button above, or tap the <strong className="text-white">three dots menu (⋮)</strong> in Chrome.
+                    </li>
+                    <li>
+                      Select <strong className="text-white">&quot;Add to Home screen&quot;</strong> or <strong className="text-white">&quot;Install app&quot;</strong>.
+                    </li>
+                    <li>
+                      Confirm by tapping <strong className="text-white">&quot;Install&quot;</strong> or <strong className="text-white">&quot;Add&quot;</strong> in the prompt.
+                    </li>
+                    <li>
+                      Mcharts will now appear directly on your home screen or app drawer!
+                    </li>
+                  </ol>
+                </div>
+
+                {/* iPhone / Safari Guide */}
+                <div className="p-4 bg-neutral-900/80 border border-neutral-800 rounded-xl space-y-3">
+                  <div className="flex items-center gap-2 text-sky-400 font-bold text-xs uppercase tracking-wider">
+                    <Share2 className="w-4 h-4" />
+                    <span>iPhone & iPad (Safari) Instructions</span>
+                  </div>
+                  <ol className="space-y-2.5 text-xs text-neutral-300 list-decimal list-inside leading-relaxed">
+                    <li>
+                      In Safari, tap the <strong className="text-white">Share button (⎋)</strong> at the bottom or top of the screen.
+                    </li>
+                    <li>
+                      Scroll down and tap <strong className="text-white">&quot;Add to Home Screen&quot; (⊞)</strong>.
+                    </li>
+                    <li>
+                      Tap <strong className="text-white">&quot;Add&quot;</strong> in the top-right corner.
+                    </li>
+                    <li>
+                      Launch Mcharts from your home screen for full-screen, ultra-responsive trading!
+                    </li>
+                  </ol>
+                </div>
+              </div>
+
+              {/* Force Update & Clear Cache Banner */}
+              <div className="p-4 bg-gradient-to-r from-sky-950/40 via-neutral-900 to-neutral-950 rounded-xl border border-sky-800/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <RefreshCw className="w-4 h-4 text-sky-400 animate-spin-slow" />
+                    <span className="text-xs font-bold text-white">App Updates & Cache Refresh</span>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-900/60 text-sky-300 border border-sky-700/50">
+                    Latest Vercel Build
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-300 leading-relaxed">
+                  If you recently deployed new changes to GitHub/Vercel and your mobile phone browser is still displaying a cached older version, tap the button below to purge the local service worker cache and reload the latest release immediately.
+                </p>
+                <button
+                  id="btn-force-clear-cache-update"
+                  onClick={() => {
+                    const win = typeof window !== 'undefined' ? (window as any) : null;
+                    if (!win) return;
+                    if (typeof win.__clearAppCacheAndReload === 'function') {
+                      win.__clearAppCacheAndReload();
+                      return;
+                    }
+                    if ('caches' in win) {
+                      win.caches.keys().then((keys: string[]) => {
+                        return Promise.all(keys.map((k) => win.caches.delete(k)));
+                      }).finally(() => {
+                        win.location.reload();
+                      });
+                    } else {
+                      win.location.reload();
+                    }
+                  }}
+                  className="w-full py-2.5 px-3 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-xs font-bold rounded-lg shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>🔄 Force Update &amp; Clear Mobile Cache (አፕዴት ፈልግ እና Cache አጽዳ)</span>
+                </button>
+              </div>
+
+              {/* Benefits Banner */}
+              <div className="p-3.5 bg-neutral-950 rounded-xl border border-neutral-850 space-y-2 text-xs">
+                <span className="font-semibold text-neutral-300 block">PWA Application Advantages:</span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-neutral-400">
+                  <div className="p-2 bg-neutral-900/60 rounded border border-neutral-800">
+                    <strong className="text-sky-400 block mb-0.5">🚀 Fast 1-Click Launch</strong>
+                    Opens immediately from your phone screen without typing URLs.
+                  </div>
+                  <div className="p-2 bg-neutral-900/60 rounded border border-neutral-800">
+                    <strong className="text-emerald-400 block mb-0.5">📱 Full Screen Canvas</strong>
+                    No browser tabs, URL bars, or address inputs wasting valuable chart space.
+                  </div>
+                  <div className="p-2 bg-neutral-900/60 rounded border border-neutral-800">
+                    <strong className="text-purple-400 block mb-0.5">⚡ Offline Cache</strong>
+                    Persists indicators, drawings, and chart templates directly on your device.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: SUPPORT & TELEGRAM */}
+          {activeTab === 'support' && (
+            <div className="space-y-5">
+              <div className="p-4 bg-gradient-to-br from-blue-950/40 via-neutral-900 to-neutral-950 border border-blue-900/40 rounded-xl space-y-3 shadow-inner">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-600/20 border border-blue-500/30 rounded-xl flex items-center justify-center text-blue-400 shrink-0">
+                    <Send className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">Mcharts Technical Support</h4>
+                    <p className="text-xs text-neutral-400">Direct assistance, custom features & inquiries</p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-neutral-300 leading-relaxed pt-1">
+                  Have questions, feature requests, or need technical help with Mcharts? Connect directly with support on Telegram.
+                </p>
+
+                <div className="pt-2">
+                  <a
+                    id="btn-telegram-support"
+                    href="https://t.me/miihiretu"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-2.5 w-full py-3 px-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-950/50 transition-all hover:scale-[1.01]"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>Contact Support on Telegram (@miihiretu)</span>
+                    <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+                  </a>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-neutral-900/80 border border-neutral-800 rounded-xl space-y-2 text-xs">
+                <div className="font-semibold text-neutral-300 flex items-center gap-1.5">
+                  <MessageCircle className="w-4 h-4 text-blue-400" />
+                  <span>Support Info</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-neutral-400 font-mono text-[11px] pt-1">
+                  <div className="bg-neutral-950 p-2.5 rounded-lg border border-neutral-800">
+                    <span className="text-neutral-500 block text-[10px] uppercase font-sans font-semibold">Telegram Username</span>
+                    <a 
+                      href="https://t.me/miihiretu" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-blue-400 hover:text-blue-300 font-bold hover:underline flex items-center gap-1 mt-0.5"
+                    >
+                      @miihiretu
+                      <ExternalLink className="w-3 h-3 opacity-80" />
+                    </a>
+                  </div>
+                  <div className="bg-neutral-950 p-2.5 rounded-lg border border-neutral-800">
+                    <span className="text-neutral-500 block text-[10px] uppercase font-sans font-semibold">Application</span>
+                    <span className="text-white font-bold mt-0.5 block">Mcharts v2.0</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: ADMIN PANEL & TELEMETRY */}
+          {activeTab === 'admin' && (
+            <AdminPanel />
+          )}
+        </div>
+
+        {/* Footer OK closing button */}
+        <div className={`px-6 py-4 border-t rounded-b-xl flex items-center justify-end ${
+          isDark ? 'bg-neutral-950 border-neutral-900' : 'bg-neutral-50 border-neutral-200'
+        }`}>
+          <button
+            id="btn-save-settings"
+            onClick={onClose}
+            className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold shadow-md transition-colors cursor-pointer"
+          >
+            Apply Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

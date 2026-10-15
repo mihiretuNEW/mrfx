@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGradMask" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="50%" stop-color="#131722"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+    <linearGradient id="accentGradMask" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="bullGradMask" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="bearGradMask" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f87171"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Full Bleed Background for Android Maskable Crop -->
+  <rect width="512" height="512" fill="url(#bgGradMask)"/>
+  
+  <!-- Scaled inside 80% Safe Zone (centered at 256, 256) -->
+  <g transform="translate(51.2, 51.2) scale(0.8)">
+    <line x1="64" y1="180" x2="448" y2="180" stroke="#1e293b" stroke-width="2" stroke-dasharray="6,6"/>
+    <line x1="64" y1="280" x2="448" y2="280" stroke="#1e293b" stroke-width="2" stroke-dasharray="6,6"/>
+    <line x1="64" y1="380" x2="448" y2="380" stroke="#1e293b" stroke-width="2" stroke-dasharray="6,6"/>
+
+    <line x1="120" y1="190" x2="120" y2="390" stroke="#34d399" stroke-width="4"/>
+    <rect x="104" y="230" width="32" height="120" rx="4" fill="url(#bullGradMask)"/>
+
+    <line x1="180" y1="220" x2="180" y2="410" stroke="#f87171" stroke-width="4"/>
+    <rect x="164" y="250" width="32" height="110" rx="4" fill="url(#bearGradMask)"/>
+
+    <line x1="240" y1="130" x2="240" y2="340" stroke="#34d399" stroke-width="4"/>
+    <rect x="224" y="160" width="32" height="130" rx="4" fill="url(#bullGradMask)"/>
+
+    <line x1="300" y1="100" x2="300" y2="300" stroke="#34d399" stroke-width="4"/>
+    <rect x="284" y="120" width="32" height="140" rx="4" fill="url(#bullGradMask)"/>
+
+    <path d="M 90 340 Q 180 320, 240 210 T 420 110" fill="none" stroke="url(#accentGradMask)" stroke-width="8" stroke-linecap="round"/>
+
+    <circle cx="420" cy="110" r="12" fill="#38bdf8"/>
+    <circle cx="420" cy="110" r="22" fill="#38bdf8" opacity="0.3"/>
+
+    <rect x="340" y="320" width="104" height="104" rx="24" fill="#0b0f19" stroke="#38bdf8" stroke-width="3"/>
+    <text x="392" y="392" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="70" fill="url(#accentGradMask)" text-anchor="middle">M</text>
+  </g>
+</svg>

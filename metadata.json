@@ -1,0 +1,6 @@
+{
+  "name": "Mcharts Charting Platform",
+  "description": "A professional web charting platform replicating TradingView with Deriv live WebSocket API, featuring Nexus: Smart Money Suite [BullByte], Mpro & Mpro2 Signals, and empirical factor audit journal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

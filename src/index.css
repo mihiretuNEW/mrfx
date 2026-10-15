@@ -1,0 +1,131 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
+  background-color: #000000;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+/* ==========================================================================
+   WHOLE APP THEME OVERRIDES (OFF-LIGHT WHITE & LIGHT THEMES)
+   When light theme is selected, the entire app (top toolbar, bottom bars,
+   sides, settings modal, pair selector, indicator overlays) transforms
+   into an eye-friendly, high-contrast, clean workspace with dark typography.
+   ========================================================================== */
+
+html.app-theme-light,
+body.app-theme-light,
+.app-theme-light {
+  background-color: #f0f3fa !important;
+  color: #0f172a !important;
+}
+
+/* Background surfaces in light mode */
+.app-theme-light .bg-black {
+  background-color: #ffffff !important;
+}
+
+.app-theme-light .bg-neutral-950 {
+  background-color: #ffffff !important;
+}
+
+.app-theme-light .bg-neutral-900 {
+  background-color: #f8fafc !important;
+}
+
+.app-theme-light .bg-neutral-850 {
+  background-color: #f1f5f9 !important;
+}
+
+.app-theme-light .bg-neutral-800 {
+  background-color: #e2e8f0 !important;
+}
+
+/* Hover surfaces in light mode */
+.app-theme-light .hover\:bg-neutral-900:hover,
+.app-theme-light .hover\:bg-neutral-850:hover,
+.app-theme-light .hover\:bg-neutral-800:hover,
+.app-theme-light .hover\:bg-neutral-700:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* Borders in light mode */
+.app-theme-light .border-neutral-950,
+.app-theme-light .border-neutral-900,
+.app-theme-light .border-neutral-850,
+.app-theme-light .border-neutral-800 {
+  border-color: #e2e8f0 !important;
+}
+
+.app-theme-light .border-neutral-700 {
+  border-color: #cbd5e1 !important;
+}
+
+.app-theme-light .divide-neutral-900 > :not([hidden]) ~ :not([hidden]),
+.app-theme-light .divide-neutral-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0 !important;
+}
+
+/* Typography in light mode - clean, dark slate contrast */
+.app-theme-light .text-white,
+.app-theme-light .text-neutral-100 {
+  color: #0f172a !important;
+}
+
+.app-theme-light .text-neutral-200,
+.app-theme-light .text-neutral-300 {
+  color: #334155 !important;
+}
+
+.app-theme-light .text-neutral-400,
+.app-theme-light .text-gray-400 {
+  color: #64748b !important;
+}
+
+.app-theme-light .text-neutral-500,
+.app-theme-light .text-gray-500 {
+  color: #64748b !important;
+}
+
+/* Inputs & selects in light mode */
+.app-theme-light input[type="text"],
+.app-theme-light input[type="number"],
+.app-theme-light input[type="search"],
+.app-theme-light input[type="password"],
+.app-theme-light select,
+.app-theme-light textarea {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.app-theme-light input::placeholder,
+.app-theme-light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Scrollbars in light mode */
+.app-theme-light ::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1 !important;
+  border-radius: 6px;
+}
+
+.app-theme-light ::-webkit-scrollbar-track {
+  background-color: #f1f5f9 !important;
+}
+
