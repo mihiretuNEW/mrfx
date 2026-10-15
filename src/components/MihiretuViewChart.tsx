@@ -10852,65 +10852,6 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         currentSymbol={symbolName}
       />
 
-      {/* Active Indicator Legends Container (TradingView-Style) */}
-      <div id="chart-legend-container" className="absolute top-2 left-4 z-10 flex flex-col gap-1 pointer-events-none">
-
-        {/* TradingView-Style Interactive Indicator Legend for EMA 50/100 */}
-        {(settings.indicators.showEma50100Trend ?? false) && ema50100Results && (
-          <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-1 rounded-md bg-neutral-950/85 backdrop-blur-md border border-neutral-800/90 text-[11px] font-mono shadow-lg select-none pointer-events-auto">
-            <span className="font-bold text-gray-200 flex items-center gap-1.5 mr-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              EMA 50/100 + Trend
-            </span>
-            <span className="text-gray-600 font-sans">|</span>
-
-            {/* Fast EMA Line Toggle (EMA 50) */}
-            <button
-              type="button"
-              onClick={() => onUpdateIndicator?.('ema50100ShowFastEma', !(settings.indicators.ema50100ShowFastEma ?? true))}
-              className={`px-2 py-0.5 rounded flex items-center gap-1.5 transition-all cursor-pointer ${
-                (settings.indicators.ema50100ShowFastEma ?? true)
-                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 font-semibold'
-                  : 'bg-neutral-900/80 text-gray-400 border border-neutral-800 line-through opacity-70 hover:opacity-100 hover:border-neutral-700'
-              }`}
-              title={`Fast EMA ${ema50100Results.fastLength} Line: ${(settings.indicators.ema50100ShowFastEma ?? true) ? 'ON (Click to Turn OFF)' : 'OFF (Click to Turn ON)'}`}
-            >
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: ema50100Results.fastColor || '#00e676' }} />
-              <span>EMA {ema50100Results.fastLength}: {(settings.indicators.ema50100ShowFastEma ?? true) ? (ema50100Results.currentEmaFast !== null ? ema50100Results.currentEmaFast.toFixed(2) : 'ON') : 'OFF'}</span>
-              <span className="text-[10px] ml-0.5">{(settings.indicators.ema50100ShowFastEma ?? true) ? '👁' : '✕'}</span>
-            </button>
-
-            {/* Slow EMA Line Toggle (EMA 100) */}
-            <button
-              type="button"
-              onClick={() => onUpdateIndicator?.('ema50100ShowSlowEma', !(settings.indicators.ema50100ShowSlowEma ?? true))}
-              className={`px-2 py-0.5 rounded flex items-center gap-1.5 transition-all cursor-pointer ${
-                (settings.indicators.ema50100ShowSlowEma ?? true)
-                  ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 font-semibold'
-                  : 'bg-neutral-900/80 text-gray-400 border border-neutral-800 line-through opacity-70 hover:opacity-100 hover:border-neutral-700'
-              }`}
-              title={`Slow EMA ${ema50100Results.slowLength} Line: ${(settings.indicators.ema50100ShowSlowEma ?? true) ? 'ON (Click to Turn OFF)' : 'OFF (Click to Turn ON)'}`}
-            >
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: ema50100Results.slowColor || '#ff9800' }} />
-              <span>EMA {ema50100Results.slowLength}: {(settings.indicators.ema50100ShowSlowEma ?? true) ? (ema50100Results.currentEmaSlow !== null ? ema50100Results.currentEmaSlow.toFixed(2) : 'ON') : 'OFF'}</span>
-              <span className="text-[10px] ml-0.5">{(settings.indicators.ema50100ShowSlowEma ?? true) ? '👁' : '✕'}</span>
-            </button>
-
-            {/* Settings cog button */}
-            <button
-              type="button"
-              onClick={() => onOpenSettingsModal?.('added_indicators')}
-              className="p-1 text-gray-400 hover:text-white hover:bg-neutral-800 rounded transition-colors ml-1 cursor-pointer"
-              title="Configure EMA 50/100 Settings"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
-          </div>
-        )}
-      </div>
 
       {/* TradingView-Style Floating Toolbar for Risk/Reward Tool (Shown in Tap / Selected Mode) */}
       {selectedRiskRewardDrawing && selectedRiskRewardDrawing.riskReward && (() => {
