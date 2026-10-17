@@ -650,6 +650,10 @@ function AppContent() {
   const [isReplayPlaying, setIsReplayPlaying] = useState<boolean>(false);
   const [replaySpeed, setReplaySpeed] = useState<1 | 2 | 5>(1);
 
+  // Track candle array shifts so replayIndex stays anchored when older history is prepended
+  const prevCandlesLengthRef = useRef<number>(0);
+  const prevFirstCandleTimeRef = useRef<number | null>(null);
+
   // TradingView-style Chart-Only Mode (shows ONLY chart canvas without toolbars/headers, Esc or click restores normal screen)
   const [isChartOnlyMode, setIsChartOnlyMode] = useState<boolean>(false);
 
@@ -1057,6 +1061,37 @@ function AppContent() {
       setIsReplayPlaying(false);
     }
   }, [isReplayMode]);
+
+  // Keep replayIndex anchored when older history is prepended during replay.
+  // Without this, loading more history shifts every index and the replay position jumps to a different candle.
+  useEffect(() => {
+    if (candles.length === 0) {
+      prevCandlesLengthRef.current = 0;
+      prevFirstCandleTimeRef.current = null;
+      return;
+    }
+    const prevLen = prevCandlesLengthRef.current;
+    const prevFirstTime = prevFirstCandleTimeRef.current;
+    const currFirstTime = candles[0].time;
+
+    if (isReplayMode && prevLen > 0 && prevFirstTime !== null && currFirstTime < prevFirstTime) {
+      const oldFirstIdx = candles.findIndex((c) => c.time === prevFirstTime);
+      if (oldFirstIdx > 0) {
+        setReplayIndex((prev) => prev + oldFirstIdx);
+      }
+    }
+
+    prevCandlesLengthRef.current = candles.length;
+    prevFirstCandleTimeRef.current = currFirstTime;
+  }, [candles, isReplayMode]);
+
+  // Auto-load older history when stepping back near the earliest loaded candle during replay
+  useEffect(() => {
+    if (!isReplayMode || !loadMoreHistory || !hasMoreHistory || isLoadingMore) return;
+    if (replayIndex <= 15 && candles.length >= 5) {
+      loadMoreHistory();
+    }
+  }, [isReplayMode, replayIndex, loadMoreHistory, hasMoreHistory, isLoadingMore, candles.length]);
 
   // Bar Replay Auto-Playback Timer (1x, 2x, 5x)
   useEffect(() => {
@@ -1515,7 +1550,9 @@ function AppContent() {
           onStepBack={() => setReplayIndex((prev) => Math.max(5, prev - 1))}
           onStepForward={() => setReplayIndex((prev) => Math.min(candles.length - 1, prev + 1))}
           onJumpToEnd={() => setReplayIndex(candles.length - 1)}
+          onJumpToStart={() => setReplayIndex(5)}
           onSeek={(idx) => setReplayIndex(idx)}
+          onBarsBack={(bars) => setReplayIndex((prev) => Math.max(5, prev - bars))}
           speed={replaySpeed}
           onChangeSpeed={(spd) => setReplaySpeed(spd)}
           theme={settings.theme}
