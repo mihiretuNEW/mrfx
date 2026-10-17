@@ -10,6 +10,7 @@ import {
   ChevronLeft, 
   ChevronRight, 
   ChevronsRight, 
+  ChevronsLeft, 
   RotateCcw, 
   X,
   FastForward,
@@ -29,7 +30,9 @@ interface BarReplayControlsProps {
   onStepBack: () => void;
   onStepForward: () => void;
   onJumpToEnd: () => void;
+  onJumpToStart: () => void;
   onSeek: (index: number) => void;
+  onBarsBack: (bars: number) => void;
   speed: 1 | 2 | 5;
   onChangeSpeed: (speed: 1 | 2 | 5) => void;
   theme?: ChartThemeId;
@@ -46,7 +49,9 @@ export const BarReplayControls: React.FC<BarReplayControlsProps> = ({
   onStepBack,
   onStepForward,
   onJumpToEnd,
+  onJumpToStart,
   onSeek,
+  onBarsBack,
   speed,
   onChangeSpeed,
   theme,
@@ -70,6 +75,9 @@ export const BarReplayControls: React.FC<BarReplayControlsProps> = ({
   };
 
   const hiddenCandlesCount = Math.max(0, totalCandles - 1 - replayIndex);
+
+  const barsBackOptions = [250, 500, 1000, 2000, 5000, 10000];
+  const formatBarsLabel = (n: number) => n >= 1000 ? `${n / 1000}K` : `${n}`;
 
   return (
     <div 
@@ -103,8 +111,21 @@ export const BarReplayControls: React.FC<BarReplayControlsProps> = ({
         </div>
       </div>
 
-      {/* Center: Playback Controls (◀ ▶ ▶▶ 1x 2x 5x) */}
+      {/* Center: Playback Controls (◀◀ ◀ ▶ ▶▶ 1x 2x 5x) */}
       <div className="flex items-center gap-1 sm:gap-2">
+        {/* Jump to Start ◀◀ */}
+        <button
+          id="btn-replay-jump-start"
+          onClick={onJumpToStart}
+          disabled={replayIndex <= 5}
+          title="Jump to Earliest Candle (loads older history if available)"
+          className={`p-1.5 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${
+            isDark ? 'hover:bg-neutral-800 text-neutral-300 hover:text-white' : 'hover:bg-neutral-100 text-slate-700 hover:text-slate-900'
+          }`}
+        >
+          <ChevronsLeft className="w-4 h-4" />
+        </button>
+
         {/* Step Back ◀ */}
         <button
           id="btn-replay-step-back"
@@ -190,6 +211,32 @@ export const BarReplayControls: React.FC<BarReplayControlsProps> = ({
               {s}x
             </button>
           ))}
+        </div>
+
+        {/* Bars Back Selector — jump replay position back by N candles */}
+        <div className={`flex items-center gap-1 ml-1 sm:ml-2 ${isDark ? '' : ''}`}>
+          <span className={`hidden sm:inline text-[10px] font-mono font-semibold uppercase ${isDark ? 'text-neutral-500' : 'text-neutral-400'}`}>Bars Back</span>
+          <select
+            id="select-replay-bars-back"
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10);
+              if (!isNaN(val)) onBarsBack(val);
+              e.target.selectedIndex = 0;
+            }}
+            defaultValue=""
+            title="Jump replay position back by N bars (loads older history if needed)"
+            className={`text-[11px] font-mono font-bold rounded border px-1.5 py-0.5 cursor-pointer transition-colors outline-none ${
+              isDark
+                ? 'bg-neutral-900 border-neutral-800 text-amber-400 hover:border-amber-600/50'
+                : 'bg-neutral-100 border-neutral-200 text-amber-700 hover:border-amber-400'
+            }`}
+          >
+            <option value="" disabled>—</option>
+            {barsBackOptions.map((n) => (
+              <option key={n} value={n}>{formatBarsLabel(n)}</option>
+            ))}
+            <option value={totalCandles}>All ({totalCandles})</option>
+          </select>
         </div>
 
         {/* Scrubber slider */}
