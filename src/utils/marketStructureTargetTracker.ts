@@ -1,6 +1,9 @@
 /**
- * Market Structure Target Tracker [MarkitTick]
- * 100% Exact Port of TradingView Pine Script v6
+ * Market Tick Two [MarkitTick] — Enhanced Filters
+ * Market Structure Target Tracker
+ *
+ * 100% Exact 1:1 Port of TradingView Pine Script v6:
+ * indicator("Market Structure Target Tracker [MarkitTick] — Enhanced Filters", overlay=true, max_lines_count=500, max_labels_count=500)
  *
  * This work is licensed under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
  * © MarkitTick
@@ -9,25 +12,28 @@
 import { Candle } from '../types';
 
 export interface MsttOptions {
-  swingLen?: number; // Swing Length (default 5, min 1, max 100)
+  // Group BOS
+  swingLen?: number; // Swing Length (default 5, min 3, max 50)
+  // Group Vis
   showBosLine?: boolean; // Show BOS Line (default true)
   showLabel?: boolean; // Show Labels (default true)
   invalidateMode?: boolean; // Auto-Invalidate (default true)
-  colBullBos?: string; // Bull BOS color (rgb(0,200,120))
-  colBearBos?: string; // Bear BOS color (rgb(220,50,50))
-  colTarget?: string; // Target color (rgb(255,200,0))
-  colHit?: string; // Target Hit color (rgb(180,100,255))
+  colBullBos?: string; // Bull BOS (default rgb(0,200,120))
+  colBearBos?: string; // Bear BOS (default rgb(220,50,50))
+  colTarget?: string; // Target (default rgb(255,200,0))
+  colHit?: string; // Target Hit (default rgb(180,100,255))
+  // Group SL/TP
   showTpSl?: boolean; // Show Entry/SL/TP (default true)
-  slMulti?: number; // SL ATR Multi (default 1.0, min 0.1, max 10.0, step 0.1)
-  tp1Multi?: number; // TP1 ATR Multi (default 1.5, min 0.1, max 20.0, step 0.1)
-  tp2Multi?: number; // TP2 ATR Multi (default 3.0, min 0.1, max 20.0, step 0.1)
-  tp3Multi?: number; // TP3 ATR Multi (default 5.0, min 0.1, max 20.0, step 0.1)
+  slMulti?: number; // SL ATR Multi (default 1.0, min 0.1, max 10.0)
+  tp1Multi?: number; // TP1 ATR Multi (default 1.5, min 0.1, max 20.0)
+  tp2Multi?: number; // TP2 ATR Multi (default 3.0, min 0.1, max 20.0)
+  tp3Multi?: number; // TP3 ATR Multi (default 5.0, min 0.1, max 20.0)
   atrLen?: number; // ATR Length (default 14, min 1, max 50)
-  colEntry?: string; // Entry color (rgb(100,180,255))
-  colSl?: string; // SL color (rgb(255,60,60))
-  colTp1?: string; // TP1 color (rgb(0,220,130))
-  colTp2?: string; // TP2 color (rgb(0,255,180))
-  colTp3?: string; // TP3 color (rgb(0,255,255))
+  colEntry?: string; // Entry (default rgb(100,180,255))
+  colSl?: string; // SL (default rgb(255,60,60))
+  colTp1?: string; // TP1 (default rgb(0,220,130))
+  colTp2?: string; // TP2 (default rgb(0,255,180))
+  colTp3?: string; // TP3 (default rgb(0,255,255))
   showSl?: boolean; // Show SL line & label (default true)
   showTp1?: boolean; // Show TP1 line & label (default true)
   showTp2?: boolean; // Show TP2 line & label (default true)
@@ -36,20 +42,36 @@ export interface MsttOptions {
   showTp1Shade?: boolean; // Show TP1 shade fill (default true)
   showTp2Shade?: boolean; // Show TP2 shade fill (default true)
   showTp3Shade?: boolean; // Show TP3 shade fill (default true)
-  colSlShade?: string; // Custom SL shade color (default colSl)
-  colTp1Shade?: string; // Custom TP1 shade color (default colTp1)
-  colTp2Shade?: string; // Custom TP2 shade color (default colTp2)
-  colTp3Shade?: string; // Custom TP3 shade color (default colTp3)
-  slShadeAlpha?: number; // Custom SL shade opacity (default 0.30)
-  tp1ShadeAlpha?: number; // Custom TP1 shade opacity (default 0.30)
-  tp2ShadeAlpha?: number; // Custom TP2 shade opacity (default 0.15)
-  tp3ShadeAlpha?: number; // Custom TP3 shade opacity (default 0.05)
-  htfRes?: string; // HTF timeframe (default "240")
-  useHtfFilter?: boolean; // HTF Filter (default false)
+  // Group HTF
+  htfRes?: string; // HTF (default "240")
+  useHtfFilter?: boolean; // HTF RSI Filter (default false)
   htfRsiLen?: number; // HTF RSI Len (default 14, min 2)
-  showDashboard?: boolean; // Show Dashboard table (default true)
-  dashBgColor?: string; // Dashboard BG (rgb(10,10,18))
-  dashTxtColor?: string; // Dashboard Text (rgb(220,220,235))
+  // Group Alerts
+  alertBos?: boolean; // BOS Alert (default true)
+  alertTarget?: boolean; // Target Alert (default true)
+  // Group Dash
+  showDashboard?: boolean; // Show Dashboard (default true)
+  dashBgColor?: string; // BG (default rgb(10,10,18))
+  dashTxtColor?: string; // Text (default rgb(220,220,235))
+  // Group Advanced Filters (Enhanced Filters Edition)
+  useStructureFilter?: boolean; // 15M Structure Bias Filter (default true)
+  structureTf?: string; // Structure Timeframe (default "15")
+  filterSwingLen?: number; // Structure Swing Length (default 5, min 2, max 20)
+  useWickFilter?: boolean; // Extreme Wick Filter (default true)
+  maxWickRatio?: number; // Max Relevant Wick / Candle Range (default 0.70, min 0.10, max 0.95)
+  useSweepFilter?: boolean; // Liquidity Sweep Filter (default false)
+  sweepLookback?: number; // Sweep Lookback Bars (default 10, min 1, max 50)
+  // New Enhanced Filters v2 Edition
+  useBodyCloseFilter?: boolean; // Candle Body Close Confirmation (default true)
+  minBodyRatio?: number; // Minimum Body / Candle Range (default 0.50, min 0.10, max 0.95)
+  useDisplacementFilter?: boolean; // Displacement Candle Filter (default true)
+  minDisplacementAtr?: number; // Minimum Body Size (ATR x) (default 0.80, min 0.10, max 3.0)
+  useFvgFilter?: boolean; // Fair Value Gap (FVG) Confirmation (default false)
+  useVolumeFilter?: boolean; // Relative Volume Confirmation (default false)
+  volumeLength?: number; // Volume Average Length (default 20, min 2, max 100)
+  volumeMultiplier?: number; // Volume vs Average (default 1.20, min 1.0, max 5.0)
+  useScoreFilter?: boolean; // Continuation Confluence Score Filter (default false)
+  minContinuationScore?: number; // Minimum Continuation Score (0-100) (default 60, min 20, max 100)
 }
 
 export interface MsttLine {
@@ -80,6 +102,15 @@ export interface MsttLineFill {
   color: string;
 }
 
+export interface MsttSignalMarker {
+  barIndex: number;
+  time: number;
+  type: 'bull' | 'bear';
+  price: number;
+  text: 'BOS' | 'CHoCH';
+  color: string;
+}
+
 export interface MsttDashboard {
   ticker: string;
   tag: string;
@@ -89,6 +120,9 @@ export interface MsttDashboard {
   htfDirCol: string;
   htfBarStr: string;
   htfBarCol: string;
+  structStr: string;
+  structCol: string;
+  filterStr: string;
   bosLvlStr: string;
   tgtLvlStr: string;
   tgtHitStr: string;
@@ -118,12 +152,14 @@ export interface MsttResult {
   tp2Label: MsttLabel | null;
   tp3Line: MsttLine | null;
   tp3Label: MsttLabel | null;
-  // Shaded fills
+  // Shaded fills (slFill, tp1Fill, tp2Fill, tp3Fill)
   slFill: MsttLineFill | null;
   tp1Fill: MsttLineFill | null;
   tp2Fill: MsttLineFill | null;
   tp3Fill: MsttLineFill | null;
-  // Dashboard
+  // Chart markers (plotshape for Bullish & Bearish BOS)
+  signalMarkers: MsttSignalMarker[];
+  // Dashboard (17 rows matching Pine Script v6)
   dashboard: MsttDashboard;
   // State
   bosActive: boolean;
@@ -136,14 +172,38 @@ export interface MsttResult {
   tp1Price: number | null;
   tp2Price: number | null;
   tp3Price: number | null;
+  // Webhook Alert Payloads
+  lastBosAlert?: string | null;
+  lastTargetAlert?: string | null;
+  // Confluence Scores (0-100)
+  bullScore?: number;
+  bearScore?: number;
 }
 
-// ── RMA calculation (Pine Script ta.rma) ──────────────────────────────────────
-function calculateRMA(values: number[], length: number): number[] {
-  const result: number[] = new Array(values.length);
+// ── SMA calculation (Pine Script ta.sma) ──────────────────────────────────────
+export function calculateSMA(values: number[], length: number): number[] {
+  const n = values.length;
+  const result: number[] = new Array(n).fill(NaN);
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    sum += values[i];
+    if (i >= length) {
+      sum -= values[i - length];
+    }
+    if (i >= length - 1) {
+      result[i] = sum / length;
+    }
+  }
+  return result;
+}
+
+// ── RMA calculation (Pine Script ta.rma / Wilder's Smoothing) ─────────────────
+export function calculateRMA(values: number[], length: number): number[] {
+  const n = values.length;
+  const result: number[] = new Array(n);
   const alpha = 1 / length;
   let sum = 0;
-  for (let i = 0; i < values.length; i++) {
+  for (let i = 0; i < n; i++) {
     if (i < length) {
       sum += values[i];
       if (i === length - 1) {
@@ -152,14 +212,15 @@ function calculateRMA(values: number[], length: number): number[] {
         result[i] = NaN;
       }
     } else {
-      result[i] = alpha * values[i] + (1 - alpha) * result[i - 1];
+      const prev = isNaN(result[i - 1]) ? values[i] : result[i - 1];
+      result[i] = alpha * values[i] + (1 - alpha) * prev;
     }
   }
   return result;
 }
 
 // ── ATR calculation (Pine Script ta.atr) ───────────────────────────────────────
-function calculateATR(candles: Candle[], length: number): number[] {
+export function calculateATR(candles: Candle[], length: number): number[] {
   const n = candles.length;
   const tr: number[] = new Array(n);
   for (let i = 0; i < n; i++) {
@@ -176,7 +237,7 @@ function calculateATR(candles: Candle[], length: number): number[] {
 }
 
 // ── RSI calculation (Pine Script ta.rsi) ──────────────────────────────────────
-function calculateRSI(values: number[], length: number): number[] {
+export function calculateRSI(values: number[], length: number): number[] {
   const n = values.length;
   const result: number[] = new Array(n).fill(NaN);
   if (n < length + 1) return result;
@@ -211,8 +272,8 @@ function calculateRSI(values: number[], length: number): number[] {
   return result;
 }
 
-// ── HTF RSI Calculation (Pine Script request.security(..., htfRes, ta.rsi(close, len))) ──
-function parseHtfMinutes(res: string): number {
+// ── Resolution parser ─────────────────────────────────────────────────────────
+function parseTfMinutes(res: string): number {
   const clean = String(res).trim().toUpperCase();
   if (clean === 'D' || clean === '1D' || clean === '1440') return 1440;
   if (clean === '4H' || clean === '240') return 240;
@@ -221,24 +282,25 @@ function parseHtfMinutes(res: string): number {
   if (clean === '30' || clean === '30M') return 30;
   if (clean === '15' || clean === '15M') return 15;
   if (clean === '5' || clean === '5M') return 5;
+  if (clean === '1' || clean === '1M') return 1;
   const num = parseInt(clean, 10);
-  return isNaN(num) || num <= 0 ? 240 : num;
+  return isNaN(num) || num <= 0 ? 15 : num;
 }
 
+// ── HTF RSI Calculation (Pine Script request.security(..., htfRes, ta.rsi(close, len)[1])) ──
 function calculateHtfRsiSeries(candles: Candle[], htfRes: string, htfRsiLen: number): number[] {
   const n = candles.length;
   if (n === 0) return [];
   const closeSeries = candles.map((c) => c.close);
   if (n < 2) return calculateRSI(closeSeries, htfRsiLen);
 
-  const htfMin = parseHtfMinutes(htfRes);
+  const htfMin = parseTfMinutes(htfRes);
   const htfSec = htfMin * 60;
 
   const isMs = candles[0].time > 1e11;
   const diffTime = Math.abs(candles[n - 1].time - candles[0].time);
   const chartIntervalSec = Math.max(10, isMs ? diffTime / (n - 1) / 1000 : diffTime / (n - 1));
 
-  // If chart interval is equal to or larger than HTF, use chart RSI directly
   if (chartIntervalSec >= htfSec) {
     return calculateRSI(closeSeries, htfRsiLen);
   }
@@ -266,18 +328,128 @@ function calculateHtfRsiSeries(candles: Candle[], htfRes: string, htfRsiLen: num
     const result = new Array(n);
     for (let i = 0; i < n; i++) {
       const bIdx = candleBucketIndices[i];
-      result[i] = !isNaN(bucketRsi[bIdx]) ? bucketRsi[bIdx] : 50;
+      // lookahead=barmerge.lookahead_off: uses previous completed bar bucket
+      const prevBIdx = Math.max(0, bIdx - 1);
+      result[i] = !isNaN(bucketRsi[prevBIdx]) ? bucketRsi[prevBIdx] : 50;
     }
     return result;
   }
 
-  // Fallback if not enough HTF bars in view: scale the RSI length proportional to timeframe ratio
   const ratio = Math.max(1, Math.round(htfSec / chartIntervalSec));
   const effectiveLen = Math.max(2, Math.min(200, Math.round(htfRsiLen * ratio)));
   return calculateRSI(closeSeries, effectiveLen);
 }
 
-// ── Dashboard Helper Functions ────────────────────────────────────────────────
+// ── Structure Bias Filter Calculation (HH/HL or LH/LL on structureTf) ─────────
+// structPH = request.security(syminfo.tickerid, structureTf, ta.pivothigh(high, filterSwingLen, filterSwingLen))
+// structPL = request.security(syminfo.tickerid, structureTf, ta.pivotlow(low, filterSwingLen, filterSwingLen))
+function calculateStructurePivotsSeries(
+  candles: Candle[],
+  structureTf: string,
+  filterSwingLen: number
+): { structPH: (number | null)[]; structPL: (number | null)[] } {
+  const n = candles.length;
+  const structPHArr: (number | null)[] = new Array(n).fill(null);
+  const structPLArr: (number | null)[] = new Array(n).fill(null);
+  if (n === 0) return { structPH: structPHArr, structPL: structPLArr };
+
+  const sMin = parseTfMinutes(structureTf);
+  const sSec = sMin * 60;
+  const isMs = candles[0].time > 1e11;
+  const diffTime = Math.abs(candles[n - 1].time - candles[0].time);
+  const chartIntervalSec = Math.max(10, isMs ? diffTime / (n - 1) / 1000 : diffTime / (n - 1));
+
+  // If chart timeframe >= structure timeframe or too few candles, calculate directly on candles
+  if (chartIntervalSec >= sSec || n < (filterSwingLen * 2 + 1) * 3) {
+    for (let i = filterSwingLen * 2; i < n; i++) {
+      const pivotIdx = i - filterSwingLen;
+      const pivotHigh = candles[pivotIdx].high;
+      const pivotLow = candles[pivotIdx].low;
+      let isHigh = true;
+      let isLow = true;
+      for (let j = pivotIdx - filterSwingLen; j <= pivotIdx + filterSwingLen; j++) {
+        if (j === pivotIdx) continue;
+        if (candles[j].high > pivotHigh) isHigh = false;
+        if (candles[j].low < pivotLow) isLow = false;
+      }
+      if (isHigh) structPHArr[i] = pivotHigh;
+      if (isLow) structPLArr[i] = pivotLow;
+    }
+    return { structPH: structPHArr, structPL: structPLArr };
+  }
+
+  // Resample candles into structure timeframe bars
+  interface ResampleBar {
+    bucketId: number;
+    high: number;
+    low: number;
+    close: number;
+    time: number;
+    firstIndex: number;
+    lastIndex: number;
+  }
+  const buckets: ResampleBar[] = [];
+  const candleToBucket: number[] = new Array(n);
+  let curBId = -1;
+
+  for (let i = 0; i < n; i++) {
+    const tSec = isMs ? candles[i].time / 1000 : candles[i].time;
+    const bId = Math.floor(tSec / sSec);
+    if (bId !== curBId) {
+      curBId = bId;
+      buckets.push({
+        bucketId: bId,
+        high: candles[i].high,
+        low: candles[i].low,
+        close: candles[i].close,
+        time: candles[i].time,
+        firstIndex: i,
+        lastIndex: i,
+      });
+    } else {
+      const cur = buckets[buckets.length - 1];
+      cur.high = Math.max(cur.high, candles[i].high);
+      cur.low = Math.min(cur.low, candles[i].low);
+      cur.close = candles[i].close;
+      cur.lastIndex = i;
+    }
+    candleToBucket[i] = buckets.length - 1;
+  }
+
+  const numBuckets = buckets.length;
+  const bPH: (number | null)[] = new Array(numBuckets).fill(null);
+  const bPL: (number | null)[] = new Array(numBuckets).fill(null);
+
+  for (let b = filterSwingLen * 2; b < numBuckets; b++) {
+    const pIdx = b - filterSwingLen;
+    const pHigh = buckets[pIdx].high;
+    const pLow = buckets[pIdx].low;
+    let isH = true;
+    let isL = true;
+    for (let k = pIdx - filterSwingLen; k <= pIdx + filterSwingLen; k++) {
+      if (k === pIdx) continue;
+      if (buckets[k].high > pHigh) isH = false;
+      if (buckets[k].low < pLow) isL = false;
+    }
+    if (isH) bPH[b] = pHigh;
+    if (isL) bPL[b] = pLow;
+  }
+
+  for (let i = 0; i < n; i++) {
+    const bIdx = candleToBucket[i];
+    // In Pine Script with lookahead=barmerge.lookahead_off, values update when confirmed
+    if (bPH[bIdx] !== null && i === buckets[bIdx].lastIndex) {
+      structPHArr[i] = bPH[bIdx];
+    }
+    if (bPL[bIdx] !== null && i === buckets[bIdx].lastIndex) {
+      structPLArr[i] = bPL[bIdx];
+    }
+  }
+
+  return { structPH: structPHArr, structPL: structPLArr };
+}
+
+// ── Dashboard Helper Functions (Pine Script exact match) ───────────────────────
 function f_blockBar(rawVal: number, domainMax: number): string {
   const pct = Math.min(Math.max((rawVal / domainMax) * 100.0, 0.0), 100.0);
   const n = Math.round(pct / 10.0);
@@ -304,32 +476,36 @@ function formatPrice(val: number | null | undefined, minTickPrecision = 2): stri
 }
 
 /**
- * 100% Exact Execution of Market Structure Target Tracker [MarkitTick]
+ * 100% Exact 1:1 Execution of Market Structure Target Tracker [MarkitTick] — Enhanced Filters (Market Tick Two)
  */
 export function calculateMarketStructureTargetTracker(
   candles: Candle[],
   options: MsttOptions = {},
   cleanTicker = 'MARKET'
 ): MsttResult {
-  const swingLen = Math.max(1, Math.min(100, Math.round(options.swingLen ?? 5)));
+  // Input Groups
+  const swingLen = Math.max(3, Math.min(50, Math.round(options.swingLen ?? 5)));
   const showBosLine = options.showBosLine ?? true;
   const showLabel = options.showLabel ?? true;
   const invalidateMode = options.invalidateMode ?? true;
-  const colBullBos = options.colBullBos ?? 'rgb(0,200,120)';
-  const colBearBos = options.colBearBos ?? 'rgb(220,50,50)';
-  const colTarget = options.colTarget ?? 'rgb(255,200,0)';
-  const colHit = options.colHit ?? 'rgb(180,100,255)';
+  const colBullBos = options.colBullBos ?? 'rgb(0, 200, 120)';
+  const colBearBos = options.colBearBos ?? 'rgb(220, 50, 50)';
+  const colTarget = options.colTarget ?? 'rgb(255, 200, 0)';
+  const colHit = options.colHit ?? 'rgb(180, 100, 255)';
+
+  // SL/TP
   const showTpSl = options.showTpSl ?? true;
   const slMulti = options.slMulti ?? 1.0;
   const tp1Multi = options.tp1Multi ?? 1.5;
   const tp2Multi = options.tp2Multi ?? 3.0;
   const tp3Multi = options.tp3Multi ?? 5.0;
-  const atrLen = options.atrLen ?? 14;
-  const colEntry = options.colEntry ?? 'rgb(100,180,255)';
-  const colSl = options.colSl ?? 'rgb(255,60,60)';
-  const colTp1 = options.colTp1 ?? 'rgb(0,220,130)';
-  const colTp2 = options.colTp2 ?? 'rgb(0,255,180)';
-  const colTp3 = options.colTp3 ?? 'rgb(0,255,255)';
+  const atrLen = Math.max(1, Math.min(50, Math.round(options.atrLen ?? 14)));
+  const colEntry = options.colEntry ?? 'rgb(100, 180, 255)';
+  const colSl = options.colSl ?? 'rgb(255, 60, 60)';
+  const colTp1 = options.colTp1 ?? 'rgb(0, 220, 130)';
+  const colTp2 = options.colTp2 ?? 'rgb(0, 255, 180)';
+  const colTp3 = options.colTp3 ?? 'rgb(0, 255, 255)';
+
   const showSl = options.showSl ?? true;
   const showTp1 = options.showTp1 ?? true;
   const showTp2 = options.showTp2 ?? true;
@@ -338,13 +514,35 @@ export function calculateMarketStructureTargetTracker(
   const showTp1Shade = options.showTp1Shade ?? true;
   const showTp2Shade = options.showTp2Shade ?? true;
   const showTp3Shade = options.showTp3Shade ?? true;
-  const colSlShade = options.colSlShade || colSl;
-  const colTp1Shade = options.colTp1Shade || colTp1;
-  const colTp2Shade = options.colTp2Shade || colTp2;
-  const colTp3Shade = options.colTp3Shade || colTp3;
-  const useHtfFilter = options.useHtfFilter ?? false;
+
+  // HTF
   const htfRes = options.htfRes ?? '240';
-  const htfRsiLen = options.htfRsiLen ?? 14;
+  const useHtfFilter = options.useHtfFilter ?? false;
+  const htfRsiLen = Math.max(2, Math.round(options.htfRsiLen ?? 14));
+
+  // Alerts
+  const alertBos = options.alertBos ?? true;
+  const alertTarget = options.alertTarget ?? true;
+
+  // Advanced Filters (Enhanced Filters Edition)
+  const useStructureFilter = options.useStructureFilter ?? true;
+  const structureTf = options.structureTf ?? '15';
+  const filterSwingLen = Math.max(2, Math.min(20, Math.round(options.filterSwingLen ?? 5)));
+  const useWickFilter = options.useWickFilter ?? true;
+  const maxWickRatio = options.maxWickRatio ?? 0.70;
+  const useSweepFilter = options.useSweepFilter ?? false;
+  const sweepLookback = Math.max(1, Math.min(50, Math.round(options.sweepLookback ?? 10)));
+  // New Enhanced Filters v2 Edition
+  const useBodyCloseFilter = options.useBodyCloseFilter ?? true;
+  const minBodyRatio = options.minBodyRatio ?? 0.50;
+  const useDisplacementFilter = options.useDisplacementFilter ?? true;
+  const minDisplacementAtr = options.minDisplacementAtr ?? 0.80;
+  const useFvgFilter = options.useFvgFilter ?? false;
+  const useVolumeFilter = options.useVolumeFilter ?? false;
+  const volumeLength = Math.max(2, Math.min(100, Math.round(options.volumeLength ?? 20)));
+  const volumeMultiplier = options.volumeMultiplier ?? 1.20;
+  const useScoreFilter = options.useScoreFilter ?? false;
+  const minContinuationScore = Math.max(20, Math.min(100, Math.round(options.minContinuationScore ?? 60)));
 
   const n = candles.length;
   if (n === 0) {
@@ -365,26 +563,30 @@ export function calculateMarketStructureTargetTracker(
       tp1Fill: null,
       tp2Fill: null,
       tp3Fill: null,
+      signalMarkers: [],
       dashboard: {
         ticker: cleanTicker,
         tag: 'BOS [MT]',
         trendStr: '● Neutral',
-        trendCol: 'rgb(140,140,140)',
-        htfStr: '● Neutral',
-        htfDirCol: 'rgb(140,140,140)',
+        trendCol: 'rgb(140, 140, 140)',
+        htfStr: '● Neutral HTF',
+        htfDirCol: 'rgb(140, 140, 140)',
         htfBarStr: '░░░░░░░░░░ 0%',
-        htfBarCol: 'rgb(110,110,110)',
+        htfBarCol: 'rgb(110, 110, 110)',
+        structStr: '● Mixed',
+        structCol: 'rgb(140, 140, 140)',
+        filterStr: 'OFF',
         bosLvlStr: '—',
         tgtLvlStr: '—',
         tgtHitStr: '—',
-        tgtHitCol: 'rgb(110,110,110)',
+        tgtHitCol: 'rgb(110, 110, 110)',
         entryStr: '—',
         slStr: '—',
         tp1Str: '—',
         tp2Str: '—',
         tp3Str: '—',
         rrStr: '—',
-        rrCol: 'rgb(110,110,110)',
+        rrCol: 'rgb(110, 110, 110)',
         durationStr: '—',
         totalStr: '0 (0▲ / 0▼)',
       },
@@ -398,6 +600,10 @@ export function calculateMarketStructureTargetTracker(
       tp1Price: null,
       tp2Price: null,
       tp3Price: null,
+      lastBosAlert: null,
+      lastTargetAlert: null,
+      bullScore: 0,
+      bearScore: 0,
     };
   }
 
@@ -412,20 +618,43 @@ export function calculateMarketStructureTargetTracker(
   // 1. Calculate ATR (atrVal = ta.atr(atrLen))
   const atrSeries = calculateATR(candles, atrLen);
 
-  // 2. Calculate HTF RSI based on htfRes resolution (Pine Script request.security)
+  // 2. Calculate Volume Average (ta.sma(volume, volumeLength))
+  const volumeSeries = candles.map((c) => c.volume ?? 0);
+  const volAvgSeries = calculateSMA(volumeSeries, volumeLength);
+
+  // 3. Calculate HTF RSI based on htfRes
   const rsiSeries = calculateHtfRsiSeries(candles, htfRes, htfRsiLen);
 
-  // ── Persistent State Variables (mimicking var in Pine Script) ────────────────
+  // 4. Calculate Structure Pivots for Structure Bias Filter (15m HH/HL vs LH/LL)
+  const { structPH: structPHSeries, structPL: structPLSeries } = calculateStructurePivotsSeries(
+    candles,
+    structureTf,
+    filterSwingLen
+  );
+
+  // ── Persistent State Variables (mimicking Pine Script var declarations) ──────
+  let prevStructHigh: number | null = null;
+  let lastStructHigh: number | null = null;
+  let prevStructLow: number | null = null;
+  let lastStructLow: number | null = null;
+  let seenStructPH: number | null = null;
+  let seenStructPL: number | null = null;
+
+  let lastBullScore = 0;
+  let lastBearScore = 0;
+
   let lastSwingHigh: number | null = null;
   let lastSwingLow: number | null = null;
   let prevSwingHigh: number | null = null;
   let prevSwingLow: number | null = null;
   let lastSwingHighBar: number | null = null;
   let lastSwingLowBar: number | null = null;
+
   let trend = 0; // 1 = bull, -1 = bear, 0 = neutral
   let bosLevel: number | null = null;
   let targetLevel: number | null = null;
   let bosBar: number | null = null;
+  let bosBarTime: number | null = null;
   let bosIsBull = false;
   let targetHit = false;
   let entryPrice: number | null = null;
@@ -441,7 +670,10 @@ export function calculateMarketStructureTargetTracker(
   let lastProcessedHighBar: number | null = null;
   let lastProcessedLowBar: number | null = null;
 
-  // Visual structures currently active
+  let lastBullSweepBar: number | null = null;
+  let lastBearSweepBar: number | null = null;
+
+  // Active drawings (Pine Script line.new, label.new)
   let curBosLine: MsttLine | null = null;
   let curBosLbl: MsttLabel | null = null;
   let curEntryLine: MsttLine | null = null;
@@ -455,21 +687,25 @@ export function calculateMarketStructureTargetTracker(
   let curTp2Lbl: MsttLabel | null = null;
   let curTp3Lbl: MsttLabel | null = null;
 
-  // ── Sequential Bar Execution ────────────────────────────────────────────────
+  // Historical plotshape signals
+  const signalMarkers: MsttSignalMarker[] = [];
+  let lastBosAlert: string | null = null;
+  let lastTargetAlert: string | null = null;
+
+  // ── Sequential Bar Execution (1:1 with Pine Script execution engine) ────────
   for (let bar_index = 0; bar_index < n; bar_index++) {
     const c = candles[bar_index];
-    const prevAtr = bar_index > 0 && !isNaN(atrSeries[bar_index - 1]) ? atrSeries[bar_index - 1] : atrSeries[bar_index] || 1;
-    const atrLocked = prevAtr;
+    const atrVal = !isNaN(atrSeries[bar_index]) ? atrSeries[bar_index] : 0;
+    const atrLocked = bar_index > 0 && !isNaN(atrSeries[bar_index - 1]) ? atrSeries[bar_index - 1] : atrVal;
 
-    // HTF Bias via RSI
+    // HTF RSI Filter
     const htfRsi = !isNaN(rsiSeries[bar_index]) ? rsiSeries[bar_index] : 50;
     const htfBull = htfRsi > 50.0;
     const htfBear = htfRsi < 50.0;
     const htfOkBull = !useHtfFilter || htfBull;
     const htfOkBear = !useHtfFilter || htfBear;
 
-    // Pivot detection (ta.pivothigh / ta.pivotlow)
-    // A pivot is confirmed at bar_index if the bar at (bar_index - swingLen) is the highest/lowest in range
+    // Pivot Detection (ta.pivothigh / ta.pivotlow)
     let ph: number | null = null;
     let pl: number | null = null;
 
@@ -503,18 +739,170 @@ export function calculateMarketStructureTargetTracker(
       lastSwingLowBar = bar_index - swingLen;
     }
 
-    // BOS condition
-    const bosBull =
+    // ── Structure Bias Filter (HH/HL or LH/LL) ────────────────────────────────
+    const structPH = structPHSeries[bar_index];
+    const structPL = structPLSeries[bar_index];
+
+    if (structPH !== null && (seenStructPH === null || structPH !== seenStructPH)) {
+      prevStructHigh = lastStructHigh;
+      lastStructHigh = structPH;
+      seenStructPH = structPH;
+    }
+    if (structPL !== null && (seenStructPL === null || structPL !== seenStructPL)) {
+      prevStructLow = lastStructLow;
+      lastStructLow = structPL;
+      seenStructPL = structPL;
+    }
+
+    const structureBull =
+      prevStructHigh !== null &&
+      lastStructHigh !== null &&
+      prevStructLow !== null &&
+      lastStructLow !== null &&
+      lastStructHigh > prevStructHigh &&
+      lastStructLow > prevStructLow;
+
+    const structureBear =
+      prevStructHigh !== null &&
+      lastStructHigh !== null &&
+      prevStructLow !== null &&
+      lastStructLow !== null &&
+      lastStructHigh < prevStructHigh &&
+      lastStructLow < prevStructLow;
+
+    const structureOkBull = !useStructureFilter || structureBull;
+    const structureOkBear = !useStructureFilter || structureBear;
+
+    // ── Extreme Wick Filter ───────────────────────────────────────────────────
+    const candleRange = c.high - c.low;
+    const upperWick = c.high - Math.max(c.open, c.close);
+    const lowerWick = Math.min(c.open, c.close) - c.low;
+    const wickOkBull = !useWickFilter || (candleRange > 0 && upperWick / candleRange <= maxWickRatio);
+    const wickOkBear = !useWickFilter || (candleRange > 0 && lowerWick / candleRange <= maxWickRatio);
+
+    // ── Liquidity Sweep Filter ─────────────────────────────────────────────────
+    // Prior high / low over previous sweepLookback bars (excluding current bar)
+    let priorHigh = -Infinity;
+    let priorLow = Infinity;
+    if (bar_index >= 1) {
+      const lookStart = Math.max(0, bar_index - sweepLookback);
+      for (let k = lookStart; k < bar_index; k++) {
+        if (candles[k].high > priorHigh) priorHigh = candles[k].high;
+        if (candles[k].low < priorLow) priorLow = candles[k].low;
+      }
+    }
+
+    const bullishSweep = priorLow !== Infinity && c.low < priorLow && c.close > priorLow;
+    const bearishSweep = priorHigh !== -Infinity && c.high > priorHigh && c.close < priorHigh;
+
+    if (bullishSweep) lastBullSweepBar = bar_index;
+    if (bearishSweep) lastBearSweepBar = bar_index;
+
+    const barsSinceBullSweep = lastBullSweepBar !== null ? bar_index - lastBullSweepBar : null;
+    const barsSinceBearSweep = lastBearSweepBar !== null ? bar_index - lastBearSweepBar : null;
+
+    const sweepOkBull = !useSweepFilter || (barsSinceBullSweep !== null && barsSinceBullSweep <= sweepLookback);
+    const sweepOkBear = !useSweepFilter || (barsSinceBearSweep !== null && barsSinceBearSweep <= sweepLookback);
+
+    // ── Candle body close + displacement + FVG + relative volume ─────────────
+    const candleBody = Math.abs(c.close - c.open);
+    const bodyRatio = candleRange > 0 ? candleBody / candleRange : 0.0;
+    const bodyCloseBull = c.close > c.open && c.close > (lastSwingHigh ?? c.close);
+    const bodyCloseBear = c.close < c.open && c.close < (lastSwingLow ?? c.close);
+    const bodyCloseOkBull = !useBodyCloseFilter || (bodyCloseBull && bodyRatio >= minBodyRatio);
+    const bodyCloseOkBear = !useBodyCloseFilter || (bodyCloseBear && bodyRatio >= minBodyRatio);
+
+    const displacementBull = c.close > c.open && atrVal > 0 && candleBody >= atrVal * minDisplacementAtr;
+    const displacementBear = c.close < c.open && atrVal > 0 && candleBody >= atrVal * minDisplacementAtr;
+    const displacementOkBull = !useDisplacementFilter || displacementBull;
+    const displacementOkBear = !useDisplacementFilter || displacementBear;
+
+    const bullishFvg = bar_index >= 2 && c.low > candles[bar_index - 2].high;
+    const bearishFvg = bar_index >= 2 && c.high < candles[bar_index - 2].low;
+    const fvgOkBull = !useFvgFilter || bullishFvg;
+    const fvgOkBear = !useFvgFilter || bearishFvg;
+
+    const curVol = c.volume ?? 0;
+    const volAvg = volAvgSeries[bar_index];
+    const volumeDataAvailable = !isNaN(volAvg) && curVol > 0 && volAvg > 0;
+    const volumeSpike = volumeDataAvailable && curVol >= volAvg * volumeMultiplier;
+    const volumeOk = !useVolumeFilter || (volumeDataAvailable && volumeSpike);
+
+    // Five-part confluence score: body close, displacement, FVG, relative volume, recent sweep
+    const sweepBullActive = barsSinceBullSweep !== null && barsSinceBullSweep <= sweepLookback;
+    const sweepBearActive = barsSinceBearSweep !== null && barsSinceBearSweep <= sweepLookback;
+    const bullScore =
+      (bodyCloseBull ? 20 : 0) +
+      (displacementBull ? 20 : 0) +
+      (bullishFvg ? 20 : 0) +
+      (volumeSpike ? 20 : 0) +
+      (sweepBullActive ? 20 : 0);
+    const bearScore =
+      (bodyCloseBear ? 20 : 0) +
+      (displacementBear ? 20 : 0) +
+      (bearishFvg ? 20 : 0) +
+      (volumeSpike ? 20 : 0) +
+      (sweepBearActive ? 20 : 0);
+    const scoreOkBull = !useScoreFilter || bullScore >= minContinuationScore;
+    const scoreOkBear = !useScoreFilter || bearScore >= minContinuationScore;
+
+    lastBullScore = bullScore;
+    lastBearScore = bearScore;
+
+    // ── Candidate BOS events gated by all enabled filters ─────────────────────
+    const rawBosBull =
       lastSwingHigh !== null &&
       c.close > lastSwingHigh &&
       htfOkBull &&
       (lastProcessedHighBar === null || lastSwingHighBar !== lastProcessedHighBar);
 
-    const bosBear =
+    const rawBosBear =
       lastSwingLow !== null &&
       c.close < lastSwingLow &&
       htfOkBear &&
       (lastProcessedLowBar === null || lastSwingLowBar !== lastProcessedLowBar);
+
+    const bosBull =
+      rawBosBull &&
+      structureOkBull &&
+      wickOkBull &&
+      sweepOkBull &&
+      bodyCloseOkBull &&
+      displacementOkBull &&
+      fvgOkBull &&
+      volumeOk &&
+      scoreOkBull;
+    const bosBear =
+      rawBosBear &&
+      structureOkBear &&
+      wickOkBear &&
+      sweepOkBear &&
+      bodyCloseOkBear &&
+      displacementOkBear &&
+      fvgOkBear &&
+      volumeOk &&
+      scoreOkBear;
+
+    // Plotshape signals
+    if (bosBull) {
+      signalMarkers.push({
+        barIndex: bar_index,
+        time: c.time,
+        type: 'bull',
+        price: c.low,
+        text: trend === 1 ? 'BOS' : 'CHoCH',
+        color: colBullBos,
+      });
+    } else if (bosBear) {
+      signalMarkers.push({
+        barIndex: bar_index,
+        time: c.time,
+        type: 'bear',
+        price: c.high,
+        text: trend === -1 ? 'BOS' : 'CHoCH',
+        color: colBearBos,
+      });
+    }
 
     // ── Bullish BOS/CHoCH Handler ─────────────────────────────────────────────
     if (bosBull) {
@@ -524,6 +912,7 @@ export function calculateMarketStructureTargetTracker(
       bosLevel = lastSwingHigh;
       targetLevel = prevSwingHigh;
       bosBar = bar_index;
+      bosBarTime = c.time;
       bosIsBull = true;
       targetHit = false;
       bosBarsCount = 0;
@@ -538,9 +927,9 @@ export function calculateMarketStructureTargetTracker(
       invalidSwingRef = lastSwingLow;
 
       if (showBosLine && bosLevel !== null) {
-        const _x1 = lastSwingHighBar === null ? bar_index : Math.max(lastSwingHighBar, bar_index - 499);
+        const x1Bull = lastSwingHighBar === null ? bar_index : Math.max(lastSwingHighBar, bar_index - 499);
         curBosLine = {
-          x1: _x1,
+          x1: x1Bull,
           y1: bosLevel,
           x2: bar_index,
           y2: bosLevel,
@@ -551,10 +940,10 @@ export function calculateMarketStructureTargetTracker(
       }
 
       if (showLabel && bosLevel !== null) {
-        const _x1 = lastSwingHighBar === null ? bar_index : Math.max(lastSwingHighBar, bar_index - 499);
-        const _mid = Math.min(Math.round((_x1 + bar_index) / 2), bar_index);
+        const x1LabelBull = lastSwingHighBar === null ? bar_index : Math.max(lastSwingHighBar, bar_index - 499);
+        const midBull = Math.min(Math.round((x1LabelBull + bar_index) / 2), bar_index);
         curBosLbl = {
-          x: _mid,
+          x: midBull,
           y: bosLevel,
           text: '▲ ' + _lbl,
           color: 'transparent',
@@ -601,6 +990,21 @@ export function calculateMarketStructureTargetTracker(
           curTp3Lbl = null;
         }
       }
+
+      if (alertBos) {
+        lastBosAlert = JSON.stringify({
+          t: cleanTicker,
+          tf: 'current',
+          type: 'BOS',
+          dir: 'bull',
+          lvl: formatPrice(bosLevel, minTickPrecision),
+          entry: formatPrice(entryPrice, minTickPrecision),
+          sl: formatPrice(slPrice, minTickPrecision),
+          tp1: formatPrice(tp1Price, minTickPrecision),
+          tp2: formatPrice(tp2Price, minTickPrecision),
+          tp3: formatPrice(tp3Price, minTickPrecision),
+        });
+      }
     }
 
     // ── Bearish BOS/CHoCH Handler ─────────────────────────────────────────────
@@ -611,6 +1015,7 @@ export function calculateMarketStructureTargetTracker(
       bosLevel = lastSwingLow;
       targetLevel = prevSwingLow;
       bosBar = bar_index;
+      bosBarTime = c.time;
       bosIsBull = false;
       targetHit = false;
       bosBarsCount = 0;
@@ -625,9 +1030,9 @@ export function calculateMarketStructureTargetTracker(
       invalidSwingRef = lastSwingHigh;
 
       if (showBosLine && bosLevel !== null) {
-        const _x1 = lastSwingLowBar === null ? bar_index : Math.max(lastSwingLowBar, bar_index - 499);
+        const x1Bear = lastSwingLowBar === null ? bar_index : Math.max(lastSwingLowBar, bar_index - 499);
         curBosLine = {
-          x1: _x1,
+          x1: x1Bear,
           y1: bosLevel,
           x2: bar_index,
           y2: bosLevel,
@@ -638,10 +1043,10 @@ export function calculateMarketStructureTargetTracker(
       }
 
       if (showLabel && bosLevel !== null) {
-        const _x1 = lastSwingLowBar === null ? bar_index : Math.max(lastSwingLowBar, bar_index - 499);
-        const _mid = Math.min(Math.round((_x1 + bar_index) / 2), bar_index);
+        const x1LabelBear = lastSwingLowBar === null ? bar_index : Math.max(lastSwingLowBar, bar_index - 499);
+        const midBear = Math.min(Math.round((x1LabelBear + bar_index) / 2), bar_index);
         curBosLbl = {
-          x: _mid,
+          x: midBear,
           y: bosLevel,
           text: '▼ ' + _lbl,
           color: 'transparent',
@@ -688,6 +1093,21 @@ export function calculateMarketStructureTargetTracker(
           curTp3Lbl = null;
         }
       }
+
+      if (alertBos) {
+        lastBosAlert = JSON.stringify({
+          t: cleanTicker,
+          tf: 'current',
+          type: 'BOS',
+          dir: 'bear',
+          lvl: formatPrice(bosLevel, minTickPrecision),
+          entry: formatPrice(entryPrice, minTickPrecision),
+          sl: formatPrice(slPrice, minTickPrecision),
+          tp1: formatPrice(tp1Price, minTickPrecision),
+          tp2: formatPrice(tp2Price, minTickPrecision),
+          tp3: formatPrice(tp3Price, minTickPrecision),
+        });
+      }
     }
 
     // ── Active BOS Line Extension ─────────────────────────────────────────────
@@ -718,6 +1138,14 @@ export function calculateMarketStructureTargetTracker(
 
     if (targetReached) {
       targetHit = true;
+      if (alertTarget) {
+        lastTargetAlert = JSON.stringify({
+          t: cleanTicker,
+          type: 'TGT',
+          dir: bosIsBull ? 'bull' : 'bear',
+          tgt: formatPrice(targetLevel, minTickPrecision),
+        });
+      }
     }
 
     // ── BOS Invalidation Logic ────────────────────────────────────────────────
@@ -731,6 +1159,7 @@ export function calculateMarketStructureTargetTracker(
     if (invalidated) {
       bosLevel = null;
       bosBar = null;
+      bosBarTime = null;
       targetLevel = null;
       entryPrice = null;
       slPrice = null;
@@ -757,7 +1186,7 @@ export function calculateMarketStructureTargetTracker(
     }
   }
 
-  // ── Construct Line Fills ───────────────────────────────────────────────────
+  // ── Construct Line Fills (Pine Script linefill.new) ────────────────────────
   let slFill: MsttLineFill | null = null;
   let tp1Fill: MsttLineFill | null = null;
   let tp2Fill: MsttLineFill | null = null;
@@ -769,32 +1198,61 @@ export function calculateMarketStructureTargetTracker(
     const x1 = curEntryLine.x1;
     const x2 = curEntryLine.x2;
     if (showSl && showSlShade && curSlLine) {
-      slFill = { x1, x2, y1: curEntryLine.y1, y2: curSlLine.y1, color: colSlShade };
+      slFill = { x1, x2, y1: curEntryLine.y1, y2: curSlLine.y1, color: colSl };
     }
     if (showTp1 && showTp1Shade && curTp1Line) {
-      tp1Fill = { x1, x2, y1: curEntryLine.y1, y2: curTp1Line.y1, color: colTp1Shade };
+      tp1Fill = { x1, x2, y1: curEntryLine.y1, y2: curTp1Line.y1, color: colTp1 };
     }
     if (showTp2 && showTp2Shade && curTp2Line) {
       const topBoundary = curTp1Line ? curTp1Line.y1 : curEntryLine.y1;
-      tp2Fill = { x1, x2, y1: topBoundary, y2: curTp2Line.y1, color: colTp2Shade };
+      tp2Fill = { x1, x2, y1: topBoundary, y2: curTp2Line.y1, color: colTp2 };
     }
     if (showTp3 && showTp3Shade && curTp3Line) {
       const topBoundary = curTp2Line ? curTp2Line.y1 : curTp1Line ? curTp1Line.y1 : curEntryLine.y1;
-      tp3Fill = { x1, x2, y1: topBoundary, y2: curTp3Line.y1, color: colTp3Shade };
+      tp3Fill = { x1, x2, y1: topBoundary, y2: curTp3Line.y1, color: colTp3 };
     }
   }
 
-  // ── Dashboard String & Color Pre-computation ────────────────────────────────
+  // ── Dashboard String & Color Pre-computation (17 rows exact match) ─────────
   const lastBarIndex = n - 1;
-  const lastCandle = candles[lastBarIndex];
   const lastHtfRsi = !isNaN(rsiSeries[lastBarIndex]) ? rsiSeries[lastBarIndex] : 50;
   const htfBull = lastHtfRsi > 50.0;
+  const htfBear = lastHtfRsi < 50.0;
 
   const trendStr = trend === 1 ? '▲ Bull' : trend === -1 ? '▼ Bear' : '● Neutral';
-  const trendCol = trend === 1 ? 'rgb(0,200,120)' : trend === -1 ? 'rgb(220,50,50)' : 'rgb(140,140,140)';
+  const trendCol = trend === 1 ? 'rgb(0, 200, 120)' : trend === -1 ? 'rgb(220, 50, 50)' : 'rgb(140, 140, 140)';
   const htfBarVal = lastHtfRsi;
   const htfBarStr = f_blockBar(htfBarVal, 100.0);
   const htfBarCol = f_blockColor(htfBarVal, 30.0, 50.0, 70.0);
+
+  const lastStructureBull =
+    prevStructHigh !== null &&
+    lastStructHigh !== null &&
+    prevStructLow !== null &&
+    lastStructLow !== null &&
+    lastStructHigh > prevStructHigh &&
+    lastStructLow > prevStructLow;
+
+  const lastStructureBear =
+    prevStructHigh !== null &&
+    lastStructHigh !== null &&
+    prevStructLow !== null &&
+    lastStructLow !== null &&
+    lastStructHigh < prevStructHigh &&
+    lastStructLow < prevStructLow;
+
+  const structStr = lastStructureBull ? '▲ Bull' : lastStructureBear ? '▼ Bear' : '● Mixed';
+  const structCol = lastStructureBull ? '#22c55e' : lastStructureBear ? '#ef4444' : '#9ca3af';
+
+  const filterStr =
+    (useStructureFilter ? 'STR ' : '') +
+    (useWickFilter ? 'WICK ' : '') +
+    (useSweepFilter ? 'SWEEP ' : '') +
+    (useBodyCloseFilter ? 'BODY ' : '') +
+    (useDisplacementFilter ? 'DISP ' : '') +
+    (useFvgFilter ? 'FVG ' : '') +
+    (useVolumeFilter ? 'VOL ' : '') +
+    (useScoreFilter ? 'SCORE' : '');
 
   const bosLvlStr = isBosActiveNow && bosLevel !== null ? formatPrice(bosLevel, minTickPrecision) : '—';
   const tgtLvlStr = isBosActiveNow && targetLevel !== null ? formatPrice(targetLevel, minTickPrecision) : '—';
@@ -805,27 +1263,27 @@ export function calculateMarketStructureTargetTracker(
   const tp3Str = isBosActiveNow && tp3Price !== null ? formatPrice(tp3Price, minTickPrecision) : '—';
 
   const tgtHitStr = targetHit ? '✓ Hit' : isBosActiveNow ? '⏳ Pending' : '—';
-  const tgtHitCol = targetHit ? colHit : isBosActiveNow ? 'rgb(255,200,0)' : 'rgb(110,110,110)';
+  const tgtHitCol = targetHit ? colHit : isBosActiveNow ? 'rgb(255, 200, 0)' : 'rgb(110, 110, 110)';
   const durationStr = isBosActiveNow ? '⏳ ' + bosBarsCount.toString() + ' Bars' : '—';
   const totalStr = totalBos.toString() + ' (' + bullBosCount.toString() + '▲ / ' + bearBosCount.toString() + '▼)';
-  const htfStr = htfBull ? '▲ Bull HTF' : '▼ Bear HTF';
-  const htfDirCol = htfBull ? 'rgb(0,200,120)' : 'rgb(220,50,50)';
+  const htfStr = htfBull ? '▲ Bull HTF' : htfBear ? '▼ Bear HTF' : '● Neutral HTF';
+  const htfDirCol = htfBull ? 'rgb(0, 200, 120)' : htfBear ? 'rgb(220, 50, 50)' : '#9ca3af';
 
-  const _slDiff = entryPrice !== null && slPrice !== null ? Math.abs(entryPrice - slPrice) : 0;
+  const slDiff = entryPrice !== null && slPrice !== null ? Math.abs(entryPrice - slPrice) : 0;
   const rrVal =
-    isBosActiveNow && tp1Price !== null && entryPrice !== null && slPrice !== null && _slDiff > 0
-      ? Math.abs(tp1Price - entryPrice) / _slDiff
+    isBosActiveNow && tp1Price !== null && entryPrice !== null && slPrice !== null && slDiff > 0
+      ? Math.abs(tp1Price - entryPrice) / slDiff
       : 0;
 
   const rrStr = isBosActiveNow ? rrVal.toFixed(2) + ' R' : '—';
   const rrCol =
     rrVal >= 2.0
-      ? 'rgb(0,255,120)'
+      ? 'rgb(0, 255, 120)'
       : rrVal >= 1.5
-      ? 'rgb(80,255,0)'
+      ? 'rgb(80, 255, 0)'
       : rrVal >= 1.0
-      ? 'rgb(200,200,0)'
-      : 'rgb(110,110,110)';
+      ? 'rgb(200, 200, 0)'
+      : 'rgb(110, 110, 110)';
 
   const dashboard: MsttDashboard = {
     ticker: cleanTicker,
@@ -836,6 +1294,9 @@ export function calculateMarketStructureTargetTracker(
     htfDirCol,
     htfBarStr,
     htfBarCol,
+    structStr,
+    structCol,
+    filterStr,
     bosLvlStr,
     tgtLvlStr,
     tgtHitStr,
@@ -868,6 +1329,7 @@ export function calculateMarketStructureTargetTracker(
     tp1Fill,
     tp2Fill,
     tp3Fill,
+    signalMarkers,
     dashboard,
     bosActive: isBosActiveNow,
     targetHit,
@@ -879,5 +1341,9 @@ export function calculateMarketStructureTargetTracker(
     tp1Price,
     tp2Price,
     tp3Price,
+    lastBosAlert,
+    lastTargetAlert,
+    bullScore: lastBullScore,
+    bearScore: lastBearScore,
   };
 }

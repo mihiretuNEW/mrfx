@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { ChartSettings, HistorySpanId, HISTORY_SPANS, SMCInstanceConfig, ChartThemeId } from '../types';
 import { THEME_PRESETS, ThemePreset, isDarkTheme, getThemePreset } from '../utils/themePresets';
-import { X, Palette, LayoutGrid, Eye, Sun, Moon, ShieldCheck, Send, ExternalLink, MessageCircle, RotateCcw, Sparkles, Check, RefreshCw, Settings, Crown, Key, Power, Zap, ArrowUpRight, Smartphone, Download, Share2, PlusSquare, Clock, Calendar, CheckCircle2, Layers, Plus, Trash2, Copy, ChevronDown, ChevronUp, SlidersHorizontal, TrendingUp } from 'lucide-react';
+import { X, Palette, LayoutGrid, Eye, Sun, Moon, ShieldCheck, Send, ExternalLink, MessageCircle, RotateCcw, Sparkles, Check, RefreshCw, Settings, Crown, Key, Power, Zap, ArrowUpRight, Smartphone, Download, Share2, PlusSquare, Clock, Calendar, CheckCircle2, Layers, Plus, Trash2, Copy, ChevronDown, ChevronUp, SlidersHorizontal, TrendingUp, Code2, Edit3 } from 'lucide-react';
 import { AdminPanel } from './AdminPanel';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 
@@ -26,6 +26,38 @@ interface SettingsModalProps {
   onActivatePro?: (token?: string) => void;
   onSwitchToFree?: () => void;
 }
+
+const INDICATOR_NAME_MAP: Record<string, string> = {
+  auto_price_channels: 'Auto Price Channels (4H)',
+  auto_sdc: 'Auto Supply & Demand + Parallel Channel',
+  ma: 'Simple Moving Average (SMA)',
+  gta: 'Grand Trend Alignment (GTA) Filter',
+  twb: 'LuxAlgo Trendlines with Breaks',
+  smc: 'Smart Money Concepts (SMC)',
+  so: 'LuxAlgo® - Signals & Overlays™',
+  fvg: 'Confluence FVG Finder',
+  mss: 'Market Structure Signals',
+  ict: 'Smart Money & ICT Concepts (LuxAlgo)',
+  mstat: 'Market Structure & Price Action Toolkit (Zeiierman)',
+  pr: 'Predictive Ranges [LuxAlgo]',
+  sr: 'Mpro Signals (Support & Resistance Classification)',
+  echo: 'ECHO mpro (Echo Forecast [LuxAlgo])',
+  mpro2: 'Mpro2 Signal',
+  master: 'Master Strategy System & Dashboard',
+  hvn: 'HVN Profile (ATAS Market Profile)',
+  nexus: 'NEXUS: SMART MONEY SUITE',
+  session: 'Session Filter',
+  obv: 'Order Blocks with Volume Delta',
+  pro_ob: 'PRO Order Blocks [Live 8-Score & Shadow]',
+  mstt: 'Market Tick Two [MarkitTick] — Enhanced Filters',
+  vip_scanner: 'VIP Market Scanner™',
+  dynamic_tpsl: 'Premium Signals with Dynamic TP & SL Optimization',
+  trade_planner: 'Trade Planner [LunqFX]',
+  fib_swing: 'Fibonacci Sequence Swing [ChartPrime]',
+  mtf_ema: 'Multi-Timeframe EMA 15m 1H',
+  mrov_trade: 'Mrov Trade: Opening Range',
+  ema_50_100: 'EMA 50/100 + Candle Trend',
+};
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -56,6 +88,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [tgPasscodeInput, setTgPasscodeInput] = useState('');
   const [tgPasscodeError, setTgPasscodeError] = useState('');
   const [isTgVerifying, setIsTgVerifying] = useState(false);
+
+  // State for confirming permanent indicator deletion
+  const [indicatorToDelete, setIndicatorToDelete] = useState<{ id: string; name: string } | null>(null);
 
   const isVerifiedDevice = localStorage.getItem('tg_signals_device_verified') === 'true';
 
@@ -153,35 +188,114 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     handleActivatePro(proCodeInput || PRO_ACTIVATION_CODE);
   };
 
-  const isAutoChannelsActive = settings.indicators.showAutoPriceChannels ?? true;
-  const isAutoSdcActive = settings.indicators.showAutoSupplyDemandChannel ?? true;
-  const isMAActive = settings.indicators.showMA ?? false;
-  const isGTAActive = settings.indicators.showGTA ?? false;
-  const isTWBActive = settings.indicators.showTrendlinesWithBreaks ?? false;
-  const isSMCActive = settings.indicators.showSmartMoneyConcepts ?? false;
-  const isSOActive = settings.indicators.showSignalsAndOverlays ?? false;
-  const isFVGActive = settings.indicators.showConfluenceFVG ?? false;
-  const isICTActive = settings.indicators.showIctConcepts ?? false;
-  const isMStatActive = settings.indicators.showMarketStructureToolkit ?? false;
-  const isMSSActive = settings.indicators.showMarketStructureSignals ?? true;
-  const isPRActive = settings.indicators.showPredictiveRanges ?? true;
-  const isSRActive = settings.indicators.showSrClassification ?? true;
-  const isEchoActive = settings.indicators.showEchoMpro ?? true;
-  const isMpro2Active = settings.indicators.showMpro2Signal ?? true;
-  const isMasterActive = settings.indicators.showMasterDashboard ?? true;
-  const isHvnActive = settings.indicators.showHvnProfile ?? true;
-  const isNexusActive = settings.indicators.showNexusSuite ?? true;
-  const isSessionFilterActive = settings.indicators.showSessionFilter ?? true;
-  const isObvActive = settings.indicators.showOrderBlocksWithVolume ?? true;
-  const isProObActive = settings.indicators.showProOrderBlocks ?? true;
-  const isMsttActive = settings.indicators.showMarketStructureTargetTracker ?? true;
-  const isVipScannerActive = settings.indicators.showVipMarketScanner ?? true;
-  const isDynamicTpSlActive = settings.indicators.showDynamicTpSlSignals ?? true;
-  const isTradePlannerActive = settings.indicators.showTradePlanner ?? true;
-  const isFibSwingActive = settings.indicators.showFibonacciSequenceSwing ?? true;
-  const isMtfEmaActive = settings.indicators.showMultiTimeframeEma ?? true;
-  const isMrovTradeActive = settings.indicators.showMrovOpeningRange ?? false;
-  const isEma50100Active = settings.indicators.showEma50100Trend ?? false;
+  // Permanently deleted indicators registry
+  const deletedSet = new Set<string>(settings.indicators.deletedIndicators || []);
+  const isIndicatorDeleted = (id: string) => deletedSet.has(id);
+
+  const isAutoChannelsActive = !isIndicatorDeleted('auto_price_channels') && (settings.indicators.showAutoPriceChannels ?? true);
+  const isAutoSdcActive = !isIndicatorDeleted('auto_sdc') && (settings.indicators.showAutoSupplyDemandChannel ?? true);
+  const isMAActive = !isIndicatorDeleted('ma') && (settings.indicators.showMA ?? false);
+  const isGTAActive = !isIndicatorDeleted('gta') && (settings.indicators.showGTA ?? false);
+  const isTWBActive = !isIndicatorDeleted('twb') && (settings.indicators.showTrendlinesWithBreaks ?? false);
+  const isSMCActive = !isIndicatorDeleted('smc') && (settings.indicators.showSmartMoneyConcepts ?? false);
+  const isSOActive = !isIndicatorDeleted('so') && (settings.indicators.showSignalsAndOverlays ?? false);
+  const isFVGActive = !isIndicatorDeleted('fvg') && (settings.indicators.showConfluenceFVG ?? false);
+  const isICTActive = !isIndicatorDeleted('ict') && (settings.indicators.showIctConcepts ?? false);
+  const isMStatActive = !isIndicatorDeleted('mstat') && (settings.indicators.showMarketStructureToolkit ?? false);
+  const isMSSActive = !isIndicatorDeleted('mss') && (settings.indicators.showMarketStructureSignals ?? true);
+  const isPRActive = !isIndicatorDeleted('pr') && (settings.indicators.showPredictiveRanges ?? true);
+  const isSRActive = !isIndicatorDeleted('sr') && (settings.indicators.showSrClassification ?? true);
+  const isEchoActive = !isIndicatorDeleted('echo') && (settings.indicators.showEchoMpro ?? true);
+  const isMpro2Active = !isIndicatorDeleted('mpro2') && (settings.indicators.showMpro2Signal ?? true);
+  const isMasterActive = !isIndicatorDeleted('master') && (settings.indicators.showMasterDashboard ?? true);
+  const isHvnActive = !isIndicatorDeleted('hvn') && (settings.indicators.showHvnProfile ?? true);
+  const isNexusActive = !isIndicatorDeleted('nexus') && (settings.indicators.showNexusSuite ?? true);
+  const isSessionFilterActive = !isIndicatorDeleted('session') && (settings.indicators.showSessionFilter ?? true);
+  const isObvActive = !isIndicatorDeleted('obv') && (settings.indicators.showOrderBlocksWithVolume ?? true);
+  const isProObActive = !isIndicatorDeleted('pro_ob') && (settings.indicators.showProOrderBlocks ?? true);
+  const isMsttActive = !isIndicatorDeleted('mstt') && ((settings.indicators.showMarketTickTwo ?? settings.indicators.showMarketStructureTargetTracker) ?? true);
+  const isVipScannerActive = !isIndicatorDeleted('vip_scanner') && (settings.indicators.showVipMarketScanner ?? true);
+  const isDynamicTpSlActive = !isIndicatorDeleted('dynamic_tpsl') && (settings.indicators.showDynamicTpSlSignals ?? true);
+  const isTradePlannerActive = !isIndicatorDeleted('trade_planner') && (settings.indicators.showTradePlanner ?? true);
+  const isFibSwingActive = !isIndicatorDeleted('fib_swing') && (settings.indicators.showFibonacciSequenceSwing ?? true);
+  const isMtfEmaActive = !isIndicatorDeleted('mtf_ema') && (settings.indicators.showMultiTimeframeEma ?? true);
+  const isMrovTradeActive = !isIndicatorDeleted('mrov_trade') && (settings.indicators.showMrovOpeningRange ?? false);
+  const isEma50100Active = !isIndicatorDeleted('ema_50_100') && (settings.indicators.showEma50100Trend ?? false);
+
+  // Permanently delete indicator handler
+  const handlePermanentlyDeleteIndicator = (indicatorId: string) => {
+    const currentDeleted = settings.indicators.deletedIndicators || [];
+    const nextDeleted = currentDeleted.includes(indicatorId) ? currentDeleted : [...currentDeleted, indicatorId];
+    
+    // Also disable toggle flags so calculation doesn't run anywhere
+    const toggleUpdates: Partial<ChartSettings['indicators']> = {
+      deletedIndicators: nextDeleted,
+    };
+
+    switch (indicatorId) {
+      case 'auto_price_channels': toggleUpdates.showAutoPriceChannels = false; break;
+      case 'auto_sdc': toggleUpdates.showAutoSupplyDemandChannel = false; break;
+      case 'ma': toggleUpdates.showMA = false; break;
+      case 'gta': toggleUpdates.showGTA = false; break;
+      case 'twb': toggleUpdates.showTrendlinesWithBreaks = false; break;
+      case 'smc': toggleUpdates.showSmartMoneyConcepts = false; break;
+      case 'so': toggleUpdates.showSignalsAndOverlays = false; break;
+      case 'fvg': toggleUpdates.showConfluenceFVG = false; break;
+      case 'ict': toggleUpdates.showIctConcepts = false; break;
+      case 'mstat': toggleUpdates.showMarketStructureToolkit = false; break;
+      case 'mss': toggleUpdates.showMarketStructureSignals = false; break;
+      case 'pr': toggleUpdates.showPredictiveRanges = false; break;
+      case 'sr': toggleUpdates.showSrClassification = false; break;
+      case 'echo': toggleUpdates.showEchoMpro = false; break;
+      case 'mpro2': toggleUpdates.showMpro2Signal = false; break;
+      case 'master': toggleUpdates.showMasterDashboard = false; toggleUpdates.showMasterSignal = false; break;
+      case 'hvn': toggleUpdates.showHvnProfile = false; break;
+      case 'nexus': toggleUpdates.showNexusSuite = false; break;
+      case 'session': toggleUpdates.showSessionFilter = false; break;
+      case 'obv': toggleUpdates.showOrderBlocksWithVolume = false; break;
+      case 'pro_ob': toggleUpdates.showProOrderBlocks = false; break;
+      case 'mstt': toggleUpdates.showMarketStructureTargetTracker = false; toggleUpdates.showMarketTickTwo = false; break;
+      case 'vip_scanner': toggleUpdates.showVipMarketScanner = false; break;
+      case 'dynamic_tpsl': toggleUpdates.showDynamicTpSlSignals = false; break;
+      case 'trade_planner': toggleUpdates.showTradePlanner = false; break;
+      case 'fib_swing': toggleUpdates.showFibonacciSequenceSwing = false; break;
+      case 'mtf_ema': toggleUpdates.showMultiTimeframeEma = false; break;
+      case 'mrov_trade': toggleUpdates.showMrovOpeningRange = false; break;
+      case 'ema_50_100': toggleUpdates.showEma50100Trend = false; break;
+    }
+
+    onUpdateSettings({
+      ...settings,
+      indicators: {
+        ...settings.indicators,
+        ...toggleUpdates,
+      },
+    });
+
+    setIndicatorToDelete(null);
+  };
+
+  const handleRestoreIndicator = (indicatorId: string) => {
+    const currentDeleted = settings.indicators.deletedIndicators || [];
+    const nextDeleted = currentDeleted.filter((id) => id !== indicatorId);
+    onUpdateSettings({
+      ...settings,
+      indicators: {
+        ...settings.indicators,
+        deletedIndicators: nextDeleted,
+      },
+    });
+  };
+
+  const handleRestoreAllIndicators = () => {
+    onUpdateSettings({
+      ...settings,
+      indicators: {
+        ...settings.indicators,
+        deletedIndicators: [],
+      },
+    });
+  };
 
   // Safe color helper for HTML5 color inputs which strictly require #RRGGBB format
   const toHexColor = (col?: string, defaultHex = '#00c878'): string => {
@@ -335,8 +449,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     isMrovTradeActive,
     isEma50100Active,
   ].filter(Boolean).length;
-  const totalCount = 28;
-  const notAddedCount = totalCount - addedCount;
+  const totalCount = Math.max(0, 28 - deletedSet.size);
+  const notAddedCount = Math.max(0, totalCount - addedCount);
 
   React.useEffect(() => {
     if (isOpen) {
@@ -1574,7 +1688,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 1: Auto Price Channels (4H) */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isAutoChannelsActive) || (indicatorFilter === 'not_added' && !isAutoChannelsActive)) && (
+              {!isIndicatorDeleted('auto_price_channels') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isAutoChannelsActive) || (indicatorFilter === 'not_added' && !isAutoChannelsActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -1593,13 +1707,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <span className="text-xs text-gray-500">Auto detects price channels, trend direction & breakouts (Only active on 4H)</span>
                     </div>
-                    <input
-                      id="settings-toggle-auto-price-channels"
-                      type="checkbox"
-                      checked={isAutoChannelsActive}
-                      onChange={(e) => handleUpdateIndicators('showAutoPriceChannels', e.target.checked)}
-                      className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-auto-price-channels"
+                        type="checkbox"
+                        checked={isAutoChannelsActive}
+                        onChange={(e) => handleUpdateIndicators('showAutoPriceChannels', e.target.checked)}
+                        className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'auto_price_channels', name: 'Auto Price Channels (4H)' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isAutoChannelsActive && (
@@ -1647,7 +1772,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 1B: Institutional Auto Supply/Demand Order Blocks & Parallel Channel */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isAutoSdcActive) || (indicatorFilter === 'not_added' && !isAutoSdcActive)) && (
+              {!isIndicatorDeleted('auto_sdc') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isAutoSdcActive) || (indicatorFilter === 'not_added' && !isAutoSdcActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -1666,13 +1791,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <span className="text-xs text-gray-500">Auto detects Cyan/Blue Supply-Demand zones, Sloped Parallel Trend Channels & Right-Side Projection Blocks</span>
                     </div>
-                    <input
-                      id="settings-toggle-auto-sdc"
-                      type="checkbox"
-                      checked={isAutoSdcActive}
-                      onChange={(e) => handleUpdateIndicators('showAutoSupplyDemandChannel', e.target.checked)}
-                      className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-auto-sdc"
+                        type="checkbox"
+                        checked={isAutoSdcActive}
+                        onChange={(e) => handleUpdateIndicators('showAutoSupplyDemandChannel', e.target.checked)}
+                        className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'auto_sdc', name: 'Auto Supply & Demand + Parallel Channel' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isAutoSdcActive && (
@@ -1758,7 +1894,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 2: Simple Moving Average (SMA) */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMAActive) || (indicatorFilter === 'not_added' && !isMAActive)) && (
+              {!isIndicatorDeleted('ma') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isMAActive) || (indicatorFilter === 'not_added' && !isMAActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -1776,13 +1912,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <span className="text-xs text-gray-500">Calculates and renders an SMA line on chart candles</span>
                     </div>
-                    <input
-                      id="settings-toggle-ma"
-                      type="checkbox"
-                      checked={isMAActive}
-                      onChange={(e) => handleUpdateIndicators('showMA', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-ma"
+                        type="checkbox"
+                        checked={isMAActive}
+                        onChange={(e) => handleUpdateIndicators('showMA', e.target.checked)}
+                        className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'ma', name: 'Simple Moving Average (SMA)' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isMAActive && (
@@ -1803,7 +1950,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 3: Grand Trend Alignment (GTA) Filter */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isGTAActive) || (indicatorFilter === 'not_added' && !isGTAActive)) && (
+              {!isIndicatorDeleted('gta') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isGTAActive) || (indicatorFilter === 'not_added' && !isGTAActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -1821,13 +1968,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <span className="text-xs text-gray-500">Triple-smoothed EMA momentum overlay (Green/Red/Neutral States)</span>
                     </div>
-                    <input
-                      id="settings-toggle-gta"
-                      type="checkbox"
-                      checked={isGTAActive}
-                      onChange={(e) => handleUpdateIndicators('showGTA', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-gta"
+                        type="checkbox"
+                        checked={isGTAActive}
+                        onChange={(e) => handleUpdateIndicators('showGTA', e.target.checked)}
+                        className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'gta', name: 'Grand Trend Alignment (GTA) Filter' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isGTAActive && (
@@ -1937,7 +2095,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="border-t border-neutral-900 my-2" />
 
               {/* Indicator 4: LuxAlgo Trendlines with Breaks */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isTWBActive) || (indicatorFilter === 'not_added' && !isTWBActive)) && (
+              {!isIndicatorDeleted('twb') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isTWBActive) || (indicatorFilter === 'not_added' && !isTWBActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -1955,13 +2113,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <span className="text-xs text-gray-500">Pivots and slope-calculated breakout signals</span>
                     </div>
-                    <input
-                      id="settings-toggle-twb"
-                      type="checkbox"
-                      checked={isTWBActive}
-                      onChange={(e) => handleUpdateIndicators('showTrendlinesWithBreaks', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-twb"
+                        type="checkbox"
+                        checked={isTWBActive}
+                        onChange={(e) => handleUpdateIndicators('showTrendlinesWithBreaks', e.target.checked)}
+                        className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'twb', name: 'LuxAlgo Trendlines with Breaks' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isTWBActive && (
@@ -2025,7 +2194,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 5: Smart Money Concepts (SMC) */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isSMCActive) || (indicatorFilter === 'not_added' && !isSMCActive)) && (
+              {!isIndicatorDeleted('smc') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isSMCActive) || (indicatorFilter === 'not_added' && !isSMCActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -2043,13 +2212,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <span className="text-xs text-gray-500">BOS, CHoCH structural breaks & Order Blocks (Live Candles, No Noise)</span>
                     </div>
-                    <input
-                      id="settings-toggle-smc"
-                      type="checkbox"
-                      checked={isSMCActive}
-                      onChange={(e) => handleUpdateIndicators('showSmartMoneyConcepts', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-smc"
+                        type="checkbox"
+                        checked={isSMCActive}
+                        onChange={(e) => handleUpdateIndicators('showSmartMoneyConcepts', e.target.checked)}
+                        className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'smc', name: 'Smart Money Concepts (SMC)' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isSMCActive && (
@@ -2479,7 +2659,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 6: LuxAlgo® - Signals & Overlays™ */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isSOActive) || (indicatorFilter === 'not_added' && !isSOActive)) && (
+              {!isIndicatorDeleted('so') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isSOActive) || (indicatorFilter === 'not_added' && !isSOActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -2497,13 +2677,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <span className="text-xs text-gray-500">Flagship trend tracker ribbon & buy/sell signals</span>
                     </div>
-                    <input
-                      id="settings-toggle-so"
-                      type="checkbox"
-                      checked={isSOActive}
-                      onChange={(e) => handleUpdateIndicators('showSignalsAndOverlays', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-so"
+                        type="checkbox"
+                        checked={isSOActive}
+                        onChange={(e) => handleUpdateIndicators('showSignalsAndOverlays', e.target.checked)}
+                        className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'so', name: 'LuxAlgo® - Signals & Overlays™' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isSOActive && (
@@ -2586,20 +2777,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Confluence FVG Finder | ProjectSyndicate */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isFVGActive) || (indicatorFilter === 'not_added' && !isFVGActive)) && (
+              {!isIndicatorDeleted('fvg') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isFVGActive) || (indicatorFilter === 'not_added' && !isFVGActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col">
                       <span className="text-sm font-semibold text-gray-200">Confluence FVG Finder | ProjectSyndicate</span>
                       <span className="text-xs text-gray-500">LuxAlgo style multi-timeframe confluence zones</span>
                     </div>
-                    <input
-                      id="settings-toggle-fvg"
-                      type="checkbox"
-                      checked={settings.indicators.showConfluenceFVG}
-                      onChange={(e) => handleUpdateIndicators('showConfluenceFVG', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-fvg"
+                        type="checkbox"
+                        checked={settings.indicators.showConfluenceFVG}
+                        onChange={(e) => handleUpdateIndicators('showConfluenceFVG', e.target.checked)}
+                        className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'fvg', name: 'Confluence FVG Finder' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {settings.indicators.showConfluenceFVG && (
@@ -3039,20 +3241,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Market Structure Signals | ProjectSyndicate */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMSSActive) || (indicatorFilter === 'not_added' && !isMSSActive)) && (
+              {!isIndicatorDeleted('mss') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isMSSActive) || (indicatorFilter === 'not_added' && !isMSSActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col">
                       <span className="text-sm font-semibold text-gray-200">Market Structure Signals | ProjectSyndicate</span>
                       <span className="text-xs text-gray-500">Non-repainting BOS/CHoCH breakouts, ADR10 targets (TP1/TP2/SL) & SMC Dashboard</span>
                     </div>
-                    <input
-                      id="settings-toggle-mss"
-                      type="checkbox"
-                      checked={settings.indicators.showMarketStructureSignals ?? true}
-                      onChange={(e) => handleUpdateIndicators('showMarketStructureSignals', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-mss"
+                        type="checkbox"
+                        checked={settings.indicators.showMarketStructureSignals ?? true}
+                        onChange={(e) => handleUpdateIndicators('showMarketStructureSignals', e.target.checked)}
+                        className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'mss', name: 'Market Structure Signals' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {(settings.indicators.showMarketStructureSignals ?? true) && (
@@ -3308,20 +3521,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* ICT Concepts (LuxAlgo) | ProjectSyndicate */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isICTActive) || (indicatorFilter === 'not_added' && !isICTActive)) && (
+              {!isIndicatorDeleted('ict') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isICTActive) || (indicatorFilter === 'not_added' && !isICTActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col">
                       <span className="text-sm font-semibold text-gray-200">Smart Money & ICT Concepts (LuxAlgo) | ProjectSyndicate</span>
                       <span className="text-xs text-gray-500">Premium market structure, order blocks, liquidities, volume imbalances, & FVG</span>
                     </div>
-                    <input
-                      id="settings-toggle-ict-concepts"
-                      type="checkbox"
-                      checked={settings.indicators.showIctConcepts}
-                      onChange={(e) => handleUpdateIndicators('showIctConcepts', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-ict-concepts"
+                        type="checkbox"
+                        checked={settings.indicators.showIctConcepts}
+                        onChange={(e) => handleUpdateIndicators('showIctConcepts', e.target.checked)}
+                        className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'ict', name: 'Smart Money & ICT Concepts (LuxAlgo)' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {settings.indicators.showIctConcepts && (
@@ -3783,7 +4007,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
             {/* 9. ZEIIERMAN MARKET STRUCTURE & PRICE ACTION TOOLKIT */}
-            {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMStatActive) || (indicatorFilter === 'not_added' && !isMStatActive)) && (
+            {!isIndicatorDeleted('mstat') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isMStatActive) || (indicatorFilter === 'not_added' && !isMStatActive)) && (
               <div className="p-4 bg-neutral-900/60 border border-neutral-800 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -3793,13 +4017,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </h4>
                     <p className="text-xs text-neutral-400">Zeiierman Real-Time Fractal Order Block & Support/Resistance Grid Zones</p>
                   </div>
-                  <input
-                    id="settings-toggle-mstat"
-                    type="checkbox"
-                    checked={isMStatActive}
-                    onChange={(e) => handleUpdateIndicators('showMarketStructureToolkit', e.target.checked)}
-                    className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500"
-                  />
+                  <div className="flex items-center gap-3 shrink-0">
+                    <input
+                      id="settings-toggle-mstat"
+                      type="checkbox"
+                      checked={isMStatActive}
+                      onChange={(e) => handleUpdateIndicators('showMarketStructureToolkit', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIndicatorToDelete({ id: 'mstat', name: 'Market Structure & Price Action Toolkit (Zeiierman)' })}
+                      title="Permanently delete indicator from platform code & settings"
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Permanently Delete</span>
+                    </button>
+                  </div>
                 </div>
 
                 {isMStatActive && (
@@ -3859,7 +4094,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
 
             {/* Indicator 12: Predictive Ranges [LuxAlgo] */}
-            {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isPRActive) || (indicatorFilter === 'not_added' && !isPRActive)) && (
+            {!isIndicatorDeleted('pr') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isPRActive) || (indicatorFilter === 'not_added' && !isPRActive)) && (
               <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col gap-1">
@@ -3878,13 +4113,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <span className="text-xs text-gray-500">Calculates dynamic adaptive step volatility ranges with 5 key levels: Upper 2, Upper 1, Central Average, Lower 1, Lower 2 with shaded zones</span>
                   </div>
-                  <input
-                    id="settings-toggle-predictive-ranges"
-                    type="checkbox"
-                    checked={isPRActive}
-                    onChange={(e) => handleUpdateIndicators('showPredictiveRanges', e.target.checked)}
-                    className="w-4 h-4 text-indigo-600 bg-neutral-800 rounded border-neutral-700 focus:ring-indigo-500 focus:ring-2 cursor-pointer shrink-0"
-                  />
+                  <div className="flex items-center gap-3 shrink-0">
+                    <input
+                      id="settings-toggle-predictive-ranges"
+                      type="checkbox"
+                      checked={isPRActive}
+                      onChange={(e) => handleUpdateIndicators('showPredictiveRanges', e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 bg-neutral-800 rounded border-neutral-700 focus:ring-indigo-500 focus:ring-2 cursor-pointer shrink-0"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIndicatorToDelete({ id: 'pr', name: 'Predictive Ranges [LuxAlgo]' })}
+                      title="Permanently delete indicator from platform code & settings"
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Permanently Delete</span>
+                    </button>
+                  </div>
                 </div>
 
                 {isPRActive && (
@@ -4054,7 +4300,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
 
             {/* 13. MPRO SIGNALS (PAID / DEMO INDICATOR) */}
-            {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isSRActive) || (indicatorFilter === 'not_added' && !isSRActive)) && (
+            {!isIndicatorDeleted('sr') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isSRActive) || (indicatorFilter === 'not_added' && !isSRActive)) && (
               <div className="p-4 bg-gradient-to-r from-neutral-900/90 via-neutral-900/60 to-neutral-900/90 border border-emerald-500/20 rounded-xl space-y-3 relative overflow-hidden">
                 <div className="flex items-center justify-between">
                   <div>
@@ -4084,7 +4330,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <p className="text-xs text-neutral-400 mt-0.5">Professional Market Structure & Signal Engine with 1:1.5 Risk/Reward Analysis</p>
                   </div>
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-3 shrink-0">
                     {onOpenMproModal && (
                       <button
                         type="button"
@@ -4101,6 +4347,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onChange={(e) => handleUpdateIndicators('showSrClassification', e.target.checked)}
                       className="w-4 h-4 text-emerald-600 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setIndicatorToDelete({ id: 'sr', name: 'Mpro Signals (Support & Resistance Classification)' })}
+                      title="Permanently delete indicator from platform code & settings"
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Permanently Delete</span>
+                    </button>
                   </div>
                 </div>
 
@@ -4481,7 +4736,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
 
               {/* Indicator 14: ECHO mpro (Echo Forecast [LuxAlgo]) */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isEchoActive) || (indicatorFilter === 'not_added' && !isEchoActive)) && (
+              {!isIndicatorDeleted('echo') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isEchoActive) || (indicatorFilter === 'not_added' && !isEchoActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -4500,13 +4755,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <span className="text-xs text-gray-500">Autonomous pattern-matching forecast tool predicting future price trajectory via similarity analysis</span>
                     </div>
-                    <input
-                      id="settings-toggle-echo-mpro"
-                      type="checkbox"
-                      checked={isEchoActive}
-                      onChange={(e) => handleUpdateIndicators('showEchoMpro', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-echo-mpro"
+                        type="checkbox"
+                        checked={isEchoActive}
+                        onChange={(e) => handleUpdateIndicators('showEchoMpro', e.target.checked)}
+                        className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'echo', name: 'ECHO mpro (Echo Forecast [LuxAlgo])' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isEchoActive && (
@@ -4709,7 +4975,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator: Mpro2 Signal */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMpro2Active) || (indicatorFilter === 'not_added' && !isMpro2Active)) && (
+              {!isIndicatorDeleted('mpro2') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isMpro2Active) || (indicatorFilter === 'not_added' && !isMpro2Active)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-blue-500/30 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -4734,13 +5000,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Multi-swing high-accuracy levels, Golden Pocket (0.618 - 0.65), level touch strength, full chart lines &amp; upper/lower line touch Buy/Sell signals
                       </span>
                     </div>
-                    <input
-                      id="settings-toggle-mpro2"
-                      type="checkbox"
-                      checked={isMpro2Active}
-                      onChange={(e) => handleUpdateIndicators('showMpro2Signal', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-mpro2"
+                        type="checkbox"
+                        checked={isMpro2Active}
+                        onChange={(e) => handleUpdateIndicators('showMpro2Signal', e.target.checked)}
+                        className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'mpro2', name: 'Mpro2 Signal' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isMpro2Active && (
@@ -5124,7 +5401,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator: Master Strategy System & Dashboard (Strictly Mpro2) */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMasterActive) || (indicatorFilter === 'not_added' && !isMasterActive)) && (
+              {!isIndicatorDeleted('master') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isMasterActive) || (indicatorFilter === 'not_added' && !isMasterActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-blue-500/40 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -5149,18 +5426,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         1:3 RR Gatekeeper, Micro-Trigger, and Trade Attribution HUD. Operates strictly on Mpro2 (Weekly Anchor, 0.000 / 1.000 Lines, &amp; Golden Pocket). Mpro is completely disabled.
                       </span>
                     </div>
-                    <input
-                      id="settings-toggle-master-dashboard"
-                      type="checkbox"
-                      checked={isMasterActive}
-                      onChange={(e) => {
-                        handleUpdateMultipleIndicators({
-                          showMasterDashboard: e.target.checked,
-                          showMasterSignal: e.target.checked,
-                        });
-                      }}
-                      className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-master-dashboard"
+                        type="checkbox"
+                        checked={isMasterActive}
+                        onChange={(e) => {
+                          handleUpdateMultipleIndicators({
+                            showMasterDashboard: e.target.checked,
+                            showMasterSignal: e.target.checked,
+                          });
+                        }}
+                        className="w-4 h-4 text-blue-600 bg-neutral-800 rounded border-neutral-700 focus:ring-blue-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'master', name: 'Master Strategy System & Dashboard' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isMasterActive && (
@@ -5200,7 +5488,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 16: HVN Profile (ATAS Market Profile by ProfitPro) */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isHvnActive) || (indicatorFilter === 'not_added' && !isHvnActive)) && (
+              {!isIndicatorDeleted('hvn') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isHvnActive) || (indicatorFilter === 'not_added' && !isHvnActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -5223,13 +5511,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Order flow High Volume Node (HVN) projection zones with POC levels and period volume profile silhouettes
                       </span>
                     </div>
-                    <input
-                      id="settings-toggle-hvn-profile"
-                      type="checkbox"
-                      checked={isHvnActive}
-                      onChange={(e) => handleUpdateIndicators('showHvnProfile', e.target.checked)}
-                      className="w-4 h-4 text-amber-500 bg-neutral-800 rounded border-neutral-700 focus:ring-amber-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-hvn-profile"
+                        type="checkbox"
+                        checked={isHvnActive}
+                        onChange={(e) => handleUpdateIndicators('showHvnProfile', e.target.checked)}
+                        className="w-4 h-4 text-amber-500 bg-neutral-800 rounded border-neutral-700 focus:ring-amber-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'hvn', name: 'HVN Profile (ATAS Market Profile)' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isHvnActive && (
@@ -5392,7 +5691,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 17: NEXUS SMART MONEY SUITE [BullByte] */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isNexusActive) || (indicatorFilter === 'not_added' && !isNexusActive)) && (
+              {!isIndicatorDeleted('nexus') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isNexusActive) || (indicatorFilter === 'not_added' && !isNexusActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-cyan-500/40 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -5430,13 +5729,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Unified SMC institutional framework featuring Market Structure (BOS, CHoCH, SMS), Scored Order Blocks, Fair Value Gaps (CE 50%), Liquidity Sweeps, Temporal Memory, Nexus Pulse &amp; Trade Management Engine.
                       </span>
                     </div>
-                    <input
-                      id="settings-toggle-nexus-suite"
-                      type="checkbox"
-                      checked={isNexusActive}
-                      onChange={(e) => handleUpdateIndicators('showNexusSuite', e.target.checked)}
-                      className="w-4 h-4 text-cyan-500 bg-neutral-800 rounded border-neutral-700 focus:ring-cyan-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-nexus-suite"
+                        type="checkbox"
+                        checked={isNexusActive}
+                        onChange={(e) => handleUpdateIndicators('showNexusSuite', e.target.checked)}
+                        className="w-4 h-4 text-cyan-500 bg-neutral-800 rounded border-neutral-700 focus:ring-cyan-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'nexus', name: 'NEXUS: SMART MONEY SUITE' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isNexusActive && (
@@ -5697,7 +6007,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 18: Session Filter (Free Indicator) */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isSessionFilterActive) || (indicatorFilter === 'not_added' && !isSessionFilterActive)) && (
+              {!isIndicatorDeleted('session') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isSessionFilterActive) || (indicatorFilter === 'not_added' && !isSessionFilterActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -5720,13 +6030,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Noise-free off-light dotted, solid, or dashed vertical session dividers for Asian, London, and New York trading sessions with clean top labels
                       </span>
                     </div>
-                    <input
-                      id="settings-toggle-session-filter"
-                      type="checkbox"
-                      checked={isSessionFilterActive}
-                      onChange={(e) => handleUpdateIndicators('showSessionFilter', e.target.checked)}
-                      className="w-4 h-4 text-sky-500 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-session-filter"
+                        type="checkbox"
+                        checked={isSessionFilterActive}
+                        onChange={(e) => handleUpdateIndicators('showSessionFilter', e.target.checked)}
+                        className="w-4 h-4 text-sky-500 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'session', name: 'Session Filter' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isSessionFilterActive && (
@@ -5922,7 +6243,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 19: Order Blocks with Volume Delta (cTrader Store / Pepperstone Specification) */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isObvActive) || (indicatorFilter === 'not_added' && !isObvActive)) && (
+              {!isIndicatorDeleted('obv') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isObvActive) || (indicatorFilter === 'not_added' && !isObvActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -5945,13 +6266,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Institutional Order Blocks split by Buy/Sell Volume Delta % with Total Volume labels &amp; mitigation tracking
                       </span>
                     </div>
-                    <input
-                      id="settings-toggle-obv"
-                      type="checkbox"
-                      checked={isObvActive}
-                      onChange={(e) => handleUpdateIndicators('showOrderBlocksWithVolume', e.target.checked)}
-                      className="w-4 h-4 text-emerald-500 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-obv"
+                        type="checkbox"
+                        checked={isObvActive}
+                        onChange={(e) => handleUpdateIndicators('showOrderBlocksWithVolume', e.target.checked)}
+                        className="w-4 h-4 text-emerald-500 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'obv', name: 'Order Blocks with Volume Delta' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isObvActive && (
@@ -6172,7 +6504,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 20: PRO Order Blocks [Live 8-Score & Shadow] */}
-              {isProActivated && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isProObActive) || (indicatorFilter === 'not_added' && !isProObActive)) && (
+              {!isIndicatorDeleted('pro_ob') && isProActivated && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isProObActive) || (indicatorFilter === 'not_added' && !isProObActive)) && (
                 <div className="p-4 bg-neutral-950 rounded-xl border border-neutral-800 space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -6191,13 +6523,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </p>
                       </div>
                     </div>
-                    <input
-                      id="settings-toggle-pro-ob"
-                      type="checkbox"
-                      checked={isProObActive}
-                      onChange={(e) => handleUpdateIndicators('showProOrderBlocks', e.target.checked)}
-                      className="w-4 h-4 text-emerald-500 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-pro-ob"
+                        type="checkbox"
+                        checked={isProObActive}
+                        onChange={(e) => handleUpdateIndicators('showProOrderBlocks', e.target.checked)}
+                        className="w-4 h-4 text-emerald-500 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'pro_ob', name: 'PRO Order Blocks [Live 8-Score & Shadow]' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isProObActive && (
@@ -6386,8 +6729,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               )}
 
-              {/* Indicator 21: Market Structure Target Tracker [MarkitTick] */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMsttActive) || (indicatorFilter === 'not_added' && !isMsttActive)) && (
+              {/* Indicator 21: Market Tick Two [MarkitTick] — Enhanced Filters */}
+              {!isIndicatorDeleted('mstt') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isMsttActive) || (indicatorFilter === 'not_added' && !isMsttActive)) && (
                 <div className="p-4 bg-neutral-950 rounded-xl border border-neutral-800 space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -6396,23 +6739,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-gray-200">Market Structure Target Tracker [MarkitTick]</span>
-                          <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full">
-                            OFFICIAL PINE v6
+                          <span className="text-sm font-semibold text-gray-200">Market Tick Two [MarkitTick]</span>
+                          <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full font-mono">
+                            PINE v6 ENHANCED FILTERS
                           </span>
                         </div>
                         <p className="text-xs text-gray-400">
-                          BOS/CHoCH breakouts, automatic target projection (prev swing high/low), auto-invalidation, Entry/SL/TP1/TP2/TP3 lines &amp; live dashboard.
+                          Market Structure Target Tracker — Enhanced Filters Edition: 15M Structure Bias Filter (HH/HL vs LH/LL), Extreme Wick Filter, Liquidity Sweep Filter, Dynamic BOS/CHoCH breakouts, Target Projections, Auto-Invalidation &amp; 17-Metric Live HUD.
                         </p>
                       </div>
                     </div>
-                    <input
-                      id="settings-toggle-mstt"
-                      type="checkbox"
-                      checked={isMsttActive}
-                      onChange={(e) => handleUpdateIndicators('showMarketStructureTargetTracker', e.target.checked)}
-                      className="w-4 h-4 text-amber-500 bg-neutral-800 rounded border-neutral-700 focus:ring-amber-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-mstt"
+                        type="checkbox"
+                        checked={isMsttActive}
+                        onChange={(e) => {
+                          handleUpdateIndicators('showMarketStructureTargetTracker', e.target.checked);
+                          handleUpdateIndicators('showMarketTickTwo', e.target.checked);
+                        }}
+                        className="w-4 h-4 text-amber-500 bg-neutral-800 rounded border-neutral-700 focus:ring-amber-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'mstt', name: 'Market Tick Two [MarkitTick]' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isMsttActive && (
@@ -6426,13 +6783,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
                         <div className="flex flex-col">
                           <span className="text-sm font-medium text-gray-300">Swing Length</span>
-                          <span className="text-xs text-gray-500">Pivot detection lookback bars (min: 1, max: 100, default: 5)</span>
+                          <span className="text-xs text-gray-500">Pivot detection lookback bars (min: 3, max: 50, default: 5)</span>
                         </div>
                         <input
                           id="settings-mstt-swing-len"
                           type="number"
-                          min={1}
-                          max={100}
+                          min={3}
+                          max={50}
                           value={settings.indicators.msttSwingLen ?? 5}
                           onChange={(e) => {
                             const raw = e.target.value;
@@ -6442,16 +6799,507 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             }
                             const val = parseInt(raw, 10);
                             if (!isNaN(val)) {
-                              handleUpdateIndicators('msttSwingLen', Math.min(100, Math.max(1, val)));
+                              handleUpdateIndicators('msttSwingLen', Math.min(50, Math.max(3, val)));
                             }
                           }}
                           className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-amber-500 text-center font-mono"
                         />
                       </div>
 
+                      {/* GROUP: ADVANCED FILTERS (Enhanced Filters Edition) */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-neutral-800 pb-1 pt-2">
+                        Advanced Filters (Enhanced Filters Edition)
+                      </div>
+
+                      {/* 15M Structure Bias Filter */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Structure Bias Filter (HH/HL vs LH/LL)</span>
+                          <span className="text-xs text-gray-500">Only permit Bull BOS on higher highs/higher lows, Bear BOS on lower highs/lower lows</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-structure-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseStructureFilter ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttUseStructureFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Structure Timeframe & Swing Length */}
+                      {(settings.indicators.msttUseStructureFilter ?? true) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <span className="text-xs font-medium text-gray-300 block mb-1">Structure Timeframe</span>
+                            <select
+                              id="settings-mstt-structure-tf"
+                              value={settings.indicators.msttStructureTf ?? '15'}
+                              onChange={(e) => handleUpdateIndicators('msttStructureTf', e.target.value)}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                            >
+                              <option value="5">5M (5 Minutes)</option>
+                              <option value="15">15M (15 Minutes - Default)</option>
+                              <option value="30">30M (30 Minutes)</option>
+                              <option value="60">1H (60 Minutes)</option>
+                              <option value="240">4H (240 Minutes)</option>
+                            </select>
+                          </div>
+                          <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <span className="text-xs font-medium text-gray-300 block mb-1">Structure Swing Length</span>
+                            <input
+                              id="settings-mstt-filter-swing-len"
+                              type="number"
+                              min={2}
+                              max={20}
+                              value={settings.indicators.msttFilterSwingLen ?? 5}
+                              onChange={(e) => handleUpdateIndicators('msttFilterSwingLen', Math.max(2, Math.min(20, parseInt(e.target.value) || 5)))}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white text-center font-mono"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Extreme Wick Filter */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Extreme Wick Filter</span>
+                          <span className="text-xs text-gray-500">Reject breakout candles with oversized counter-trend wicks</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-wick-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseWickFilter ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttUseWickFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Max Relevant Wick Ratio */}
+                      {(settings.indicators.msttUseWickFilter ?? true) && (
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Max Relevant Wick / Candle Range</span>
+                            <span className="text-xs text-gray-500">Maximum permitted wick ratio (0.10 - 0.95, default: 0.70)</span>
+                          </div>
+                          <input
+                            id="settings-mstt-max-wick-ratio"
+                            type="number"
+                            step={0.05}
+                            min={0.10}
+                            max={0.95}
+                            value={settings.indicators.msttMaxWickRatio ?? 0.70}
+                            onChange={(e) => handleUpdateIndicators('msttMaxWickRatio', Math.max(0.10, Math.min(0.95, parseFloat(e.target.value) || 0.70)))}
+                            className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-emerald-500 text-center font-mono"
+                          />
+                        </div>
+                      )}
+
+                      {/* Liquidity Sweep Filter */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Liquidity Sweep Filter</span>
+                          <span className="text-xs text-gray-500">Require recent sweep of prior high/low liquidity before breakout</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-sweep-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseSweepFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseSweepFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Sweep Lookback Bars */}
+                      {(settings.indicators.msttUseSweepFilter ?? false) && (
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Sweep Lookback Bars</span>
+                            <span className="text-xs text-gray-500">Maximum bars since liquidity sweep (min: 1, max: 50, default: 10)</span>
+                          </div>
+                          <input
+                            id="settings-mstt-sweep-lookback"
+                            type="number"
+                            min={1}
+                            max={50}
+                            value={settings.indicators.msttSweepLookback ?? 10}
+                            onChange={(e) => handleUpdateIndicators('msttSweepLookback', Math.max(1, Math.min(50, parseInt(e.target.value) || 10)))}
+                            className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-emerald-500 text-center font-mono"
+                          />
+                        </div>
+                      )}
+
+                      {/* Candle Body Close Confirmation */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Candle Body Close Confirmation</span>
+                          <span className="text-xs text-gray-500">Require close beyond swing level with minimum candle body-to-range ratio</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-body-close-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseBodyCloseFilter ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttUseBodyCloseFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Minimum Body / Candle Range */}
+                      {(settings.indicators.msttUseBodyCloseFilter ?? true) && (
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Minimum Body / Candle Range</span>
+                            <span className="text-xs text-gray-500">Minimum body ratio (0.10 - 0.95, default: 0.50)</span>
+                          </div>
+                          <input
+                            id="settings-mstt-min-body-ratio"
+                            type="number"
+                            step={0.05}
+                            min={0.10}
+                            max={0.95}
+                            value={settings.indicators.msttMinBodyRatio ?? 0.50}
+                            onChange={(e) => handleUpdateIndicators('msttMinBodyRatio', Math.max(0.10, Math.min(0.95, parseFloat(e.target.value) || 0.50)))}
+                            className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-emerald-500 text-center font-mono"
+                          />
+                        </div>
+                      )}
+
+                      {/* Displacement Candle Filter */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Displacement Candle Filter</span>
+                          <span className="text-xs text-gray-500">Require breakout candle body to exceed a minimum ATR multiple</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-displacement-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseDisplacementFilter ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttUseDisplacementFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Minimum Body Size (ATR x) */}
+                      {(settings.indicators.msttUseDisplacementFilter ?? true) && (
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Minimum Body Size (ATR x)</span>
+                            <span className="text-xs text-gray-500">Displacement threshold (0.10 - 3.0, default: 0.80 ATR)</span>
+                          </div>
+                          <input
+                            id="settings-mstt-min-displacement-atr"
+                            type="number"
+                            step={0.10}
+                            min={0.10}
+                            max={3.0}
+                            value={settings.indicators.msttMinDisplacementAtr ?? 0.80}
+                            onChange={(e) => handleUpdateIndicators('msttMinDisplacementAtr', Math.max(0.10, Math.min(3.0, parseFloat(e.target.value) || 0.80)))}
+                            className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-emerald-500 text-center font-mono"
+                          />
+                        </div>
+                      )}
+
+                      {/* Fair Value Gap (FVG) Confirmation */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Fair Value Gap (FVG) Confirmation</span>
+                          <span className="text-xs text-gray-500">Require an active 3-candle FVG gap (bull: low &gt; high[2], bear: high &lt; low[2])</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-fvg-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseFvgFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseFvgFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Relative Volume Confirmation */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Relative Volume Confirmation</span>
+                          <span className="text-xs text-gray-500">Gated by volume spike relative to moving average baseline</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-volume-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseVolumeFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseVolumeFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Volume Average Length & Volume Multiplier */}
+                      {(settings.indicators.msttUseVolumeFilter ?? false) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <span className="text-xs font-medium text-gray-300 block mb-1">Volume Average Length</span>
+                            <input
+                              id="settings-mstt-vol-len"
+                              type="number"
+                              min={2}
+                              max={100}
+                              value={settings.indicators.msttVolumeLength ?? 20}
+                              onChange={(e) => handleUpdateIndicators('msttVolumeLength', Math.max(2, Math.min(100, parseInt(e.target.value) || 20)))}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white text-center font-mono"
+                            />
+                          </div>
+                          <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <span className="text-xs font-medium text-gray-300 block mb-1">Volume vs Average (x)</span>
+                            <input
+                              id="settings-mstt-vol-mult"
+                              type="number"
+                              step={0.10}
+                              min={1.0}
+                              max={5.0}
+                              value={settings.indicators.msttVolumeMultiplier ?? 1.20}
+                              onChange={(e) => handleUpdateIndicators('msttVolumeMultiplier', Math.max(1.0, Math.min(5.0, parseFloat(e.target.value) || 1.20)))}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white text-center font-mono"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Continuation Confluence Score Filter */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-300">Continuation Confluence Score Filter</span>
+                            <span className="px-1.5 py-0.5 text-[9px] font-bold bg-amber-500/20 text-amber-300 rounded font-mono">0 - 100</span>
+                          </div>
+                          <span className="text-xs text-gray-500">Heuristic score: Body (+20), Displacement (+20), FVG (+20), Volume (+20), Sweep (+20)</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-score-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseScoreFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseScoreFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Minimum Continuation Score (0-100) */}
+                      {(settings.indicators.msttUseScoreFilter ?? false) && (
+                        <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-gray-300">Minimum Continuation Score</span>
+                              <span className="text-xs text-gray-500">Required confluence threshold (20 - 100, default: 60)</span>
+                            </div>
+                            <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                              {settings.indicators.msttMinContinuationScore ?? 60} / 100 pts
+                            </span>
+                          </div>
+                          <input
+                            id="settings-mstt-min-score"
+                            type="range"
+                            min={20}
+                            max={100}
+                            step={10}
+                            value={settings.indicators.msttMinContinuationScore ?? 60}
+                            onChange={(e) => handleUpdateIndicators('msttMinContinuationScore', parseInt(e.target.value) || 60)}
+                            className="w-full accent-amber-500 cursor-pointer"
+                          />
+                          <div className="grid grid-cols-5 gap-1 pt-1 text-[10px] text-center font-mono">
+                            <span className="bg-neutral-950 p-1 rounded border border-neutral-800 text-neutral-400">Body +20</span>
+                            <span className="bg-neutral-950 p-1 rounded border border-neutral-800 text-neutral-400">Disp +20</span>
+                            <span className="bg-neutral-950 p-1 rounded border border-neutral-800 text-neutral-400">FVG +20</span>
+                            <span className="bg-neutral-950 p-1 rounded border border-neutral-800 text-neutral-400">Vol +20</span>
+                            <span className="bg-neutral-950 p-1 rounded border border-neutral-800 text-neutral-400">Sweep +20</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* GROUP: SIGNAL FILTERS */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-neutral-800 pb-1 pt-2">
+                        Signal Filters (Pine Script v6 Improved v2)
+                      </div>
+
+                      {/* EMA Trend Filter */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">EMA Trend Filter</span>
+                          <span className="text-xs text-gray-500">Only permit Bull BOS above EMA and Bear BOS below EMA</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-ema-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseEmaFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseEmaFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* EMA Length */}
+                      {(settings.indicators.msttUseEmaFilter ?? false) && (
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">EMA Length</span>
+                            <span className="text-xs text-gray-500">Trend baseline length (min: 20, max: 500, default: 200)</span>
+                          </div>
+                          <input
+                            id="settings-mstt-ema-len"
+                            type="number"
+                            min={20}
+                            max={500}
+                            value={settings.indicators.msttEmaLen ?? 200}
+                            onChange={(e) => handleUpdateIndicators('msttEmaLen', Math.max(20, Math.min(500, parseInt(e.target.value) || 200)))}
+                            className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-emerald-500 text-center font-mono"
+                          />
+                        </div>
+                      )}
+
+                      {/* ADX + DI Filter */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">ADX + DI Filter</span>
+                          <span className="text-xs text-gray-500">Require minimum trend strength (ADX) and directional index confirmation (+DI &gt; -DI)</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-adx-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseAdxFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseAdxFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* ADX params */}
+                      {(settings.indicators.msttUseAdxFilter ?? false) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <span className="text-xs font-medium text-gray-300 block mb-1">DI Length</span>
+                            <input
+                              type="number"
+                              min={2}
+                              max={50}
+                              value={settings.indicators.msttDiLen ?? 14}
+                              onChange={(e) => handleUpdateIndicators('msttDiLen', Math.max(2, Math.min(50, parseInt(e.target.value) || 14)))}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white text-center font-mono"
+                            />
+                          </div>
+                          <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <span className="text-xs font-medium text-gray-300 block mb-1">ADX Smoothing</span>
+                            <input
+                              type="number"
+                              min={2}
+                              max={50}
+                              value={settings.indicators.msttAdxSmooth ?? 14}
+                              onChange={(e) => handleUpdateIndicators('msttAdxSmooth', Math.max(2, Math.min(50, parseInt(e.target.value) || 14)))}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white text-center font-mono"
+                            />
+                          </div>
+                          <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                            <span className="text-xs font-medium text-gray-300 block mb-1">Minimum ADX</span>
+                            <input
+                              type="number"
+                              step={0.5}
+                              min={5}
+                              max={50}
+                              value={settings.indicators.msttMinAdx ?? 18.0}
+                              onChange={(e) => handleUpdateIndicators('msttMinAdx', Math.max(5, Math.min(50, parseFloat(e.target.value) || 18.0)))}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white text-center font-mono"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Strong Breakout Candle */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Strong Breakout Candle</span>
+                          <span className="text-xs text-gray-500">Require breakout candle body to exceed a fraction of ATR</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-candle-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseCandleFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseCandleFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Min Candle Body & Breakout Buffer */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-xs font-medium text-gray-300 block mb-1">Min Candle Body (ATR)</span>
+                          <input
+                            type="number"
+                            step={0.05}
+                            min={0}
+                            max={2}
+                            value={settings.indicators.msttMinBodyAtr ?? 0.20}
+                            onChange={(e) => handleUpdateIndicators('msttMinBodyAtr', Math.max(0, Math.min(2, parseFloat(e.target.value) || 0.20)))}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white text-center font-mono"
+                          />
+                        </div>
+                        <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <span className="text-xs font-medium text-gray-300 block mb-1">Breakout Buffer (ATR)</span>
+                          <input
+                            type="number"
+                            step={0.01}
+                            min={0}
+                            max={0.50}
+                            value={settings.indicators.msttBreakoutBufferAtr ?? 0.00}
+                            onChange={(e) => handleUpdateIndicators('msttBreakoutBufferAtr', Math.max(0, Math.min(0.50, parseFloat(e.target.value) || 0.00)))}
+                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white text-center font-mono"
+                          />
+                        </div>
+                      </div>
+
                       {/* GROUP: VISIBILITY & APPEARANCE */}
                       <div className="text-xs font-bold uppercase tracking-wider text-blue-400 border-b border-neutral-800 pb-1 pt-2">
                         Visibility &amp; Appearance
+                      </div>
+
+                      {/* Show BOS Triangle Markers */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show BOS Triangle Plotshapes</span>
+                          <span className="text-xs text-gray-500">Display ▲ Bullish / ▼ Bearish BOS triangles under/above signal candles</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-show-markers"
+                            type="checkbox"
+                            checked={settings.indicators.msttShowSignalMarkers ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttShowSignalMarkers', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
                       </div>
 
                       {/* Show BOS Line */}
@@ -7047,7 +7895,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator: VIP Market Scanner™ (VIP Algos) - Single Pair */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isVipScannerActive) || (indicatorFilter === 'not_added' && !isVipScannerActive)) && (
+              {!isIndicatorDeleted('vip_scanner') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isVipScannerActive) || (indicatorFilter === 'not_added' && !isVipScannerActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-sky-500/30 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -7072,13 +7920,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Multi-timeframe momentum, trend, volatility &amp; confluence matrix scanner for the active symbol (clean HUD without promotional watermarks)
                       </span>
                     </div>
-                    <input
-                      id="settings-toggle-vip-scanner"
-                      type="checkbox"
-                      checked={isVipScannerActive}
-                      onChange={(e) => handleUpdateIndicators('showVipMarketScanner', e.target.checked)}
-                      className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-vip-scanner"
+                        type="checkbox"
+                        checked={isVipScannerActive}
+                        onChange={(e) => handleUpdateIndicators('showVipMarketScanner', e.target.checked)}
+                        className="w-4 h-4 text-sky-600 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'vip_scanner', name: 'VIP Market Scanner™' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isVipScannerActive && (
@@ -7190,7 +8049,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator: Premium Signals with Dynamic TP & SL Optimization */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isDynamicTpSlActive) || (indicatorFilter === 'not_added' && !isDynamicTpSlActive)) && (
+              {!isIndicatorDeleted('dynamic_tpsl') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isDynamicTpSlActive) || (indicatorFilter === 'not_added' && !isDynamicTpSlActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-emerald-500/30 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
@@ -7215,13 +8074,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Dual dynamic volatility channels, strict 2-candle confirmation, 3 dynamic Take Profit levels (TP1/TP2/TP3), 50% TP3 volatility-adaptive Stop Loss, and real-time operation tracking
                       </span>
                     </div>
-                    <input
-                      id="settings-toggle-dynamic-tpsl"
-                      type="checkbox"
-                      checked={isDynamicTpSlActive}
-                      onChange={(e) => handleUpdateIndicators('showDynamicTpSlSignals', e.target.checked)}
-                      className="w-4 h-4 text-emerald-600 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500 focus:ring-2 cursor-pointer shrink-0"
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <input
+                        id="settings-toggle-dynamic-tpsl"
+                        type="checkbox"
+                        checked={isDynamicTpSlActive}
+                        onChange={(e) => handleUpdateIndicators('showDynamicTpSlSignals', e.target.checked)}
+                        className="w-4 h-4 text-emerald-600 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500 focus:ring-2 cursor-pointer shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'dynamic_tpsl', name: 'Premium Signals with Dynamic TP & SL Optimization' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isDynamicTpSlActive && (
@@ -7453,7 +8323,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 24: Trade Planner Buy Sell Signals, Stop Loss, TP & Lot Size [LunqFX] */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isTradePlannerActive) || (indicatorFilter === 'not_added' && !isTradePlannerActive)) && (
+              {!isIndicatorDeleted('trade_planner') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isTradePlannerActive) || (indicatorFilter === 'not_added' && !isTradePlannerActive)) && (
                 <div className={`p-4 rounded-xl border transition-all ${
                   isTradePlannerActive
                     ? 'bg-neutral-900/60 border-neutral-750 shadow-md'
@@ -7479,7 +8349,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3 shrink-0">
                       <div className="flex items-center gap-1.5 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded-md">
                         <span className={`w-1.5 h-1.5 rounded-full ${isTradePlannerActive ? 'bg-cyan-400 animate-pulse' : 'bg-neutral-600'}`} />
                         <span className={`text-[10px] font-mono font-bold ${isTradePlannerActive ? 'text-cyan-400' : 'text-neutral-500'}`}>
@@ -7495,6 +8365,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         />
                         <div className="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-500"></div>
                       </label>
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'trade_planner', name: 'Trade Planner [LunqFX]' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
                     </div>
                   </div>
 
@@ -7507,24 +8386,62 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
-                          <span className="text-[11px] font-semibold text-gray-300">Fast EMA (Value Zone)</span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold text-gray-300">Fast EMA (Value Zone)</span>
+                            <span className="text-[10px] text-gray-500 font-mono">3–500</span>
+                          </div>
                           <input
                             type="number"
-                            min={2}
-                            max={200}
+                            min={3}
+                            max={500}
                             value={settings.indicators.tpFastLen ?? 21}
-                            onChange={(e) => handleUpdateIndicators('tpFastLen', Math.max(2, Math.min(200, parseInt(e.target.value) || 21)))}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '') {
+                                handleUpdateIndicators('tpFastLen', '' as any);
+                              } else {
+                                const parsed = parseInt(val, 10);
+                                if (!isNaN(parsed)) {
+                                  handleUpdateIndicators('tpFastLen', Math.max(3, Math.min(500, parsed)));
+                                }
+                              }
+                            }}
+                            onBlur={(e) => {
+                              const parsed = parseInt(e.target.value, 10);
+                              if (isNaN(parsed) || parsed < 3) {
+                                handleUpdateIndicators('tpFastLen', 3);
+                              }
+                            }}
                             className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
                           />
                         </div>
                         <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
-                          <span className="text-[11px] font-semibold text-gray-300">Slow EMA (Trend)</span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold text-gray-300">Slow EMA (Trend)</span>
+                            <span className="text-[10px] text-gray-500 font-mono">3–500</span>
+                          </div>
                           <input
                             type="number"
-                            min={5}
-                            max={400}
+                            min={3}
+                            max={500}
                             value={settings.indicators.tpSlowLen ?? 50}
-                            onChange={(e) => handleUpdateIndicators('tpSlowLen', Math.max(5, Math.min(400, parseInt(e.target.value) || 50)))}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '') {
+                                handleUpdateIndicators('tpSlowLen', '' as any);
+                              } else {
+                                const parsed = parseInt(val, 10);
+                                if (!isNaN(parsed)) {
+                                  handleUpdateIndicators('tpSlowLen', Math.max(3, Math.min(500, parsed)));
+                                }
+                              }
+                            }}
+                            onBlur={(e) => {
+                              const parsed = parseInt(e.target.value, 10);
+                              if (isNaN(parsed) || parsed < 3) {
+                                handleUpdateIndicators('tpSlowLen', 3);
+                              }
+                            }}
                             className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
                           />
                         </div>
@@ -7645,11 +8562,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </select>
                         </div>
                         <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
-                          <span className="text-[11px] font-semibold text-gray-300">Units/Lot (0=Auto)</span>
+                          <span className="text-[11px] font-semibold text-gray-300">Manual Lot Override (0=Auto)</span>
                           <input
                             type="number"
                             min={0}
-                            step={1}
+                            step={0.001}
                             value={settings.indicators.tpLotOver ?? 0}
                             onChange={(e) => handleUpdateIndicators('tpLotOver', Math.max(0, parseFloat(e.target.value) || 0))}
                             className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
@@ -7657,49 +8574,431 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
 
-                      {/* GROUP 3: TARGETS & MANAGEMENT */}
-                      <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-neutral-800 pb-1 pt-2">
-                        3️⃣ Targets &amp; Trade Management
+                      {/* Deriv Broker & MT5 Contract Specifications */}
+                      <div className="p-3 bg-neutral-900/80 rounded-lg border border-neutral-800 space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-neutral-800 pb-1.5">
+                          <span className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
+                            <span>⚡</span> Deriv Broker &amp; Standard MT5 Contract Engine
+                          </span>
+                          <span className="text-[10px] text-emerald-400 font-mono">100 pips = $1.00 (V75)</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+                          <div className="flex flex-col gap-1 sm:col-span-2">
+                            <span className="text-[11px] font-medium text-gray-300">Broker Asset Specification</span>
+                            <select
+                              value={settings.indicators.tpBrokerPreset ?? 'auto'}
+                              onChange={(e) => handleUpdateIndicators('tpBrokerPreset', e.target.value as any)}
+                              className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white font-mono focus:border-cyan-500"
+                            >
+                              <option value="deriv_v75">Deriv MT5 · Volatility 75 Index (100 pips = $1)</option>
+                              <option value="auto">Deriv MT5 · Auto-Detect Symbol (V75, Boom/Crash, Step, Jump)</option>
+                              <option value="deriv_boom_crash">Deriv MT5 · Boom &amp; Crash Indices (Min 0.20 lots)</option>
+                              <option value="deriv_step">Deriv MT5 · Step Indices (Min 0.10 lots)</option>
+                              <option value="forex">Standard MT5 · Forex Majors (1 Lot = 100,000)</option>
+                              <option value="gold">Standard MT5 · Gold / Metals (1 Lot = 100 oz)</option>
+                              <option value="custom">Custom Contract Specs</option>
+                            </select>
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-medium text-gray-300">Point Value ($/point)</span>
+                            <input
+                              type="number"
+                              step={0.1}
+                              min={0.01}
+                              value={settings.indicators.tpPointValue ?? 1.0}
+                              onChange={(e) => handleUpdateIndicators('tpPointValue', parseFloat(e.target.value) || 1.0)}
+                              className="w-full px-2 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-cyan-500"
+                            />
+                            <span className="text-[9px] text-gray-500">$1.00 / pt (100 pips)</span>
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-medium text-gray-300">Min Lot Size (MT5)</span>
+                            <input
+                              type="number"
+                              step={0.001}
+                              min={0.001}
+                              value={settings.indicators.tpMinLot ?? 0.001}
+                              onChange={(e) => handleUpdateIndicators('tpMinLot', parseFloat(e.target.value) || 0.001)}
+                              className="w-full px-2 py-1.5 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-cyan-500"
+                            />
+                            <span className="text-[9px] text-gray-500">Deriv V75 min = 0.001</span>
+                          </div>
+                        </div>
+
+                        <div className="text-[10px] text-gray-400 bg-neutral-950/80 p-2 rounded border border-neutral-850">
+                          💡 <strong className="text-gray-300">Deriv MT5 Precision:</strong> In Volatility 75 Index, 100 pips (1.00 full index point) are worth $1.00 per 1.0 lot. The position calculator calculates exact MT5 lots down to 0.001 lots to match your account balance and risk %.
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
-                          <span className="text-[11px] font-semibold text-amber-300">TP1 (R Multiple)</span>
-                          <input
-                            type="number"
-                            step={0.25}
-                            min={0.25}
-                            max={20}
-                            value={settings.indicators.tpR1 ?? 1.0}
-                            onChange={(e) => handleUpdateIndicators('tpR1', parseFloat(e.target.value) || 1.0)}
-                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
-                          />
+                      {/* GROUP 3: TARGETS & MANAGEMENT */}
+                      <div className="flex flex-col gap-2 border-b border-neutral-800 pb-2 pt-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                            3️⃣ Stop Loss &amp; Take Profit Targets
+                          </span>
+                          
+                          {/* Target Mode Toggle Buttons */}
+                          <div className="flex items-center bg-neutral-950 p-0.5 rounded-lg border border-neutral-800 text-[10.5px]">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateIndicators('tpTargetMode', 'r_multiple')}
+                              className={`px-2 py-1 rounded transition-colors font-medium ${
+                                (settings.indicators.tpTargetMode ?? 'r_multiple') === 'r_multiple'
+                                  ? 'bg-neutral-800 text-emerald-400 shadow-sm'
+                                  : 'text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              R-Multiple (Ratio)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateIndicators('tpTargetMode', 'cash_amount')}
+                              className={`px-2 py-1 rounded transition-colors font-medium flex items-center gap-1 ${
+                                settings.indicators.tpTargetMode === 'cash_amount'
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50 shadow-sm'
+                                  : 'text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              <span>💵</span> Fixed $ Amount
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateIndicators('tpTargetMode', 'pips')}
+                              className={`px-2 py-1 rounded transition-colors font-medium flex items-center gap-1 ${
+                                settings.indicators.tpTargetMode === 'pips'
+                                  ? 'bg-cyan-950 text-cyan-300 border border-cyan-700/50 shadow-sm'
+                                  : 'text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              <span>📏</span> Exact Pips (220/1030)
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
-                          <span className="text-[11px] font-semibold text-emerald-300">TP2 (R Multiple)</span>
-                          <input
-                            type="number"
-                            step={0.25}
-                            min={0.25}
-                            max={20}
-                            value={settings.indicators.tpR2 ?? 2.0}
-                            onChange={(e) => handleUpdateIndicators('tpR2', parseFloat(e.target.value) || 2.0)}
-                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
-                          <span className="text-[11px] font-semibold text-cyan-300">TP3 (R Multiple)</span>
-                          <input
-                            type="number"
-                            step={0.25}
-                            min={0.25}
-                            max={20}
-                            value={settings.indicators.tpR3 ?? 3.0}
-                            onChange={(e) => handleUpdateIndicators('tpR3', parseFloat(e.target.value) || 3.0)}
-                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
-                          />
+
+                        {/* Quick Presets & Target Focus Header */}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 bg-neutral-950/70 p-2 rounded-lg border border-neutral-800 text-[10px]">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-gray-400 font-medium">Quick Presets:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleUpdateIndicators('tpCashSl', 2.2);
+                                handleUpdateIndicators('tpCashTp1', 10.3);
+                                handleUpdateIndicators('tpCashTp2', 20.6);
+                                handleUpdateIndicators('tpCashTp3', 30.9);
+                                handleUpdateIndicators('tpPipsSl', 220);
+                                handleUpdateIndicators('tpPipsTp1', 1030);
+                                handleUpdateIndicators('tpPipsTp2', 2060);
+                                handleUpdateIndicators('tpPipsTp3', 3090);
+                              }}
+                              className="px-2 py-0.5 bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-700/50 rounded font-mono font-semibold"
+                            >
+                              220 SL / 1030 TP1 ($2.2 / $10.3)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleUpdateIndicators('tpCashSl', 1.0);
+                                handleUpdateIndicators('tpCashTp1', 1.0);
+                                handleUpdateIndicators('tpCashTp2', 2.0);
+                                handleUpdateIndicators('tpCashTp3', 3.0);
+                                handleUpdateIndicators('tpPipsSl', 100);
+                                handleUpdateIndicators('tpPipsTp1', 100);
+                                handleUpdateIndicators('tpPipsTp2', 200);
+                                handleUpdateIndicators('tpPipsTp3', 300);
+                              }}
+                              className="px-2 py-0.5 bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-200 border border-emerald-700/40 rounded font-mono"
+                            >
+                              $1 Fixed (100 Pips)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleUpdateIndicators('tpCashSl', 1.0);
+                                handleUpdateIndicators('tpCashTp1', 2.0);
+                                handleUpdateIndicators('tpCashTp2', 4.0);
+                                handleUpdateIndicators('tpCashTp3', 6.0);
+                                handleUpdateIndicators('tpPipsSl', 100);
+                                handleUpdateIndicators('tpPipsTp1', 200);
+                                handleUpdateIndicators('tpPipsTp2', 400);
+                                handleUpdateIndicators('tpPipsTp3', 600);
+                              }}
+                              className="px-2 py-0.5 bg-neutral-850 hover:bg-neutral-800 text-gray-200 border border-neutral-750 rounded font-mono"
+                            >
+                              1:2 Ratio
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-amber-300 font-medium">Win Rate Focus:</span>
+                            <select
+                              value={settings.indicators.tpTargetFocus ?? 'TP1'}
+                              onChange={(e) => handleUpdateIndicators('tpTargetFocus', e.target.value as any)}
+                              className="px-2 py-0.5 bg-neutral-900 border border-amber-800/60 rounded text-[10px] text-amber-200 font-mono"
+                            >
+                              <option value="TP1">Target TP1 (Recommended)</option>
+                              <option value="TP2">Target TP2</option>
+                              <option value="TP3">Target TP3</option>
+                            </select>
+                          </div>
                         </div>
                       </div>
+
+                      {/* Mode A: Fixed Cash $ Amount Mode */}
+                      {settings.indicators.tpTargetMode === 'cash_amount' ? (
+                        <>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            {/* SL Cash $ */}
+                            <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-rose-900/60">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-rose-400">SL Loss ($)</span>
+                                <span className="text-[9px] text-rose-500 font-mono">Exact Cash</span>
+                              </div>
+                              <div className="relative flex items-center">
+                                <span className="absolute left-2.5 text-xs text-rose-400 font-mono font-bold">$</span>
+                                <input
+                                  type="number"
+                                  step={0.1}
+                                  min={0.01}
+                                  max={1000}
+                                  value={settings.indicators.tpCashSl ?? 1.0}
+                                  onChange={(e) => handleUpdateIndicators('tpCashSl', Math.max(0.01, parseFloat(e.target.value) || 1.0))}
+                                  className="w-full pl-6 pr-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-rose-500"
+                                />
+                              </div>
+                              <span className="text-[9.5px] text-gray-400">Exact loss when SL hits</span>
+                            </div>
+
+                            {/* TP1 Cash $ */}
+                            <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-amber-900/50">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-amber-300">TP1 Win ($)</span>
+                                <span className="text-[9px] text-amber-500 font-mono">Target 1</span>
+                              </div>
+                              <div className="relative flex items-center">
+                                <span className="absolute left-2.5 text-xs text-amber-300 font-mono font-bold">$</span>
+                                <input
+                                  type="number"
+                                  step={0.1}
+                                  min={0.01}
+                                  max={5000}
+                                  value={settings.indicators.tpCashTp1 ?? 1.0}
+                                  onChange={(e) => handleUpdateIndicators('tpCashTp1', Math.max(0.01, parseFloat(e.target.value) || 1.0))}
+                                  className="w-full pl-6 pr-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-amber-500"
+                                />
+                              </div>
+                              <span className="text-[9.5px] text-gray-400">Exact win when TP1 hits</span>
+                            </div>
+
+                            {/* TP2 Cash $ */}
+                            <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-emerald-900/50">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-emerald-300">TP2 Win ($)</span>
+                                <span className="text-[9px] text-emerald-500 font-mono">Target 2</span>
+                              </div>
+                              <div className="relative flex items-center">
+                                <span className="absolute left-2.5 text-xs text-emerald-300 font-mono font-bold">$</span>
+                                <input
+                                  type="number"
+                                  step={0.1}
+                                  min={0.01}
+                                  max={5000}
+                                  value={settings.indicators.tpCashTp2 ?? 2.0}
+                                  onChange={(e) => handleUpdateIndicators('tpCashTp2', Math.max(0.01, parseFloat(e.target.value) || 2.0))}
+                                  className="w-full pl-6 pr-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-emerald-500"
+                                />
+                              </div>
+                              <span className="text-[9.5px] text-gray-400">Exact win when TP2 hits</span>
+                            </div>
+
+                            {/* TP3 Cash $ */}
+                            <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-cyan-900/50">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-cyan-300">TP3 Win ($)</span>
+                                <span className="text-[9px] text-cyan-500 font-mono">Target 3</span>
+                              </div>
+                              <div className="relative flex items-center">
+                                <span className="absolute left-2.5 text-xs text-cyan-300 font-mono font-bold">$</span>
+                                <input
+                                  type="number"
+                                  step={0.1}
+                                  min={0.01}
+                                  max={5000}
+                                  value={settings.indicators.tpCashTp3 ?? 3.0}
+                                  onChange={(e) => handleUpdateIndicators('tpCashTp3', Math.max(0.01, parseFloat(e.target.value) || 3.0))}
+                                  className="w-full pl-6 pr-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-cyan-500"
+                                />
+                              </div>
+                              <span className="text-[9.5px] text-gray-400">Exact win when TP3 hits</span>
+                            </div>
+                          </div>
+
+                          <div className="text-[10.5px] text-gray-300 bg-neutral-950/80 p-2.5 rounded-lg border border-emerald-900/30 flex items-start gap-2">
+                            <span className="text-emerald-400 text-sm">💡</span>
+                            <span>
+                              <strong className="text-emerald-300">Exact Loss &amp; Win Price Engine:</strong> On Volatility 75 Index, 100 pips = $1.00. Setting <strong className="text-rose-400">-$2.20 SL</strong> is exactly 220 pips against entry, and <strong className="text-emerald-400">+$10.30 TP1</strong> is exactly 1030 pips in profit.
+                            </span>
+                          </div>
+                        </>
+                      ) : settings.indicators.tpTargetMode === 'pips' ? (
+                        /* Mode C: Exact Pips Mode */
+                        <>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            {/* SL Pips */}
+                            <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-rose-900/60">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-rose-400">SL (Pips)</span>
+                                <span className="text-[9px] text-rose-500 font-mono">220 Pips = $2.2</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={10}
+                                min={1}
+                                max={50000}
+                                value={settings.indicators.tpPipsSl ?? 220}
+                                onChange={(e) => handleUpdateIndicators('tpPipsSl', Math.max(1, parseInt(e.target.value) || 220))}
+                                className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-rose-500"
+                              />
+                              <span className="text-[9.5px] text-gray-400">Exact pips against entry for loss</span>
+                            </div>
+
+                            {/* TP1 Pips */}
+                            <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-amber-900/50">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-amber-300">TP1 (Pips)</span>
+                                <span className="text-[9px] text-amber-500 font-mono">1030 Pips = $10.3</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={10}
+                                min={1}
+                                max={100000}
+                                value={settings.indicators.tpPipsTp1 ?? 1030}
+                                onChange={(e) => handleUpdateIndicators('tpPipsTp1', Math.max(1, parseInt(e.target.value) || 1030))}
+                                className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-amber-500"
+                              />
+                              <span className="text-[9.5px] text-gray-400">Exact pips in profit for win</span>
+                            </div>
+
+                            {/* TP2 Pips */}
+                            <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-emerald-900/50">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-emerald-300">TP2 (Pips)</span>
+                                <span className="text-[9px] text-emerald-500 font-mono">Target 2</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={10}
+                                min={1}
+                                max={100000}
+                                value={settings.indicators.tpPipsTp2 ?? 2060}
+                                onChange={(e) => handleUpdateIndicators('tpPipsTp2', Math.max(1, parseInt(e.target.value) || 2060))}
+                                className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-emerald-500"
+                              />
+                              <span className="text-[9.5px] text-gray-400">Target 2 profit distance</span>
+                            </div>
+
+                            {/* TP3 Pips */}
+                            <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-cyan-900/50">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-cyan-300">TP3 (Pips)</span>
+                                <span className="text-[9px] text-cyan-500 font-mono">Target 3</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={10}
+                                min={1}
+                                max={100000}
+                                value={settings.indicators.tpPipsTp3 ?? 3090}
+                                onChange={(e) => handleUpdateIndicators('tpPipsTp3', Math.max(1, parseInt(e.target.value) || 3090))}
+                                className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-cyan-500"
+                              />
+                              <span className="text-[9.5px] text-gray-400">Target 3 profit distance</span>
+                            </div>
+                          </div>
+
+                          <div className="text-[10.5px] text-gray-300 bg-neutral-950/80 p-2.5 rounded-lg border border-cyan-900/30 flex items-start gap-2">
+                            <span className="text-cyan-400 text-sm">📏</span>
+                            <span>
+                              <strong className="text-cyan-300">Exact Pips Engine:</strong> Entry price is the opening price of the next candle after the arrow. The trade records a <strong className="text-rose-400">LOSS</strong> if price moves against it by {settings.indicators.tpPipsSl ?? 220} pips, or a <strong className="text-emerald-400">WIN</strong> if it moves in profit by {settings.indicators.tpPipsTp1 ?? 1030} pips!
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        /* Mode B: R-Multiple Ratio Mode */
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-rose-900/50">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-rose-400">SL Size (Multiplier)</span>
+                              <span className="text-[9px] text-rose-500 font-mono">Stop R</span>
+                            </div>
+                            <input
+                              type="number"
+                              step={0.1}
+                              min={0.1}
+                              max={10}
+                              value={settings.indicators.tpSlMult ?? 1.0}
+                              onChange={(e) => handleUpdateIndicators('tpSlMult', parseFloat(e.target.value) || 1.0)}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-rose-500"
+                            />
+                            <span className="text-[9.5px] text-gray-400">1.0 = standard pullback stop</span>
+                          </div>
+
+                          <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-amber-900/40">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-amber-300">TP1 (R Multiple)</span>
+                              <span className="text-[9px] text-amber-500 font-mono">Target 1</span>
+                            </div>
+                            <input
+                              type="number"
+                              step={0.25}
+                              min={0.25}
+                              max={20}
+                              value={settings.indicators.tpR1 ?? 1.0}
+                              onChange={(e) => handleUpdateIndicators('tpR1', parseFloat(e.target.value) || 1.0)}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-amber-500"
+                            />
+                            <span className="text-[9.5px] text-gray-400">Target 1 reward ratio</span>
+                          </div>
+
+                          <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-emerald-900/40">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-emerald-300">TP2 (R Multiple)</span>
+                              <span className="text-[9px] text-emerald-500 font-mono">Target 2</span>
+                            </div>
+                            <input
+                              type="number"
+                              step={0.25}
+                              min={0.25}
+                              max={20}
+                              value={settings.indicators.tpR2 ?? 2.0}
+                              onChange={(e) => handleUpdateIndicators('tpR2', parseFloat(e.target.value) || 2.0)}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-emerald-500"
+                            />
+                            <span className="text-[9.5px] text-gray-400">Target 2 reward ratio</span>
+                          </div>
+
+                          <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-cyan-900/40">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-cyan-300">TP3 (R Multiple)</span>
+                              <span className="text-[9px] text-cyan-500 font-mono">Target 3</span>
+                            </div>
+                            <input
+                              type="number"
+                              step={0.25}
+                              min={0.25}
+                              max={20}
+                              value={settings.indicators.tpR3 ?? 3.0}
+                              onChange={(e) => handleUpdateIndicators('tpR3', parseFloat(e.target.value) || 3.0)}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-cyan-500"
+                            />
+                            <span className="text-[9.5px] text-gray-400">Target 3 reward ratio</span>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
@@ -7735,9 +9034,131 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
 
-                      {/* GROUP 4: VISUALS, TOGGLES & HUD */}
+                      {/* GROUP 4: QUALITY & TREND FILTERS (ON/OFF PRECISION SHIELD) */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-cyan-400 border-b border-neutral-800 pb-1 pt-2 flex items-center justify-between">
+                        <span>4️⃣ Quality &amp; Trend Filters (On/Off Precision Shield)</span>
+                        <span className="text-[10px] text-cyan-400/80 font-normal normal-case">Preserves ~4.55:1 R:R &amp; avoids sideways false entries</span>
+                      </div>
+
+                      {/* Strategy Context Callout */}
+                      <div className="p-3 bg-neutral-950/80 border border-cyan-500/20 rounded-lg text-xs space-y-1.5">
+                        <div className="flex items-center gap-2 text-cyan-300 font-semibold">
+                          <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
+                          <span>Quantitative Edge &amp; Drawdown Shield:</span>
+                        </div>
+                        <p className="text-gray-300 text-[11px] leading-relaxed">
+                          The main Trade Planner engine generates high-expectancy trend-pullback entries. However, during sideways or low-volatility conditions, oscillating prices can trigger avoidable losses.
+                          These on/off filters prune out low-probability whipsaws while keeping the core 4.55:1 aggregate reward-to-risk ratio completely intact across hundreds of trades.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Filter 1: ADX Anti-Chop */}
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col pr-2">
+                            <span className="text-xs font-semibold text-gray-200">ADX Trend Strength Filter</span>
+                            <span className="text-[11px] text-gray-400">Blocks entries when ADX(14) &lt; 20 (prunes sideways chop)</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpFilterAdx ?? false}
+                              onChange={(e) => handleUpdateIndicators('tpFilterAdx', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+
+                        {/* Filter 2: Slow EMA Slope Filter */}
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col pr-2">
+                            <span className="text-xs font-semibold text-gray-200">EMA Slope Angle Filter</span>
+                            <span className="text-[11px] text-gray-400">Requires active Slow EMA trajectory (rejects flat consolidation)</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpFilterSlope ?? false}
+                              onChange={(e) => handleUpdateIndicators('tpFilterSlope', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+
+                        {/* Filter 3: RSI Exhaustion Guard */}
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col pr-2">
+                            <span className="text-xs font-semibold text-gray-200">RSI Exhaustion Guard</span>
+                            <span className="text-[11px] text-gray-400">No BUY when RSI &gt; 70; no SELL when RSI &lt; 30 (prevents buying tops)</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpFilterRsiExhaustion ?? false}
+                              onChange={(e) => handleUpdateIndicators('tpFilterRsiExhaustion', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+
+                        {/* Filter 4: Candle Rejection Wick */}
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col pr-2">
+                            <span className="text-xs font-semibold text-gray-200">Rejection Wick Filter</span>
+                            <span className="text-[11px] text-gray-400">Rejects entry candles with &gt;40% opposing wicks (anti-reversal)</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpFilterWickRejection ?? false}
+                              onChange={(e) => handleUpdateIndicators('tpFilterWickRejection', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+
+                        {/* Filter 5: Volatility Expansion */}
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col pr-2">
+                            <span className="text-xs font-semibold text-gray-200">Volatility Expansion Filter</span>
+                            <span className="text-[11px] text-gray-400">Requires ATR &ge; 85% of baseline (avoids dead volume &amp; spreads)</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpFilterVolatility ?? false}
+                              onChange={(e) => handleUpdateIndicators('tpFilterVolatility', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+
+                        {/* Filter 6: Min Stop Distance Guard */}
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col pr-2">
+                            <span className="text-xs font-semibold text-gray-200">Min Stop Buffer Guard</span>
+                            <span className="text-[11px] text-gray-400">Enforces min 0.75× ATR stop to protect against random market noise</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpFilterMinStopDist ?? false}
+                              onChange={(e) => handleUpdateIndicators('tpFilterMinStopDist', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* GROUP 5: VISUALS, TOGGLES & HUD */}
                       <div className="text-xs font-bold uppercase tracking-wider text-pink-400 border-b border-neutral-800 pb-1 pt-2">
-                        4️⃣ Visuals, Display Toggles &amp; HUD Panel
+                        5️⃣ Visuals, Display Toggles &amp; HUD Panel
                       </div>
 
                       {/* Candle Palette */}
@@ -7793,8 +9214,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                         <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
                           <div className="flex flex-col">
-                            <span className="text-sm font-medium text-gray-300">Show Buy &amp; Sell Signals</span>
-                            <span className="text-xs text-gray-500">Arrows &amp; entry badges with exact calculated lot size</span>
+                            <span className="text-sm font-medium text-gray-300">Show Buy &amp; Sell Arrows</span>
+                            <span className="text-xs text-gray-500">Clean entry arrows pointing up (BUY) &amp; down (SELL)</span>
                           </div>
                           <label className="relative inline-flex items-center cursor-pointer">
                             <input
@@ -7803,7 +9224,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               onChange={(e) => handleUpdateIndicators('tpShowSignals', e.target.checked)}
                               className="sr-only peer"
                             />
-                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-300">Show BUY/SELL Pill Text</span>
+                            <span className="text-xs text-gray-500">OFF removes "unit" and text badges, showing clean arrows only</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpShowEntryLabel ?? false}
+                              onChange={(e) => handleUpdateIndicators('tpShowEntryLabel', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
                           </label>
                         </div>
 
@@ -7819,14 +9256,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               onChange={(e) => handleUpdateIndicators('tpShowPlans', e.target.checked)}
                               className="sr-only peer"
                             />
-                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
                           </label>
                         </div>
                       </div>
 
-                      {/* Individual Target Toggles */}
-                      <div className="p-3 bg-neutral-900/90 rounded-lg border border-neutral-800 space-y-2">
-                        <span className="text-xs font-semibold text-gray-300">Individual Target Lines &amp; Tags</span>
+                      {/* Individual Target Toggles & Dotted Lines */}
+                      <div className="p-3 bg-neutral-900/90 rounded-lg border border-neutral-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-gray-300">Individual Target Lines &amp; Tags</span>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <span className="text-[11px] font-medium text-cyan-400">Show Dotted Level Lines</span>
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.tpShowDottedLines ?? true}
+                              onChange={(e) => handleUpdateIndicators('tpShowDottedLines', e.target.checked)}
+                              className="rounded text-cyan-500 focus:ring-0 bg-neutral-900 border-neutral-700"
+                            />
+                          </label>
+                        </div>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           <label className="flex items-center gap-2 p-2 bg-neutral-950 rounded border border-neutral-850 cursor-pointer">
                             <input
@@ -7872,7 +9320,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
                           <div className="flex flex-col">
                             <span className="text-sm font-medium text-gray-300">Show HUD Panel</span>
-                            <span className="text-xs text-gray-500">Live position table</span>
+                            <span className="text-xs text-gray-500">Live position table &amp; scorecard</span>
                           </div>
                           <label className="relative inline-flex items-center cursor-pointer">
                             <input
@@ -7916,15 +9364,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
                         <div className="flex flex-col">
                           <span className="text-sm font-medium text-gray-300">Plans Kept on Chart (keepN)</span>
-                          <span className="text-xs text-gray-500">How many recent completed trade plans remain drawn</span>
+                          <span className="text-xs text-gray-500">How many recent completed trade plans remain drawn &amp; tracked in HUD (1–500)</span>
                         </div>
                         <input
                           type="number"
                           min={1}
-                          max={10}
+                          max={500}
                           value={settings.indicators.tpKeepN ?? 2}
-                          onChange={(e) => handleUpdateIndicators('tpKeepN', Math.max(1, Math.min(10, parseInt(e.target.value) || 2)))}
-                          className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-cyan-500 text-center font-mono"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '') {
+                              handleUpdateIndicators('tpKeepN', '' as any);
+                            } else {
+                              const parsed = parseInt(val, 10);
+                              if (!isNaN(parsed)) {
+                                handleUpdateIndicators('tpKeepN', Math.max(1, Math.min(500, parsed)));
+                              }
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const parsed = parseInt(e.target.value, 10);
+                            if (isNaN(parsed) || parsed < 1) {
+                              handleUpdateIndicators('tpKeepN', 2);
+                            }
+                          }}
+                          className="w-24 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-cyan-500 text-center font-mono"
                         />
                       </div>
                     </div>
@@ -7933,7 +9397,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 25: Fibonacci Sequence Swing [ChartPrime] */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isFibSwingActive) || (indicatorFilter === 'not_added' && !isFibSwingActive)) && (
+              {!isIndicatorDeleted('fib_swing') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isFibSwingActive) || (indicatorFilter === 'not_added' && !isFibSwingActive)) && (
                 <div className={`p-4 rounded-xl border transition-all ${
                   isFibSwingActive
                     ? 'bg-neutral-900/60 border-neutral-750 shadow-md'
@@ -7959,7 +9423,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3 shrink-0">
                       <div className="flex items-center gap-1.5 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded-md">
                         <span className={`w-1.5 h-1.5 rounded-full ${isFibSwingActive ? 'bg-indigo-400 animate-pulse' : 'bg-neutral-600'}`} />
                         <span className={`text-[10px] font-mono font-bold ${isFibSwingActive ? 'text-indigo-400' : 'text-neutral-500'}`}>
@@ -7975,6 +9439,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         />
                         <div className="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500"></div>
                       </label>
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'fib_swing', name: 'Fibonacci Sequence Swing [ChartPrime]' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
                     </div>
                   </div>
 
@@ -8241,11 +9714,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 26: Multi-Timeframe EMA 15m 1H */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMtfEmaActive) || (indicatorFilter === 'not_added' && !isMtfEmaActive)) && (
+              {!isIndicatorDeleted('mtf_ema') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isMtfEmaActive) || (indicatorFilter === 'not_added' && !isMtfEmaActive)) && (
                 <div className={`p-4 rounded-xl border transition-all ${
                   isMtfEmaActive
                     ? 'bg-neutral-900/90 border-blue-500/40 shadow-lg'
-                    : 'bg-neutral-900/50 border-neutral-800'
+                    : 'bg-neutral-900/50 border-neutral-850'
                 }`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -8266,7 +9739,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3 shrink-0">
                       <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-neutral-950 border border-neutral-800">
                         <span className={`w-1.5 h-1.5 rounded-full ${isMtfEmaActive ? 'bg-blue-400 animate-pulse' : 'bg-neutral-600'}`} />
                         <span className={`text-[10px] font-mono font-bold ${isMtfEmaActive ? 'text-blue-400' : 'text-neutral-500'}`}>
@@ -8282,6 +9755,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         />
                         <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
                       </label>
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'mtf_ema', name: 'Multi-Timeframe EMA 15m 1H' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
                     </div>
                   </div>
 
@@ -8476,7 +9958,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 27: Mrov Trade: Opening Range (Pine Script v6 Exact Implementation) */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isMrovTradeActive) || (indicatorFilter === 'not_added' && !isMrovTradeActive)) && (
+              {!isIndicatorDeleted('mrov_trade') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isMrovTradeActive) || (indicatorFilter === 'not_added' && !isMrovTradeActive)) && (
                 <div className={`p-4 rounded-xl border transition-all ${
                   isMrovTradeActive
                     ? 'bg-neutral-900/90 border-blue-500/40 shadow-lg'
@@ -8502,7 +9984,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5">
                       <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-neutral-950 border border-neutral-800">
                         <span className={`w-1.5 h-1.5 rounded-full ${isMrovTradeActive ? 'bg-blue-400 animate-pulse' : 'bg-neutral-600'}`} />
                         <span className={`text-[10px] font-mono font-bold ${isMrovTradeActive ? 'text-blue-400' : 'text-neutral-500'}`}>
@@ -8518,6 +10000,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         />
                         <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
                       </label>
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'mrov_trade', name: 'Mrov Trade: Opening Range' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
                     </div>
                   </div>
 
@@ -8881,7 +10372,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Indicator 28: EMA 50/100 + Candle Trend | Albert Setups (Pine Script v6 Exact Implementation) */}
-              {(indicatorFilter === 'all' || (indicatorFilter === 'added' && isEma50100Active) || (indicatorFilter === 'not_added' && !isEma50100Active)) && (
+              {!isIndicatorDeleted('ema_50_100') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isEma50100Active) || (indicatorFilter === 'not_added' && !isEma50100Active)) && (
                 <div className={`p-4 rounded-xl border transition-all ${
                   isEma50100Active
                     ? 'bg-neutral-900/90 border-emerald-500/40 shadow-lg'
@@ -8946,7 +10437,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5">
                       <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-neutral-950 border border-neutral-800">
                         <span className={`w-1.5 h-1.5 rounded-full ${isEma50100Active ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-600'}`} />
                         <span className={`text-[10px] font-mono font-bold ${isEma50100Active ? 'text-emerald-400' : 'text-neutral-500'}`}>
@@ -8962,6 +10453,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         />
                         <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
                       </label>
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'ema_50_100', name: 'EMA 50/100 + Candle Trend' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
                     </div>
                   </div>
 
@@ -9212,6 +10712,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* RESTORE DELETED INDICATORS (If any have been permanently deleted) */}
+              {(settings.indicators.deletedIndicators?.length || 0) > 0 && (
+                <div className="p-4 bg-neutral-900/90 border border-neutral-800 rounded-xl space-y-3 mt-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Trash2 className="w-4 h-4 text-rose-400" />
+                      <span className="text-xs font-bold text-neutral-200">
+                        Permanently Deleted Indicators ({settings.indicators.deletedIndicators!.length})
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRestoreAllIndicators}
+                      className="px-2.5 py-1 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Restore All</span>
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {settings.indicators.deletedIndicators!.map((id) => (
+                      <div
+                        key={id}
+                        className="px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-neutral-300 flex items-center gap-2"
+                      >
+                        <span className="text-[11px] font-medium">{INDICATOR_NAME_MAP[id] || id}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRestoreIndicator(id)}
+                          title="Restore this indicator"
+                          className="text-emerald-400 hover:text-emerald-300 transition-colors p-0.5 rounded cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -9491,6 +11031,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Confirmation Modal: Permanently Delete Indicator */}
+      {indicatorToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="bg-neutral-900 border border-neutral-750 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Permanently Delete Indicator?</h3>
+                <p className="text-xs text-neutral-400">Confirmation Required</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-neutral-950/80 rounded-xl border border-neutral-850 space-y-2">
+              <p className="text-xs text-neutral-300 leading-relaxed">
+                Are you sure you want to permanently delete <strong className="text-white font-semibold">&quot;{indicatorToDelete.name}&quot;</strong>?
+              </p>
+              <p className="text-[11px] text-rose-400/90 leading-relaxed font-mono">
+                ⚠️ This will permanently remove the indicator from your active indicators list, platform settings, calculations, and chart HUD.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setIndicatorToDelete(null)}
+                className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white rounded-lg text-xs font-semibold transition-colors"
+              >
+                No, Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePermanentlyDeleteIndicator(indicatorToDelete.id)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-rose-600/30 flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Yes, Permanently Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -7,7 +7,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { TimeframeId, SymbolInfo, ChartThemeId } from '../types';
 import { isDarkTheme, getThemePreset } from '../utils/themePresets';
 import { TIMEFRAMES } from '../hooks/useDerivWS';
-import { Settings, TrendingUp, Sun, Moon, LogOut, Camera, Star, ChevronDown, Check, RotateCcw, LayoutGrid, Square, Grid2X2, Crown } from 'lucide-react';
+import { Settings, TrendingUp, Sun, Moon, LogOut, Camera, Star, ChevronDown, Check, RotateCcw, LayoutGrid, Square, Grid2X2, Crown, Code2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 interface TopToolbarProps {

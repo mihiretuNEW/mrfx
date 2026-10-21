@@ -24,7 +24,7 @@ import { calculateSessionFilter, SessionFilterInterval } from '../utils/sessionF
 import { calculateMarketStructureTargetTracker, MsttResult } from '../utils/marketStructureTargetTracker';
 import { calculateVipMarketScanner, VipScannerResult } from '../utils/vipMarketScanner';
 import { calculatePremiumDynamicTpSlSignals, DynamicTpSlResults, DynamicSignalOperation } from '../utils/premiumDynamicTpSlSignals';
-import { calculateTradePlanner, TradePlannerResult, LUNQ_PALETTE } from '../utils/tradePlannerLunqFX';
+import { calculateTradePlanner, TradePlannerResult, RecentTradeAudit, LUNQ_PALETTE } from '../utils/tradePlannerLunqFX';
 import { calculateFibonacciSequenceSwing, FibSwingResult } from '../utils/fibonacciSequenceSwing';
 import { calculateMultiTimeframeEma, MtfEmaResult } from '../utils/multiTimeframeEma';
 import { calculateMrovTradeOpeningRange, MrovTradeResult } from '../utils/mrovTradeOpeningRange';
@@ -165,13 +165,21 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
   // Snapping state
   const [snappedPoint, setSnappedPoint] = useState<DrawingPoint | null>(null);
 
+  // Trade Planner Audit Inspection Focus state
+  const [selectedTradePlannerTradeId, setSelectedTradePlannerTradeId] = useState<number | null>(null);
+
   // Touch gesture refs for mobile support
   const touchStartRef = useRef<{ startX: number; startY: number; startScrollOffset: number; isDraggingDrawing: boolean } | null>(null);
   const touchPinchRef = useRef<{ startDist: number; startCandleWidth: number; startScrollOffset: number; centerX: number; indexAtCenter: number } | null>(null);
 
+  // Helper to check if an indicator has been permanently deleted
+  const isIndicatorDeleted = (id: string) => {
+    return settings.indicators.deletedIndicators?.includes(id) ?? false;
+  };
+
   // Compute GTA Trend Filter results
   const gtaResults = useMemo(() => {
-    if (!settings.indicators.showGTA || candles.length === 0) return [];
+    if (isIndicatorDeleted('gta') || !settings.indicators.showGTA || candles.length === 0) return [];
     return calculateGTATrend(
       candles,
       settings.indicators.gtaLongPeriod ?? 21,
@@ -181,6 +189,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     );
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showGTA,
     settings.indicators.gtaLongPeriod,
     settings.indicators.gtaMidPeriod,
@@ -190,7 +199,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Trendlines with Breaks (TWB)
   const twbResults = useMemo(() => {
-    if (!settings.indicators.showTrendlinesWithBreaks || candles.length === 0) return null;
+    if (isIndicatorDeleted('twb') || !settings.indicators.showTrendlinesWithBreaks || candles.length === 0) return null;
     return calculateTrendlinesWithBreaks(
       candles,
       settings.indicators.twbLength ?? 14,
@@ -199,6 +208,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     );
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showTrendlinesWithBreaks,
     settings.indicators.twbLength,
     settings.indicators.twbSlopeMultiplier,
@@ -207,7 +217,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Smart Money Concepts (SMC) directly on live candles
   const smcResults = useMemo(() => {
-    if (!settings.indicators.showSmartMoneyConcepts || candles.length === 0) return null;
+    if (isIndicatorDeleted('smc') || !settings.indicators.showSmartMoneyConcepts || candles.length === 0) return null;
     return calculateSmartMoneyConcepts(
       candles,
       settings.indicators.smcSwingLookback ?? 5,
@@ -216,6 +226,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     );
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showSmartMoneyConcepts,
     settings.indicators.smcSwingLookback,
     settings.indicators.smcObLimit,
@@ -224,6 +235,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute multi-instance Smart Money Concepts (SMC) (e.g. 720 candles, Weekly HTF, Daily HTF)
   const smcInstancesResults = useMemo(() => {
+    if (isIndicatorDeleted('smc')) return [];
     const instances = settings.indicators.smcInstances;
     if (!instances || !Array.isArray(instances) || instances.length === 0 || candles.length === 0) {
       return [];
@@ -238,7 +250,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Signals & Overlays (SO)
   const soResults = useMemo(() => {
-    if (!settings.indicators.showSignalsAndOverlays || candles.length === 0) return null;
+    if (isIndicatorDeleted('so') || !settings.indicators.showSignalsAndOverlays || candles.length === 0) return null;
     return calculateSignalsAndOverlays(
       candles,
       settings.indicators.soSensitivity ?? 12,
@@ -246,6 +258,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     );
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showSignalsAndOverlays,
     settings.indicators.soSensitivity,
     settings.indicators.soSignalMode,
@@ -253,29 +266,29 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Confluence FVG Finder
   const fvgResults = useMemo(() => {
-    if (!settings.indicators.showConfluenceFVG || candles.length === 0) return null;
+    if (isIndicatorDeleted('fvg') || !settings.indicators.showConfluenceFVG || candles.length === 0) return null;
     return calculateConfluenceFVG(candles, timeframe, settings.indicators);
-  }, [candles, timeframe, settings.indicators]);
+  }, [candles, timeframe, settings.indicators.deletedIndicators, settings.indicators.showConfluenceFVG, settings.indicators]);
 
   // Compute ICT Concepts
   const ictResults = useMemo(() => {
-    if (!settings.indicators.showIctConcepts || candles.length === 0) return null;
+    if (isIndicatorDeleted('ict') || !settings.indicators.showIctConcepts || candles.length === 0) return null;
     return calculateIctConcepts(candles, settings.indicators);
-  }, [candles, settings.indicators]);
+  }, [candles, settings.indicators.deletedIndicators, settings.indicators.showIctConcepts, settings.indicators]);
 
   // Compute Auto Price Channels (4H Breakout & Trend Indicator - Strictly 4H Timeframe Enforced)
   const priceChannelsResults = useMemo(() => {
-    if ((settings.indicators.showAutoPriceChannels ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('auto_price_channels') || (settings.indicators.showAutoPriceChannels ?? true) === false || candles.length === 0) return null;
     return calculateAutoPriceChannels4H(candles, timeframe, {
       lineColor: settings.indicators.autoPriceChannelsColor ?? '#38bdf8',
     });
-  }, [candles, timeframe, settings.indicators.showAutoPriceChannels, settings.indicators.autoPriceChannelsColor]);
+  }, [candles, timeframe, settings.indicators.deletedIndicators, settings.indicators.showAutoPriceChannels, settings.indicators.autoPriceChannelsColor]);
 
   // Compute Zeiierman Market Structure & Price Action Toolkit
   const mstatResults = useMemo(() => {
-    if (!settings.indicators.showMarketStructureToolkit || candles.length === 0) return null;
+    if (isIndicatorDeleted('mstat') || !settings.indicators.showMarketStructureToolkit || candles.length === 0) return null;
     return calculateMarketStructureToolkit(candles, settings.indicators);
-  }, [candles, settings.indicators]);
+  }, [candles, settings.indicators.deletedIndicators, settings.indicators.showMarketStructureToolkit, settings.indicators]);
 
   // Compute Pure Price Action Liquidity Sweeps [LuxAlgo]
   const pureLiquidityResults = useMemo(() => {
@@ -287,13 +300,13 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Auto Supply & Demand Order Blocks + Parallel Trend Channel Indicator
   const autoSdcResults = useMemo(() => {
-    if ((settings.indicators.showAutoSupplyDemandChannel ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('auto_sdc') || (settings.indicators.showAutoSupplyDemandChannel ?? true) === false || candles.length === 0) return null;
     return calculateAutoSupplyDemandChannel(candles);
-  }, [candles, settings.indicators.showAutoSupplyDemandChannel]);
+  }, [candles, settings.indicators.deletedIndicators, settings.indicators.showAutoSupplyDemandChannel]);
 
   // Compute Market Structure Signals | ProjectSyndicate
   const mssResults = useMemo(() => {
-    if ((settings.indicators.showMarketStructureSignals ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('mss') || (settings.indicators.showMarketStructureSignals ?? true) === false || candles.length === 0) return null;
     return calculateMarketStructureSignals(candles, {
       swingLength: settings.indicators.mssSwingLength ?? 25,
       bosConfirmation: settings.indicators.mssBosConfirmation ?? 'Close',
@@ -312,6 +325,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     });
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showMarketStructureSignals,
     settings.indicators.mssSwingLength,
     settings.indicators.mssBosConfirmation,
@@ -331,13 +345,14 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Predictive Ranges [LuxAlgo]
   const predictiveRangesResults = useMemo(() => {
-    if ((settings.indicators.showPredictiveRanges ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('pr') || (settings.indicators.showPredictiveRanges ?? true) === false || candles.length === 0) return null;
     return calculatePredictiveRanges(candles, {
       length: settings.indicators.prLength ?? 200,
       mult: settings.indicators.prMult ?? 6.0,
     });
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showPredictiveRanges,
     settings.indicators.prLength,
     settings.indicators.prMult,
@@ -345,7 +360,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Support Resistance Classification [LuxAlgo] / Mpro Signals
   const srClassificationResults = useMemo(() => {
-    if ((settings.indicators.showSrClassification ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('sr') || (settings.indicators.showSrClassification ?? true) === false || candles.length === 0) return null;
     
     // In Demo mode, calculate strictly on historical past data and leave the latest 300+ candles completely free of lines/signals
     const DEMO_LOCKED_CANDLES = 300;
@@ -487,7 +502,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute ECHO mpro (Echo Forecast [LuxAlgo])
   const echoResults = useMemo(() => {
-    if ((settings.indicators.showEchoMpro ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('echo') || (settings.indicators.showEchoMpro ?? true) === false || candles.length === 0) return null;
     return calculateEchoMpro(candles, {
       length: settings.indicators.echoLength ?? 50,
       fcast: settings.indicators.echoFcast ?? 50,
@@ -497,6 +512,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     });
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showEchoMpro,
     settings.indicators.echoLength,
     settings.indicators.echoFcast,
@@ -507,8 +523,8 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Mpro2 Signal (Fibonacci Confluence Suite)
   const mpro2Results = useMemo(() => {
-    const isMasterActive = (settings.indicators.showMasterDashboard ?? true);
-    if (((settings.indicators.showMpro2Signal ?? true) === false && !isMasterActive) || candles.length === 0) return null;
+    const isMasterActive = !isIndicatorDeleted('master') && (settings.indicators.showMasterDashboard ?? true);
+    if ((isIndicatorDeleted('mpro2') && !isMasterActive) || ((settings.indicators.showMpro2Signal ?? true) === false && !isMasterActive) || candles.length === 0) return null;
     return calculateMpro2Signals(candles, {
       isPro: isMpro2Pro,
       accessMode: mpro2AccessMode,
@@ -570,6 +586,8 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     });
   }, [
     candles,
+    settings.indicators.deletedIndicators,
+    settings.indicators.showMasterDashboard,
     settings.indicators.showMpro2Signal,
     settings.indicators.mpro2RangeMode,
     settings.indicators.mpro2LookbackPeriod,
@@ -632,7 +650,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute HVN Profile (ATAS Market Profile by ProfitPro)
   const hvnResults = useMemo(() => {
-    if ((settings.indicators.showHvnProfile ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('hvn') || (settings.indicators.showHvnProfile ?? true) === false || candles.length === 0) return null;
     return calculateHvnProfile(candles, {
       periodBars: settings.indicators.hvnPeriodBars ?? 60,
       numBins: settings.indicators.hvnNumBins ?? 40,
@@ -643,6 +661,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     });
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showHvnProfile,
     settings.indicators.hvnPeriodBars,
     settings.indicators.hvnNumBins,
@@ -654,20 +673,20 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Nexus: Smart Money Suite [BullByte]
   const nexusResults = useMemo(() => {
-    if ((settings.indicators.showNexusSuite ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('nexus') || (settings.indicators.showNexusSuite ?? true) === false || candles.length === 0) return null;
     return evaluateNexusSuite(candles, timeframe, settings.indicators);
-  }, [candles, timeframe, settings.indicators]);
+  }, [candles, timeframe, settings.indicators.deletedIndicators, settings.indicators]);
 
   // Compute Session Filter (Intraday Market Sessions: Asia, London, New York)
   const sessionFilterIntervals = useMemo(() => {
-    if ((settings.indicators.showSessionFilter ?? true) === false || candles.length === 0) return [];
+    if (isIndicatorDeleted('session') || (settings.indicators.showSessionFilter ?? true) === false || candles.length === 0) return [];
     if (timeframe === '1D') return [];
     return calculateSessionFilter(candles, settings.indicators);
-  }, [candles, timeframe, settings.indicators]);
+  }, [candles, timeframe, settings.indicators.deletedIndicators, settings.indicators]);
 
   // Compute Order Blocks with Volume Delta (cTrader Store / Pepperstone Specification)
   const orderBlocksWithVolumeResult = useMemo(() => {
-    if ((settings.indicators.showOrderBlocksWithVolume ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('obv') || (settings.indicators.showOrderBlocksWithVolume ?? true) === false || candles.length === 0) return null;
     return calculateOrderBlocksWithVolume(candles, {
       swingLength: settings.indicators.obvSwingLength ?? 10,
       invalidation: settings.indicators.obvInvalidation ?? 'Wick',
@@ -680,6 +699,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     });
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showOrderBlocksWithVolume,
     settings.indicators.obvSwingLength,
     settings.indicators.obvInvalidation,
@@ -693,7 +713,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute PRO Institutional Order Blocks (Live 8-Factor Strength & Shadow Engine)
   const proOrderBlocksResult = useMemo(() => {
-    if ((settings.indicators.showProOrderBlocks ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('pro_ob') || (settings.indicators.showProOrderBlocks ?? true) === false || candles.length === 0) return null;
     return calculateProOrderBlocks(candles, {
       minScore: settings.indicators.proObMinScore ?? 4,
       showShadow: settings.indicators.proObShowShadow ?? true,
@@ -705,6 +725,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     });
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showProOrderBlocks,
     settings.indicators.proObMinScore,
     settings.indicators.proObShowShadow,
@@ -715,29 +736,50 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.proObShowOnlyUnmitigated,
   ]);
 
-  // Compute Market Structure Target Tracker [MarkitTick] (Exact TradingView Port)
+  // Compute Market Tick Two [MarkitTick] — Enhanced Filters (Market Structure Target Tracker)
   const msttResults: MsttResult | null = useMemo(() => {
-    if ((settings.indicators.showMarketStructureTargetTracker ?? true) === false || candles.length === 0) return null;
+    const isMsttEnabled = !isIndicatorDeleted('mstt') && ((settings.indicators.showMarketTickTwo ?? settings.indicators.showMarketStructureTargetTracker) ?? true);
+    if (!isMsttEnabled || candles.length === 0) return null;
     return calculateMarketStructureTargetTracker(candles, {
       swingLen: settings.indicators.msttSwingLen ?? 5,
+      // Enhanced Filters Edition Options
+      useStructureFilter: settings.indicators.msttUseStructureFilter ?? true,
+      structureTf: settings.indicators.msttStructureTf ?? '15',
+      filterSwingLen: settings.indicators.msttFilterSwingLen ?? 5,
+      useWickFilter: settings.indicators.msttUseWickFilter ?? true,
+      maxWickRatio: settings.indicators.msttMaxWickRatio ?? 0.70,
+      useSweepFilter: settings.indicators.msttUseSweepFilter ?? false,
+      sweepLookback: settings.indicators.msttSweepLookback ?? 10,
+      // Enhanced Filters v2 Edition
+      useBodyCloseFilter: settings.indicators.msttUseBodyCloseFilter ?? true,
+      minBodyRatio: settings.indicators.msttMinBodyRatio ?? 0.50,
+      useDisplacementFilter: settings.indicators.msttUseDisplacementFilter ?? true,
+      minDisplacementAtr: settings.indicators.msttMinDisplacementAtr ?? 0.80,
+      useFvgFilter: settings.indicators.msttUseFvgFilter ?? false,
+      useVolumeFilter: settings.indicators.msttUseVolumeFilter ?? false,
+      volumeLength: settings.indicators.msttVolumeLength ?? 20,
+      volumeMultiplier: settings.indicators.msttVolumeMultiplier ?? 1.20,
+      useScoreFilter: settings.indicators.msttUseScoreFilter ?? false,
+      minContinuationScore: settings.indicators.msttMinContinuationScore ?? 60,
+      // Vis & Alerts
       showBosLine: settings.indicators.msttShowBosLine ?? true,
       showLabel: settings.indicators.msttShowLabel ?? true,
       invalidateMode: settings.indicators.msttInvalidateMode ?? true,
-      colBullBos: settings.indicators.msttColBullBos ?? 'rgb(0,200,120)',
-      colBearBos: settings.indicators.msttColBearBos ?? 'rgb(220,50,50)',
-      colTarget: settings.indicators.msttColTarget ?? 'rgb(255,200,0)',
-      colHit: settings.indicators.msttColHit ?? 'rgb(180,100,255)',
+      colBullBos: settings.indicators.msttColBullBos ?? 'rgb(0, 200, 120)',
+      colBearBos: settings.indicators.msttColBearBos ?? 'rgb(220, 50, 50)',
+      colTarget: settings.indicators.msttColTarget ?? 'rgb(255, 200, 0)',
+      colHit: settings.indicators.msttColHit ?? 'rgb(180, 100, 255)',
       showTpSl: settings.indicators.msttShowTpSl ?? true,
       slMulti: settings.indicators.msttSlMulti ?? 1.0,
       tp1Multi: settings.indicators.msttTp1Multi ?? 1.5,
       tp2Multi: settings.indicators.msttTp2Multi ?? 3.0,
       tp3Multi: settings.indicators.msttTp3Multi ?? 5.0,
       atrLen: settings.indicators.msttAtrLen ?? 14,
-      colEntry: settings.indicators.msttColEntry ?? 'rgb(100,180,255)',
-      colSl: settings.indicators.msttColSl ?? 'rgb(255,60,60)',
-      colTp1: settings.indicators.msttColTp1 ?? 'rgb(0,220,130)',
-      colTp2: settings.indicators.msttColTp2 ?? 'rgb(0,255,180)',
-      colTp3: settings.indicators.msttColTp3 ?? 'rgb(0,255,255)',
+      colEntry: settings.indicators.msttColEntry ?? 'rgb(100, 180, 255)',
+      colSl: settings.indicators.msttColSl ?? 'rgb(255, 60, 60)',
+      colTp1: settings.indicators.msttColTp1 ?? 'rgb(0, 220, 130)',
+      colTp2: settings.indicators.msttColTp2 ?? 'rgb(0, 255, 180)',
+      colTp3: settings.indicators.msttColTp3 ?? 'rgb(0, 255, 255)',
       showSl: settings.indicators.msttShowSl ?? true,
       showTp1: settings.indicators.msttShowTp1 ?? true,
       showTp2: settings.indicators.msttShowTp2 ?? true,
@@ -746,14 +788,6 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       showTp1Shade: settings.indicators.msttShowTp1Shade ?? true,
       showTp2Shade: settings.indicators.msttShowTp2Shade ?? true,
       showTp3Shade: settings.indicators.msttShowTp3Shade ?? true,
-      colSlShade: settings.indicators.msttColSlShade || settings.indicators.msttColSl || 'rgb(255,60,60)',
-      colTp1Shade: settings.indicators.msttColTp1Shade || settings.indicators.msttColTp1 || 'rgb(0,220,130)',
-      colTp2Shade: settings.indicators.msttColTp2Shade || settings.indicators.msttColTp2 || 'rgb(0,255,180)',
-      colTp3Shade: settings.indicators.msttColTp3Shade || settings.indicators.msttColTp3 || 'rgb(0,255,255)',
-      slShadeAlpha: settings.indicators.msttSlShadeAlpha ?? 0.30,
-      tp1ShadeAlpha: settings.indicators.msttTp1ShadeAlpha ?? 0.30,
-      tp2ShadeAlpha: settings.indicators.msttTp2ShadeAlpha ?? 0.15,
-      tp3ShadeAlpha: settings.indicators.msttTp3ShadeAlpha ?? 0.05,
       htfRes: settings.indicators.msttHtfRes ?? '240',
       useHtfFilter: settings.indicators.msttUseHtfFilter ?? false,
       htfRsiLen: settings.indicators.msttHtfRsiLen ?? 14,
@@ -762,7 +796,25 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     candles,
     symbolName,
     settings.indicators.showMarketStructureTargetTracker,
+    settings.indicators.showMarketTickTwo,
     settings.indicators.msttSwingLen,
+    settings.indicators.msttUseStructureFilter,
+    settings.indicators.msttStructureTf,
+    settings.indicators.msttFilterSwingLen,
+    settings.indicators.msttUseWickFilter,
+    settings.indicators.msttMaxWickRatio,
+    settings.indicators.msttUseSweepFilter,
+    settings.indicators.msttSweepLookback,
+    settings.indicators.msttUseBodyCloseFilter,
+    settings.indicators.msttMinBodyRatio,
+    settings.indicators.msttUseDisplacementFilter,
+    settings.indicators.msttMinDisplacementAtr,
+    settings.indicators.msttUseFvgFilter,
+    settings.indicators.msttUseVolumeFilter,
+    settings.indicators.msttVolumeLength,
+    settings.indicators.msttVolumeMultiplier,
+    settings.indicators.msttUseScoreFilter,
+    settings.indicators.msttMinContinuationScore,
     settings.indicators.msttShowBosLine,
     settings.indicators.msttShowLabel,
     settings.indicators.msttInvalidateMode,
@@ -789,14 +841,6 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.msttShowTp1Shade,
     settings.indicators.msttShowTp2Shade,
     settings.indicators.msttShowTp3Shade,
-    settings.indicators.msttColSlShade,
-    settings.indicators.msttColTp1Shade,
-    settings.indicators.msttColTp2Shade,
-    settings.indicators.msttColTp3Shade,
-    settings.indicators.msttSlShadeAlpha,
-    settings.indicators.msttTp1ShadeAlpha,
-    settings.indicators.msttTp2ShadeAlpha,
-    settings.indicators.msttTp3ShadeAlpha,
     settings.indicators.msttHtfRes,
     settings.indicators.msttUseHtfFilter,
     settings.indicators.msttHtfRsiLen,
@@ -804,7 +848,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute VIP Market Scanner™ (Single Pair Matrix Engine)
   const vipScannerResults: VipScannerResult | null = useMemo(() => {
-    if ((settings.indicators.showVipMarketScanner ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('vip_scanner') || (settings.indicators.showVipMarketScanner ?? true) === false || candles.length === 0) return null;
     return calculateVipMarketScanner(candles, timeframe, symbolName, {
       rsiPeriod: settings.indicators.vipScannerRsiPeriod ?? 14,
       fastEma: settings.indicators.vipScannerFastEma ?? 9,
@@ -816,6 +860,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     candles,
     timeframe,
     symbolName,
+    settings.indicators.deletedIndicators,
     settings.indicators.showVipMarketScanner,
     settings.indicators.vipScannerRsiPeriod,
     settings.indicators.vipScannerFastEma,
@@ -826,7 +871,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Premium Signals with Dynamic TP & SL Optimization
   const dynamicTpSlResults: DynamicTpSlResults | null = useMemo(() => {
-    if ((settings.indicators.showDynamicTpSlSignals ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('dynamic_tpsl') || (settings.indicators.showDynamicTpSlSignals ?? true) === false || candles.length === 0) return null;
     return calculatePremiumDynamicTpSlSignals(candles, {
       period1: settings.indicators.dynPeriod1 ?? 14,
       multiplier1: settings.indicators.dynMultiplier1 ?? 1.5,
@@ -841,6 +886,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     });
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showDynamicTpSlSignals,
     settings.indicators.dynPeriod1,
     settings.indicators.dynMultiplier1,
@@ -856,7 +902,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Trade Planner Buy Sell Signals, Stop Loss, TP & Lot Size [LunqFX]
   const tradePlannerResults: TradePlannerResult | null = useMemo(() => {
-    if ((settings.indicators.showTradePlanner ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('trade_planner') || (settings.indicators.showTradePlanner ?? true) === false || candles.length === 0) return null;
     return calculateTradePlanner(
       candles,
       {
@@ -864,17 +910,32 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         riskPct: settings.indicators.tpRiskPct ?? 1.0,
         accCur: settings.indicators.tpAccCur ?? 'USD',
         lotOver: settings.indicators.tpLotOver ?? 0,
-        fastLen: settings.indicators.tpFastLen ?? 21,
-        slowLen: settings.indicators.tpSlowLen ?? 50,
+        fastLen: Number(settings.indicators.tpFastLen) >= 3 ? Number(settings.indicators.tpFastLen) : 21,
+        slowLen: Number(settings.indicators.tpSlowLen) >= 3 ? Number(settings.indicators.tpSlowLen) : 50,
         rsiLen: settings.indicators.tpRsiLen ?? 14,
         zoneW: settings.indicators.tpZoneW ?? 0.25,
         slBuf: settings.indicators.tpSlBuf ?? 0.20,
         minStop: settings.indicators.tpMinStop ?? 0.50,
         maxStop: settings.indicators.tpMaxStop ?? 3.0,
         pbBars: settings.indicators.tpPbBars ?? 10,
+        targetMode: settings.indicators.tpTargetMode ?? 'r_multiple',
+        cashSl: settings.indicators.tpCashSl ?? 1.0,
+        cashTp1: settings.indicators.tpCashTp1 ?? 1.0,
+        cashTp2: settings.indicators.tpCashTp2 ?? 2.0,
+        cashTp3: settings.indicators.tpCashTp3 ?? 3.0,
+        pipsSl: settings.indicators.tpPipsSl ?? 220,
+        pipsTp1: settings.indicators.tpPipsTp1 ?? 1030,
+        pipsTp2: settings.indicators.tpPipsTp2 ?? 2060,
+        pipsTp3: settings.indicators.tpPipsTp3 ?? 3090,
+        targetFocus: settings.indicators.tpTargetFocus ?? 'TP1',
+        slMult: settings.indicators.tpSlMult ?? 1.0,
         r1: settings.indicators.tpR1 ?? 1.0,
         r2: settings.indicators.tpR2 ?? 2.0,
         r3: settings.indicators.tpR3 ?? 3.0,
+        brokerPreset: settings.indicators.tpBrokerPreset ?? 'auto',
+        pointValue: settings.indicators.tpPointValue ?? 1.0,
+        minLot: settings.indicators.tpMinLot ?? 0.001,
+        lotStep: settings.indicators.tpLotStep ?? 0.001,
         beOn: settings.indicators.tpBeOn ?? false,
         oppOn: settings.indicators.tpOppOn ?? true,
         candSty: settings.indicators.tpCandSty ?? 'Neon Bloom',
@@ -885,18 +946,27 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         hudPos: settings.indicators.tpHudPos ?? 'Top Right',
         hudSize: settings.indicators.tpHudSize ?? 'Normal',
         showSignals: settings.indicators.tpShowSignals ?? true,
+        showEntryLabel: settings.indicators.tpShowEntryLabel ?? false,
         showPlanBoxes: settings.indicators.tpShowPlans ?? true,
         showEmaLines: settings.indicators.tpShowEmaLines ?? true,
         showSl: settings.indicators.tpShowSl ?? true,
         showTp1: settings.indicators.tpShowTp1 ?? true,
         showTp2: settings.indicators.tpShowTp2 ?? true,
         showTp3: settings.indicators.tpShowTp3 ?? true,
+        showDottedLines: settings.indicators.tpShowDottedLines ?? true,
+        filterAdx: settings.indicators.tpFilterAdx ?? false,
+        filterSlope: settings.indicators.tpFilterSlope ?? false,
+        filterRsiExhaustion: settings.indicators.tpFilterRsiExhaustion ?? false,
+        filterWickRejection: settings.indicators.tpFilterWickRejection ?? false,
+        filterVolatility: settings.indicators.tpFilterVolatility ?? false,
+        filterMinStopDist: settings.indicators.tpFilterMinStopDist ?? false,
       },
       symbolName
     );
   }, [
     candles,
     symbolName,
+    settings.indicators.deletedIndicators,
     settings.indicators.showTradePlanner,
     settings.indicators.tpBalance,
     settings.indicators.tpRiskPct,
@@ -910,9 +980,24 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.tpMinStop,
     settings.indicators.tpMaxStop,
     settings.indicators.tpPbBars,
+    settings.indicators.tpTargetMode,
+    settings.indicators.tpCashSl,
+    settings.indicators.tpCashTp1,
+    settings.indicators.tpCashTp2,
+    settings.indicators.tpCashTp3,
+    settings.indicators.tpPipsSl,
+    settings.indicators.tpPipsTp1,
+    settings.indicators.tpPipsTp2,
+    settings.indicators.tpPipsTp3,
+    settings.indicators.tpTargetFocus,
+    settings.indicators.tpSlMult,
     settings.indicators.tpR1,
     settings.indicators.tpR2,
     settings.indicators.tpR3,
+    settings.indicators.tpBrokerPreset,
+    settings.indicators.tpPointValue,
+    settings.indicators.tpMinLot,
+    settings.indicators.tpLotStep,
     settings.indicators.tpBeOn,
     settings.indicators.tpOppOn,
     settings.indicators.tpCandSty,
@@ -923,17 +1008,25 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.tpHudPos,
     settings.indicators.tpHudSize,
     settings.indicators.tpShowSignals,
+    settings.indicators.tpShowEntryLabel,
     settings.indicators.tpShowPlans,
     settings.indicators.tpShowEmaLines,
     settings.indicators.tpShowSl,
     settings.indicators.tpShowTp1,
     settings.indicators.tpShowTp2,
     settings.indicators.tpShowTp3,
+    settings.indicators.tpShowDottedLines,
+    settings.indicators.tpFilterAdx,
+    settings.indicators.tpFilterSlope,
+    settings.indicators.tpFilterRsiExhaustion,
+    settings.indicators.tpFilterWickRejection,
+    settings.indicators.tpFilterVolatility,
+    settings.indicators.tpFilterMinStopDist,
   ]);
 
   // Compute Fibonacci Sequence Swing [ChartPrime]
   const fibSwingResults: FibSwingResult | null = useMemo(() => {
-    if ((settings.indicators.showFibonacciSequenceSwing ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('fib_swing') || (settings.indicators.showFibonacciSequenceSwing ?? true) === false || candles.length === 0) return null;
     return calculateFibonacciSequenceSwing(candles, {
       depth: settings.indicators.fibDepth ?? 20,
       zigCol: settings.indicators.fibZigCol ?? 'rgb(146, 151, 167)',
@@ -950,6 +1043,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     });
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showFibonacciSequenceSwing,
     settings.indicators.fibDepth,
     settings.indicators.fibZigCol,
@@ -967,7 +1061,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Multi-Timeframe EMA 15m 1H [Pine Script v6 Exact Port]
   const mtfEmaResults: MtfEmaResult | null = useMemo(() => {
-    if ((settings.indicators.showMultiTimeframeEma ?? true) === false || candles.length === 0) return null;
+    if (isIndicatorDeleted('mtf_ema') || (settings.indicators.showMultiTimeframeEma ?? true) === false || candles.length === 0) return null;
     return calculateMultiTimeframeEma(
       candles,
       {
@@ -983,6 +1077,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
   }, [
     candles,
     timeframe,
+    settings.indicators.deletedIndicators,
     settings.indicators.showMultiTimeframeEma,
     settings.indicators.mtfEmaLength,
     settings.indicators.mtfEmaShow15min,
@@ -994,7 +1089,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute Mrov Trade: Opening Range (Pine Script v6 Exact Port)
   const mrovTradeResults: MrovTradeResult | null = useMemo(() => {
-    if (!settings.indicators.showMrovOpeningRange || candles.length === 0) return null;
+    if (isIndicatorDeleted('mrov_trade') || !settings.indicators.showMrovOpeningRange || candles.length === 0) return null;
     return calculateMrovTradeOpeningRange(candles, timeframe, {
       rangeColor: settings.indicators.mrovRangeColor,
       fillTransparency: settings.indicators.mrovFillTransparency,
@@ -1017,6 +1112,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
   }, [
     candles,
     timeframe,
+    settings.indicators.deletedIndicators,
     settings.indicators.showMrovOpeningRange,
     settings.indicators.mrovRangeColor,
     settings.indicators.mrovFillTransparency,
@@ -1039,7 +1135,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Compute EMA 50/100 + Candle Trend | Albert Setups (Pine Script v6 Exact Port)
   const ema50100Results: Ema50100Result | null = useMemo(() => {
-    if (!settings.indicators.showEma50100Trend || candles.length === 0) return null;
+    if (isIndicatorDeleted('ema_50_100') || !settings.indicators.showEma50100Trend || candles.length === 0) return null;
     return calculateEma50100CandleTrend(candles, {
       fastLength: settings.indicators.ema50100FastLength ?? 50,
       slowLength: settings.indicators.ema50100SlowLength ?? 100,
@@ -1055,6 +1151,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     });
   }, [
     candles,
+    settings.indicators.deletedIndicators,
     settings.indicators.showEma50100Trend,
     settings.indicators.ema50100FastLength,
     settings.indicators.ema50100SlowLength,
@@ -1071,7 +1168,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
   // Master System State & Hooks (Strictly operates on Mpro2)
   const isMasterPro = true; // Fully unlocked for the user's trading setup
-  const isMasterDashboardVisible = settings.indicators.showMasterDashboard ?? true;
+  const isMasterDashboardVisible = !isIndicatorDeleted('master') && (settings.indicators.showMasterDashboard ?? true);
   const [loggedTrades, setLoggedTrades] = useState<LoggedTrade[]>(() => getLoggedTrades());
   const [isTradeLoggerOpen, setIsTradeLoggerOpen] = useState<boolean>(false);
   const [isJournalOpen, setIsJournalOpen] = useState<boolean>(false);
@@ -2046,7 +2143,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     });
 
     // 3. Render Technical Indicator (Moving Average Placeholder)
-    if (settings.indicators.showMA) {
+    if (!isIndicatorDeleted('ma') && settings.indicators.showMA) {
       const period = settings.indicators.maPeriod;
       ctx.strokeStyle = '#2962ff'; // Custom blue color for MA
       ctx.lineWidth = 1.5;
@@ -6918,9 +7015,42 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       ctx.restore();
     }
 
-    // Render Market Structure Target Tracker [MarkitTick] (Exact TradingView Port)
-    if ((settings.indicators.showMarketStructureTargetTracker ?? true) && msttResults) {
+    // Render Market Tick Two [MarkitTick] - Improved v2 (Market Structure Target Tracker)
+    const isMsttActiveOnChart = (settings.indicators.showMarketTickTwo ?? settings.indicators.showMarketStructureTargetTracker) ?? true;
+    if (isMsttActiveOnChart && msttResults) {
       ctx.save();
+
+      // 0. Draw BOS Bull & Bear plotshape markers on candles (plotshape(bosBull,...), plotshape(bosBear,...))
+      if ((settings.indicators.msttShowSignalMarkers ?? true) && msttResults.signalMarkers && msttResults.signalMarkers.length > 0) {
+        msttResults.signalMarkers.forEach((sig) => {
+          const x = getXFromIndex(sig.barIndex);
+          if (x < -20 || x > chartWidth + 20) return;
+          const y = getYFromPrice(sig.price);
+          const isBull = sig.type === 'bull';
+          const size = 5;
+          const yPos = isBull ? y + 14 : y - 14;
+
+          ctx.fillStyle = sig.color;
+          ctx.beginPath();
+          if (isBull) {
+            ctx.moveTo(x, yPos - size);
+            ctx.lineTo(x - size, yPos + size);
+            ctx.lineTo(x + size, yPos + size);
+          } else {
+            ctx.moveTo(x, yPos + size);
+            ctx.lineTo(x - size, yPos - size);
+            ctx.lineTo(x + size, yPos - size);
+          }
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.font = 'bold 9px JetBrains Mono, monospace';
+          ctx.fillStyle = sig.color;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = isBull ? 'top' : 'bottom';
+          ctx.fillText('BOS', x, isBull ? yPos + size + 1 : yPos - size - 1);
+        });
+      }
 
       // 1. Draw Shaded Linefills (slFill, tp1Fill, tp2Fill, tp3Fill)
       if (settings.indicators.msttShowTpSl ?? true) {
@@ -7060,10 +7190,10 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       if (settings.indicators.msttShowDashboard ?? true) {
         const d = msttResults.dashboard;
         const colW0 = 85;
-        const colW1 = 115;
+        const colW1 = Math.max(120, Math.min(220, Math.round(d.filterStr.length * 6.2 + 16)));
         const tableW = colW0 + colW1;
         const rowH = 17;
-        const numRows = 15;
+        const numRows = 17;
         const tableH = rowH * numRows;
 
         // Position: Top Right (respecting right price scale and existing dashboards)
@@ -7090,6 +7220,8 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           { c0: 'Trend', c1: d.trendStr, c1Color: d.trendCol, bg: 'rgba(10,10,18,0.95)' },
           { c0: 'HTF Dir', c1: d.htfStr, c1Color: d.htfDirCol, bg: 'rgba(20,20,25,0.95)' },
           { c0: 'HTF RSI', c1: d.htfBarStr, c1Color: d.htfBarCol, bg: 'rgba(10,10,18,0.95)' },
+          { c0: 'Structure', c1: d.structStr, c1Color: d.structCol, bg: 'rgba(20,20,25,0.95)' },
+          { c0: 'Filters', c1: d.filterStr === '' ? 'OFF' : d.filterStr, c1Color: 'rgb(220,220,235)', bg: 'rgba(10,10,18,0.95)' },
           { c0: 'BOS Lvl', c1: d.bosLvlStr, c1Color: 'rgb(200,200,60)', bg: 'rgba(20,20,25,0.95)' },
           { c0: 'Target', c1: d.tgtLvlStr, c1Color: 'rgb(200,200,60)', bg: 'rgba(10,10,18,0.95)' },
           { c0: 'Tgt Status', c1: d.tgtHitStr, c1Color: d.tgtHitCol, bg: 'rgba(20,20,25,0.95)' },
@@ -7590,46 +7722,64 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         const yTP2 = getYFromPrice(plan.tp2Price);
         const yTP3 = getYFromPrice(plan.tp3Price);
 
-        // A. Risk & Reward Boxes
+        // A. Risk & Reward Boxes (only drawn if enabled and target toggles active)
         if (settings.indicators.tpShowPlans ?? true) {
-          // Risk Box (Entry to SL)
-          const riskTopY = Math.min(yEntry, ySL);
-          const riskBotY = Math.max(yEntry, ySL);
-          const riskH = Math.max(1, riskBotY - riskTopY);
+          // Risk Box (Entry to SL - only if tpShowSl is ON)
+          if (settings.indicators.tpShowSl ?? true) {
+            const riskTopY = Math.min(yEntry, ySL);
+            const riskBotY = Math.max(yEntry, ySL);
+            const riskH = Math.max(1, riskBotY - riskTopY);
 
-          ctx.fillStyle = hexToRgba(LUNQ_PALETTE.RISK, 0.15);
-          ctx.fillRect(renderX1, riskTopY, renderX2 - renderX1, riskH);
-          ctx.strokeStyle = hexToRgba(LUNQ_PALETTE.RISK, 0.45);
-          ctx.lineWidth = 1;
-          ctx.strokeRect(renderX1, riskTopY, renderX2 - renderX1, riskH);
+            ctx.fillStyle = hexToRgba(LUNQ_PALETTE.RISK, 0.15);
+            ctx.fillRect(renderX1, riskTopY, renderX2 - renderX1, riskH);
+            ctx.strokeStyle = hexToRgba(LUNQ_PALETTE.RISK, 0.45);
+            ctx.lineWidth = 1;
+            ctx.strokeRect(renderX1, riskTopY, renderX2 - renderX1, riskH);
+          }
 
-          // Reward Box (Entry to TP3)
-          const rewTopY = Math.min(yEntry, yTP3);
-          const rewBotY = Math.max(yEntry, yTP3);
-          const rewH = Math.max(1, rewBotY - rewTopY);
-          const rewCol = plan.dir === 1 ? LUNQ_PALETTE.UP : LUNQ_PALETTE.DN;
+          // Reward Box (Entry to highest active TP target: TP3 -> TP2 -> TP1)
+          const targetTpY = (settings.indicators.tpShowTp3 ?? true)
+            ? yTP3
+            : (settings.indicators.tpShowTp2 ?? true)
+            ? yTP2
+            : (settings.indicators.tpShowTp1 ?? true)
+            ? yTP1
+            : null;
 
-          ctx.fillStyle = hexToRgba(rewCol, 0.12);
-          ctx.fillRect(renderX1, rewTopY, renderX2 - renderX1, rewH);
-          ctx.strokeStyle = hexToRgba(rewCol, 0.40);
-          ctx.lineWidth = 1;
-          ctx.strokeRect(renderX1, rewTopY, renderX2 - renderX1, rewH);
+          if (targetTpY !== null) {
+            const rewTopY = Math.min(yEntry, targetTpY);
+            const rewBotY = Math.max(yEntry, targetTpY);
+            const rewH = Math.max(1, rewBotY - rewTopY);
+            const rewCol = plan.dir === 1 ? LUNQ_PALETTE.UP : LUNQ_PALETTE.DN;
+
+            ctx.fillStyle = hexToRgba(rewCol, 0.12);
+            ctx.fillRect(renderX1, rewTopY, renderX2 - renderX1, rewH);
+            ctx.strokeStyle = hexToRgba(rewCol, 0.40);
+            ctx.lineWidth = 1;
+            ctx.strokeRect(renderX1, rewTopY, renderX2 - renderX1, rewH);
+          }
         }
 
-        // B. Target & SL Lines
+        // B. Target & SL Lines + Dotted Tracking Lines
         if (settings.indicators.tpShowPlans ?? true) {
+          const showDotted = settings.indicators.tpShowDottedLines ?? true;
+
           // SL Line
           if (settings.indicators.tpShowSl ?? true) {
             ctx.strokeStyle = LUNQ_PALETTE.RISK;
             ctx.lineWidth = 1.4;
-            ctx.setLineDash([]);
+            if (showDotted) {
+              ctx.setLineDash([3, 2]);
+            } else {
+              ctx.setLineDash([]);
+            }
             ctx.beginPath();
             ctx.moveTo(renderX1, ySL);
             ctx.lineTo(renderX2, ySL);
             ctx.stroke();
           }
 
-          // TP1 Line (dotted)
+          // TP1 Line
           if (settings.indicators.tpShowTp1 ?? true) {
             ctx.strokeStyle = hexToRgba(LUNQ_PALETTE.GOLD, 0.95);
             ctx.lineWidth = 1.2;
@@ -7640,7 +7790,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             ctx.stroke();
           }
 
-          // TP2 Line (dotted)
+          // TP2 Line
           if (settings.indicators.tpShowTp2 ?? true) {
             ctx.strokeStyle = hexToRgba(LUNQ_PALETTE.UP, 0.95);
             ctx.lineWidth = 1.2;
@@ -7651,16 +7801,32 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             ctx.stroke();
           }
 
-          // TP3 Line (solid)
+          // TP3 Line
           if (settings.indicators.tpShowTp3 ?? true) {
             ctx.strokeStyle = LUNQ_PALETTE.UP;
             ctx.lineWidth = 1.5;
-            ctx.setLineDash([]);
+            if (showDotted) {
+              ctx.setLineDash([4, 2]);
+            } else {
+              ctx.setLineDash([]);
+            }
             ctx.beginPath();
             ctx.moveTo(renderX1, yTP3);
             ctx.lineTo(renderX2, yTP3);
             ctx.stroke();
           }
+
+          // Entry Level Dotted Line (when showDotted is enabled)
+          if (showDotted) {
+            ctx.strokeStyle = hexToRgba('#94A3B8', 0.45);
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 3]);
+            ctx.beginPath();
+            ctx.moveTo(renderX1, yEntry);
+            ctx.lineTo(renderX2, yEntry);
+            ctx.stroke();
+          }
+
           ctx.setLineDash([]);
         }
 
@@ -7737,30 +7903,32 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             ctx.closePath();
             ctx.fill();
 
-            // Entry Text Pill (e.g. "▲ BUY 0.24 lots" or "▼ SELL 0.24 lots")
-            const text = plan.entryLabelText;
-            ctx.font = `bold ${tagFontPx + 0.5}px JetBrains Mono, monospace`;
-            const tw = ctx.measureText(text).width;
-            const bW = tw + 10;
-            const pillH = tagH + 2;
-            const bY = isBuy ? arrowTipY + 17 : arrowTipY - 17 - pillH;
+            // Entry Text Pill: Only show if explicitly toggled ON (default: false, eliminates unit and text clutter)
+            if (settings.indicators.tpShowEntryLabel ?? false) {
+              const text = plan.entryLabelText;
+              ctx.font = `bold ${tagFontPx + 0.5}px JetBrains Mono, monospace`;
+              const tw = ctx.measureText(text).width;
+              const bW = tw + 10;
+              const pillH = tagH + 2;
+              const bY = isBuy ? arrowTipY + 17 : arrowTipY - 17 - pillH;
 
-            ctx.fillStyle = LUNQ_PALETTE.CARD;
-            ctx.strokeStyle = sigCol;
-            ctx.lineWidth = 1.2;
-            ctx.beginPath();
-            if (typeof ctx.roundRect === 'function') {
-              ctx.roundRect(x1 - bW / 2, bY, bW, pillH, 4);
-            } else {
-              ctx.rect(x1 - bW / 2, bY, bW, pillH);
+              ctx.fillStyle = LUNQ_PALETTE.CARD;
+              ctx.strokeStyle = sigCol;
+              ctx.lineWidth = 1.2;
+              ctx.beginPath();
+              if (typeof ctx.roundRect === 'function') {
+                ctx.roundRect(x1 - bW / 2, bY, bW, pillH, 4);
+              } else {
+                ctx.rect(x1 - bW / 2, bY, bW, pillH);
+              }
+              ctx.fill();
+              ctx.stroke();
+
+              ctx.fillStyle = sigCol;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(text, x1, bY + pillH / 2);
             }
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.fillStyle = sigCol;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(text, x1, bY + pillH / 2);
           }
         }
       });
@@ -8756,6 +8924,8 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
       ctx.restore();
     }
+
+
 
     ctx.lineWidth = 1;
     ctx.strokeStyle = borderCol;
@@ -10770,7 +10940,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       )}
 
       {/* NEXUS: SMART MONEY SUITE HUD DASHBOARD & MARKET NARRATIVE */}
-      {nexusResults && (settings.indicators.showNexusSuite ?? true) && (
+      {nexusResults && !isIndicatorDeleted('nexus') && (settings.indicators.showNexusSuite ?? true) && (
         <NexusDashboardHUD
           results={nexusResults}
           visible={settings.indicators.nexusShowDashboard ?? true}
@@ -10784,7 +10954,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       )}
 
       {/* VIP MARKET SCANNER™ HUD (Single Pair Multi-TF & Confluence Matrix) */}
-      {vipScannerResults && (settings.indicators.showVipMarketScanner ?? true) && (
+      {vipScannerResults && !isIndicatorDeleted('vip_scanner') && (settings.indicators.showVipMarketScanner ?? true) && (
         <VipMarketScannerHUD
           scannerResult={vipScannerResults}
           visible={settings.indicators.vipScannerShowHud ?? true}
@@ -10797,7 +10967,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       )}
 
       {/* PREMIUM SIGNALS REAL-TIME DYNAMIC TP & SL TRACKER TABLE HUD */}
-      {dynamicTpSlResults && (settings.indicators.showDynamicTpSlSignals ?? true) && (
+      {dynamicTpSlResults && !isIndicatorDeleted('dynamic_tpsl') && (settings.indicators.showDynamicTpSlSignals ?? true) && (
         <DynamicTpSlTableHUD
           operation={dynamicTpSlResults.activeOperation}
           currentPrice={candles.length > 0 ? candles[candles.length - 1].close : 0}
@@ -10812,7 +10982,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       )}
 
       {/* TRADE PLANNER BUY SELL SIGNALS, STOP LOSS, TP & LOT SIZE [LUNQFX] HUD */}
-      {tradePlannerResults && (settings.indicators.showTradePlanner ?? true) && (
+      {tradePlannerResults && !isIndicatorDeleted('trade_planner') && (settings.indicators.showTradePlanner ?? true) && (
         <TradePlannerHUD
           hud={tradePlannerResults.hud}
           visible={settings.indicators.tpShowHud ?? true}

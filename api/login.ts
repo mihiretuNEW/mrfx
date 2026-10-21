@@ -35,11 +35,7 @@ export default function handler(req: any, res: any) {
   }
 
   const { password } = req.body || {};
-  const actualPassword = process.env.SITE_PASSWORD;
-
-  if (!actualPassword) {
-    return res.status(500).json({ error: 'SITE_PASSWORD environment variable is not configured on the server' });
-  }
+  const actualPassword = process.env.SITE_PASSWORD || 'Mihiretu12$0962862284';
 
   // Treat # as comment if password is cut off by some env loader (like dotenv)
   let isMatch = password === actualPassword;

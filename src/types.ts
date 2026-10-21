@@ -507,9 +507,40 @@ export interface ChartSettings {
     proObBullishColor?: string; // Bullish Block & Shadow Color (default: '#10b981')
     proObBearishColor?: string; // Bearish Block & Shadow Color (default: '#f43f5e')
     proObShowOnlyUnmitigated?: boolean; // Only show active unmitigated blocks (default: false)
-    // Market Structure Target Tracker [MarkitTick] Settings
+    // Market Tick Two [MarkitTick] — Enhanced Filters (Market Structure Target Tracker) Settings
     showMarketStructureTargetTracker?: boolean; // Master Toggle (default: true)
-    msttSwingLen?: number; // Swing Length (default: 5, min: 1, max: 100)
+    showMarketTickTwo?: boolean; // Alias Master Toggle for Market Tick Two
+    msttSwingLen?: number; // Swing Length (default: 5, min: 3, max: 50)
+    // Enhanced Filters Edition Options
+    msttUseStructureFilter?: boolean; // 15M Structure Bias Filter (default: true)
+    msttStructureTf?: string; // Structure Timeframe (default: "15")
+    msttFilterSwingLen?: number; // Structure Swing Length (default: 5, min: 2, max: 20)
+    msttUseWickFilter?: boolean; // Extreme Wick Filter (default: true)
+    msttMaxWickRatio?: number; // Max Relevant Wick / Candle Range (default: 0.70, min: 0.10, max: 0.95)
+    msttUseSweepFilter?: boolean; // Liquidity Sweep Filter (default: false)
+    msttSweepLookback?: number; // Sweep Lookback Bars (default: 10, min: 1, max: 50)
+    // Enhanced Filters v2 Options (Candle Body Close, Displacement, FVG, Relative Volume, Confluence Score)
+    msttUseBodyCloseFilter?: boolean; // Candle Body Close Confirmation (default: true)
+    msttMinBodyRatio?: number; // Minimum Body / Candle Range (default: 0.50, min: 0.10, max: 0.95)
+    msttUseDisplacementFilter?: boolean; // Displacement Candle Filter (default: true)
+    msttMinDisplacementAtr?: number; // Minimum Body Size (ATR x) (default: 0.80, min: 0.10, max: 3.0)
+    msttUseFvgFilter?: boolean; // Fair Value Gap (FVG) Confirmation (default: false)
+    msttUseVolumeFilter?: boolean; // Relative Volume Confirmation (default: false)
+    msttVolumeLength?: number; // Volume Average Length (default: 20, min: 2, max: 100)
+    msttVolumeMultiplier?: number; // Volume vs Average (default: 1.20, min: 1.0, max: 5.0)
+    msttUseScoreFilter?: boolean; // Continuation Confluence Score Filter (default: false)
+    msttMinContinuationScore?: number; // Minimum Continuation Score (0-100) (default: 60, min: 20, max: 100)
+    // Previous Signal Quality Filters (kept for backwards compatibility)
+    msttUseEmaFilter?: boolean; // EMA Trend Filter (default: false)
+    msttEmaLen?: number; // EMA Length (default: 200, min: 20, max: 500)
+    msttUseAdxFilter?: boolean; // ADX + DI Filter (default: false)
+    msttDiLen?: number; // DI Length (default: 14, min: 2, max: 50)
+    msttAdxSmooth?: number; // ADX Smoothing (default: 14, min: 2, max: 50)
+    msttMinAdx?: number; // Minimum ADX (default: 18.0, min: 5.0, max: 50.0)
+    msttUseCandleFilter?: boolean; // Strong Breakout Candle (default: false)
+    msttMinBodyAtr?: number; // Minimum Candle Body (ATR) (default: 0.20)
+    msttBreakoutBufferAtr?: number; // Breakout Buffer (ATR) (default: 0.00)
+    msttShowSignalMarkers?: boolean; // Show BOS/CHoCH Triangle Plotshapes on candles (default: true)
     msttShowBosLine?: boolean; // Show BOS Line (default: true)
     msttShowLabel?: boolean; // Show Labels (default: true)
     msttInvalidateMode?: boolean; // Auto-Invalidate (default: true)
@@ -597,25 +628,49 @@ export interface ChartSettings {
     tpMinStop?: number; // Minimum stop distance (× ATR) (default: 0.50)
     tpMaxStop?: number; // Maximum stop distance (× ATR) (default: 3.0)
     tpPbBars?: number; // Pullback lookback (bars) (default: 10)
+    tpSlMult?: number; // SL Size (R Multiple / Multiplier) (default: 1.0)
     tpR1?: number; // TP1 (R) (default: 1.0)
     tpR2?: number; // TP2 (R) (default: 2.0)
     tpR3?: number; // TP3 (R) (default: 3.0)
+    tpTargetMode?: 'r_multiple' | 'cash_amount' | 'pips'; // Calculation mode: R-Multiple vs Fixed Cash $ Amount vs Exact Pips (default: 'r_multiple')
+    tpCashSl?: number; // Exact cash loss amount for SL in $ (e.g. 1.0 for $1, 2.2 for $2.20)
+    tpCashTp1?: number; // Exact cash win amount for TP1 in $ (e.g. 1.0 for $1, 10.3 for $10.30)
+    tpCashTp2?: number; // Exact cash win amount for TP2 in $ (e.g. 2.0 for $2 win)
+    tpCashTp3?: number; // Exact cash win amount for TP3 in $ (e.g. 3.0 for $3 win)
+    tpPipsSl?: number; // Exact stop loss in pips (e.g. 220 pips for V75)
+    tpPipsTp1?: number; // Exact TP1 in pips (e.g. 1030 pips for V75)
+    tpPipsTp2?: number; // Exact TP2 in pips (e.g. 2060 pips)
+    tpPipsTp3?: number; // Exact TP3 in pips (e.g. 3090 pips)
+    tpTargetFocus?: 'TP1' | 'TP2' | 'TP3' | 'first_enabled'; // Which TP level triggers Win in scorecard/win rate (default: 'TP1')
+    tpBrokerPreset?: 'auto' | 'deriv_v75' | 'deriv_volatility' | 'deriv_boom_crash' | 'deriv_step' | 'forex' | 'gold' | 'crypto' | 'custom'; // Broker & Asset Sizing (default: 'auto')
+    tpPointValue?: number; // $ value of 1.0 full point per 1.0 lot (default: 1.0 for V75 where 100 pips = $1)
+    tpMinLot?: number; // Minimum allowed lot size on MT5 (default: 0.001)
+    tpLotStep?: number; // Minimum lot step on MT5 (default: 0.001 for V75)
     tpBeOn?: boolean; // Move stop to entry after TP1 (default: false)
     tpOppOn?: boolean; // Close on opposite signal (default: true)
     tpCandSty?: 'Neon Bloom' | 'Midnight Cyan' | 'Vibrant Neon' | 'Classic Soft' | 'Cool Blue' | 'Off';
     tpShowZone?: boolean; // Show value zone ("water like moving line in screen") (default: true)
     tpShowEmaLines?: boolean; // Show Fast & Slow EMA lines ("line in scren") (default: true)
     tpShowSignals?: boolean; // Show Buy & Sell signals and entry labels (default: true)
+    tpShowEntryLabel?: boolean; // Show Buy/Sell pill text box next to arrow (default: false to eliminate unit clutter)
     tpShowPlans?: boolean; // Show Risk/Reward boxes and TP lines (default: true)
     tpShowSl?: boolean; // Show SL line & label (default: true)
     tpShowTp1?: boolean; // Show TP1 line & label (default: true)
     tpShowTp2?: boolean; // Show TP2 line & label (default: true)
     tpShowTp3?: boolean; // Show TP3 line & label (default: true)
-    tpKeepN?: number; // Plans kept on chart (default: 2)
+    tpShowDottedLines?: boolean; // Show Dotted Target & SL Level Lines (default: true)
+    tpKeepN?: number; // Plans kept on chart (default: 2, min: 1, max: 500)
     tpTagSize?: 'Small' | 'Normal' | 'Large' | 'Huge'; // Level tag size (default: 'Normal')
     tpShowHud?: boolean; // Show HUD Panel (default: true)
     tpHudPos?: 'Top Right' | 'Top Left' | 'Bottom Right' | 'Bottom Left' | 'Middle Right';
     tpHudSize?: 'Small' | 'Normal' | 'Large';
+    // Trade Planner [LunqFX] Advanced Quality Filters (On/Off without altering core logic)
+    tpFilterAdx?: boolean; // ADX Trend Strength Filter (Block Sideways Chop) (default: false)
+    tpFilterSlope?: boolean; // EMA Slope Angle Filter (Block Flat Trends) (default: false)
+    tpFilterRsiExhaustion?: boolean; // RSI Exhaustion Guard (No Buy > 70 / No Sell < 30) (default: false)
+    tpFilterWickRejection?: boolean; // Candle Rejection Wick Filter (Block Counter-Rejections) (default: false)
+    tpFilterVolatility?: boolean; // Volatility Expansion Filter (Avoid Dead Volume Chop) (default: false)
+    tpFilterMinStopDist?: boolean; // Execution Cost & Min Stop Buffer Guard (default: false)
     // Fibonacci Sequence Swing [ChartPrime]
     showFibonacciSequenceSwing?: boolean; // Master Toggle (default: true)
     fibDepth?: number; // ZigZag Depth (default: 20, min: 5, max: 500)
@@ -671,6 +726,8 @@ export interface ChartSettings {
     ema50100SlowColor?: string; // color.orange (default '#ff9800')
     ema50100FastLineWidth?: number; // Fast EMA line width 1..4 (default 2)
     ema50100SlowLineWidth?: number; // Slow EMA line width 1..4 (default 2)
+    // Permanently deleted indicators registry (removed from code execution, settings list, and HUD)
+    deletedIndicators?: string[];
   };
   connection?: {
     customServer: string;
@@ -888,5 +945,8 @@ export interface SMCInstanceConfig {
   bearishColor?: string;
   tagBadge?: string; // Short badge, e.g. "720", "W", "D"
 }
+
+
+
 
 
