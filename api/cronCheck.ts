@@ -101,30 +101,62 @@ async function fetchDerivCandles(symbol: string, granularity: number, count = 30
 }
 
 export default async function cronCheckHandler(req: any, res: any) {
+  // CORS handling
+  if (res.setHeader) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  }
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   // Support both GET (from cron-job.org) and POST
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
+  let body = req.body || {};
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {
+      body = {};
+    }
+  }
+
   const config = loadAlertConfig();
-  const botToken = config.botToken?.trim();
-  const chatId = config.chatId?.trim();
+  // Support query params (e.g. from cron-job.org URL), POST body, or saved /tmp config
+  const botToken = (req.query?.token || req.query?.botToken || body.botToken || config.botToken)?.toString()?.trim();
+  const chatId = (req.query?.chat || req.query?.chatId || body.chatId || config.chatId)?.toString()?.trim();
+  const isEnabled = req.query?.enabled !== undefined
+    ? (req.query.enabled === 'true' || req.query.enabled === '1')
+    : (body.enabled !== undefined ? Boolean(body.enabled) : (config.enabled || Boolean(botToken && chatId)));
 
   // If alerts are disabled or bot token is missing, report status
-  if (!config.enabled || !botToken || !chatId) {
+  if (!isEnabled || !botToken || !chatId) {
     return res.status(200).json({
       ok: true,
       status: 'idle',
-      message: !config.enabled
+      message: !isEnabled
         ? 'Cloud Alert is currently DISABLED in settings.'
         : 'Bot Token or Chat ID not configured. Please enter them in Settings -> Telegram Cloud Alert.',
-      enabled: config.enabled,
+      enabled: isEnabled,
     });
   }
 
-  const symbol = config.symbol || '1HZ75V';
-  const tf = config.timeframe || '1H';
+  const symbol = (req.query?.symbol || body.symbol || config.symbol || '1HZ75V').toString();
+  const tf = (req.query?.tf || req.query?.timeframe || body.timeframe || config.timeframe || '1H').toString();
   const granularity = TIMEFRAME_SECONDS[tf] || 3600;
+
+  // Merge any query-overridden options (e.g. ?sl=220&tp1=1030&targetFocus=TP1)
+  const mergedOptions = {
+    ...config.options,
+    ...(body.options || {}),
+  };
+  if (req.query?.sl) mergedOptions.pointsSl = Number(req.query.sl);
+  if (req.query?.tp1) mergedOptions.pointsTp1 = Number(req.query.tp1);
+  if (req.query?.targetFocus) mergedOptions.targetFocus = req.query.targetFocus.toString();
 
   try {
     // 1. Fetch live candles directly from Deriv
@@ -137,7 +169,7 @@ export default async function cronCheckHandler(req: any, res: any) {
     }
 
     // 2. Run Market Structure Target Tracker calculation with user's EXACT active settings
-    const msttResult = calculateMarketStructureTargetTracker(candles, config.options, symbol);
+    const msttResult = calculateMarketStructureTargetTracker(candles, mergedOptions, symbol);
     const markers = msttResult.signalMarkers || [];
     const lastCandleIdx = candles.length - 1;
     const latestCandle = candles[lastCandleIdx];
@@ -169,15 +201,16 @@ export default async function cronCheckHandler(req: any, res: any) {
           `${dirEmoji} <b>Direction:</b> <b>${dirName}</b>\n\n` +
           `🎯 <b>Execution Levels:</b>\n` +
           `• <b>Entry:</b> <code>${entryPrice?.toFixed(2)}</code>\n` +
-          `• <b>Stop Loss (SL):</b> <code>${slPrice ? slPrice.toFixed(2) : '—'}</code> (${config.options?.pointsSl || 220} pts)\n` +
-          `• <b>Take Profit (TP1):</b> <code>${tp1Price ? tp1Price.toFixed(2) : '—'}</code> (${config.options?.pointsTp1 || 1030} pts)\n` +
+          `• <b>Stop Loss (SL):</b> <code>${slPrice ? slPrice.toFixed(2) : '—'}</code> (${mergedOptions.pointsSl || 220} pts)\n` +
+          `• <b>Take Profit (TP1):</b> <code>${tp1Price ? tp1Price.toFixed(2) : '—'}</code> (${mergedOptions.pointsTp1 || 1030} pts)\n` +
           (tp2Price ? `• <b>Take Profit (TP2):</b> <code>${tp2Price.toFixed(2)}</code>\n` : '') +
+          `• <b>Target Ratio:</b> <b>${rrStr}</b>\n\n` +
           `🛡️ <b>Active Rules & Applied Settings:</b>\n` +
-          `• SL Size: <b>${config.options?.pointsSl || 220} pts</b> | TP1: <b>${config.options?.pointsTp1 || 1030} pts</b>\n` +
-          `• Win Benchmark: <b>${config.options?.targetFocus || 'TP1'}</b>\n` +
-          `• Anti-Lag & Overextension Check: <b>${config.options?.preventLateEntry !== false ? '✅ Active' : '❌ Off'}</b>\n` +
-          `• Candle Body Close: <b>${config.options?.useBodyCloseFilter !== false ? '✅ Active' : '❌ Off'}</b>\n` +
-          `• Extreme Wick Filter: <b>${config.options?.useWickFilter !== false ? '✅ Active' : '❌ Off'}</b>\n\n` +
+          `• SL Size: <b>${mergedOptions.pointsSl || 220} pts</b> | TP1: <b>${mergedOptions.pointsTp1 || 1030} pts</b>\n` +
+          `• Win Benchmark: <b>${mergedOptions.targetFocus || 'TP1'}</b>\n` +
+          `• Anti-Lag & Overextension Check: <b>${mergedOptions.preventLateEntry !== false ? '✅ Active' : '❌ Off'}</b>\n` +
+          `• Candle Body Close: <b>${mergedOptions.useBodyCloseFilter !== false ? '✅ Active' : '❌ Off'}</b>\n` +
+          `• Extreme Wick Filter: <b>${mergedOptions.useWickFilter !== false ? '✅ Active' : '❌ Off'}</b>\n\n` +
           `📅 <b>Signal Time:</b> ${new Date(recentMarker.time * 1000).toUTCString()}\n` +
           `🤖 <i>Auto-monitored 24/7 by M-Charts Cloud Cron</i>`;
 

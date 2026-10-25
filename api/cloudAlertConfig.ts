@@ -100,7 +100,26 @@ export async function sendTelegramDirect(botToken: string, chatId: string, text:
 }
 
 export default async function cloudAlertConfigHandler(req: any, res: any) {
-  const action = req.query?.action || req.body?.action;
+  // CORS & Preflight handling
+  if (res.setHeader) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  }
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  let body = req.body || {};
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {
+      body = {};
+    }
+  }
+
+  const action = req.query?.action || body?.action;
 
   // GET: Return current saved config (masking token for security)
   if (req.method === 'GET' && !action) {
@@ -115,8 +134,6 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
 
   // POST: Save config or test connection
   if (req.method === 'POST') {
-    const body = req.body || {};
-
     if (action === 'test' || body.action === 'test') {
       const token = body.botToken || loadAlertConfig().botToken;
       const chat = body.chatId || loadAlertConfig().chatId;

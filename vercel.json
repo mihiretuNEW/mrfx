@@ -33,6 +33,14 @@
   ],
   "rewrites": [
     {
+      "source": "/api/cloud-alert-config",
+      "destination": "/api/cloud-alert-config"
+    },
+    {
+      "source": "/api/cron-check",
+      "destination": "/api/cron-check"
+    },
+    {
       "source": "/api/sync/:path*",
       "destination": "/api/sync"
     },

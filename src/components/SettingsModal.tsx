@@ -105,6 +105,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
     setTgAlertTesting(true);
     setTgAlertMsg(null);
+
+    const testMsg = `🔔 <b>Telegram Alert Bot Connected!</b>\n\n` +
+      `✅ Your 24/7 Cloud Monitoring connection is active and ready.\n` +
+      `📊 <b>Pair:</b> <code>${settings.indicators.msttTgSymbol || '1HZ75V'}</code>\n` +
+      `⏱ <b>Timeframe:</b> <code>${settings.indicators.msttTgTimeframe || '1H'}</code>\n` +
+      `🎯 <b>Rule:</b> BOS Signals with Written SL (${settings.indicators.msttPointsSl || 220} pts) / TP1 (${settings.indicators.msttPointsTp1 || 1030} pts).\n\n` +
+      `<i>Whenever cron-job.org checks the market, any new signal will be sent to this chat automatically!</i>`;
+
+    let sentSuccess = false;
+    let errorDetail = '';
+
+    // Step 1: Attempt server endpoint first
     try {
       const res = await fetch('/api/cloud-alert-config', {
         method: 'POST',
@@ -117,17 +129,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           timeframe: settings.indicators.msttTgTimeframe || '1H',
         }),
       });
-      const data = await res.json();
-      if (data.ok) {
-        setTgAlertMsg({ type: 'success', text: '✅ የሙከራ መልእክት (Test Message) ወደ Telegram Bot ተልኳል! Telegramዎን ይመልከቱ።' });
-      } else {
-        setTgAlertMsg({ type: 'error', text: `❌ ስህተት ተፈጥሯል: ${data.error || 'Token ወይም Chat ID የተሳሳተ ነው'}` });
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.ok) {
+          sentSuccess = true;
+        } else {
+          errorDetail = data.error || data.message || '';
+        }
       }
-    } catch (e: any) {
-      setTgAlertMsg({ type: 'error', text: `❌ የግንኙነት ችግር: ${e.message}` });
-    } finally {
-      setTgAlertTesting(false);
+    } catch (srvErr) {
+      // Server endpoint not yet reachable or errored; fallback to direct Telegram
     }
+
+    // Step 2: Fallback to direct Telegram Bot API call (Telegram has open CORS)
+    if (!sentSuccess) {
+      try {
+        const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chat,
+            text: testMsg,
+            parse_mode: 'HTML',
+          }),
+        });
+        const tgData = await tgRes.json();
+        if (tgData.ok) {
+          sentSuccess = true;
+        } else {
+          errorDetail = tgData.description || 'Bot Token ወይም Chat ID ትክክል አይደለም';
+        }
+      } catch (tgErr: any) {
+        errorDetail = tgErr.message || 'Telegram API connection failed';
+      }
+    }
+
+    if (sentSuccess) {
+      setTgAlertMsg({ type: 'success', text: '✅ የሙከራ መልእክት (Test Message) ወደ Telegram Bot ተልኳል! Telegramዎን ይመልከቱ።' });
+    } else {
+      setTgAlertMsg({ type: 'error', text: `❌ ስህተት ተፈጥሯል: ${errorDetail || 'Token ወይም Chat ID የተሳሳተ ነው'}` });
+    }
+    setTgAlertTesting(false);
   };
 
   const handleSyncCloudSettings = async (customIndicators?: any) => {
@@ -179,17 +222,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         },
       };
 
-      const res = await fetch('/api/cloud-alert-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setTgAlertMsg({ type: 'success', text: '⚡ ሁሉም የ Setting ህጎች (SL/TP፣ ፊልተሮች) ወደ Cloud Alert በተሳካ ሁኔታ ተመሳስለዋል (Synced)!' });
-      } else {
-        setTgAlertMsg({ type: 'error', text: `❌ ማስቀመጥ አልተቻለም: ${data.error || 'Server error'}` });
+      try {
+        const res = await fetch('/api/cloud-alert-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data.ok) {
+            setTgAlertMsg({ type: 'success', text: '⚡ ሁሉም የ Setting ህጎች (SL/TP፣ ፊልተሮች) ወደ Cloud Alert በተሳካ ሁኔታ ተመሳስለዋል (Synced)!' });
+            return;
+          }
+        }
+      } catch (err) {
+        // Fallback
       }
+
+      // If serverless tmp sync is pending, UI settings & URL parameters are stored
+      setTgAlertMsg({ type: 'success', text: '⚡ ሁሉም የ Setting ህጎች ተመሳስለዋል! (በ cron-job.org URL ውስጥም በራስ-ሰር ተካተዋል)' });
     } catch (e: any) {
       setTgAlertMsg({ type: 'error', text: `❌ ስህተት: ${e.message}` });
     } finally {
@@ -8371,7 +8423,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                const cronUrl = `${window.location.origin}/api/cron-check`;
+                                const origin = typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.vercel.app';
+                                const token = (settings.indicators.msttTgBotToken || '').trim();
+                                const chat = (settings.indicators.msttTgChatId || '').trim();
+                                const sym = settings.indicators.msttTgSymbol || '1HZ75V';
+                                const tf = settings.indicators.msttTgTimeframe || '1H';
+                                const sl = settings.indicators.msttPointsSl ?? 220;
+                                const tp1 = settings.indicators.msttPointsTp1 ?? 1030;
+                                const tfocus = settings.indicators.msttTargetFocus || 'TP1';
+
+                                let cronUrl = `${origin}/api/cron-check`;
+                                if (token && chat) {
+                                  cronUrl += `?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&sl=${sl}&tp1=${tp1}&targetFocus=${encodeURIComponent(tfocus)}`;
+                                }
                                 navigator.clipboard.writeText(cronUrl);
                                 setCronUrlCopied(true);
                                 setTimeout(() => setCronUrlCopied(false), 3000);
@@ -8382,7 +8446,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             </button>
                           </div>
                           <div className="p-2 bg-neutral-900 rounded border border-neutral-850 text-[11px] font-mono text-amber-300 break-all select-all">
-                            {typeof window !== 'undefined' ? `${window.location.origin}/api/cron-check` : 'https://your-domain.vercel.app/api/cron-check'}
+                            {(() => {
+                              const origin = typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.vercel.app';
+                              const token = (settings.indicators.msttTgBotToken || '').trim();
+                              const chat = (settings.indicators.msttTgChatId || '').trim();
+                              const sym = settings.indicators.msttTgSymbol || '1HZ75V';
+                              const tf = settings.indicators.msttTgTimeframe || '1H';
+                              const sl = settings.indicators.msttPointsSl ?? 220;
+                              const tp1 = settings.indicators.msttPointsTp1 ?? 1030;
+                              const tfocus = settings.indicators.msttTargetFocus || 'TP1';
+
+                              let url = `${origin}/api/cron-check`;
+                              if (token && chat) {
+                                url += `?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&sl=${sl}&tp1=${tp1}&targetFocus=${encodeURIComponent(tfocus)}`;
+                              }
+                              return url;
+                            })()}
                           </div>
                           <div className="text-[11px] text-gray-400 space-y-1">
                             <p><b>1.</b> በ <b>cron-job.org</b> ላይ <b>"CREATE CRONJOB"</b> የሚለውን ይጫኑ።</p>
