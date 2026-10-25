@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { Candle, Drawing, DrawingPoint, DrawingType, ChartSettings, RiskRewardConfig, TimeframeId, SMCInstanceConfig } from '../types';
 import { ZoomIn, ZoomOut, RotateCcw, Trash2, ArrowUpRight, ArrowDownRight, Eye, EyeOff, SlidersHorizontal, Layers, Palette, Check } from 'lucide-react';
 import { TIMEFRAMES } from '../hooks/useDerivWS';
@@ -780,17 +780,26 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       colTp1: settings.indicators.msttColTp1 ?? 'rgb(0, 220, 130)',
       colTp2: settings.indicators.msttColTp2 ?? 'rgb(0, 255, 180)',
       colTp3: settings.indicators.msttColTp3 ?? 'rgb(0, 255, 255)',
-      showSl: settings.indicators.msttShowSl ?? true,
-      showTp1: settings.indicators.msttShowTp1 ?? true,
-      showTp2: settings.indicators.msttShowTp2 ?? true,
-      showTp3: settings.indicators.msttShowTp3 ?? true,
-      showSlShade: settings.indicators.msttShowSlShade ?? true,
-      showTp1Shade: settings.indicators.msttShowTp1Shade ?? true,
-      showTp2Shade: settings.indicators.msttShowTp2Shade ?? true,
-      showTp3Shade: settings.indicators.msttShowTp3Shade ?? true,
+      showSl: settings.indicators.msttShowSl,
+      showTp1: settings.indicators.msttShowTp1,
+      showTp2: settings.indicators.msttShowTp2,
+      showTp3: settings.indicators.msttShowTp3,
+      showSlShade: settings.indicators.msttShowSlShade,
+      showTp1Shade: settings.indicators.msttShowTp1Shade,
+      showTp2Shade: settings.indicators.msttShowTp2Shade,
+      showTp3Shade: settings.indicators.msttShowTp3Shade,
       htfRes: settings.indicators.msttHtfRes ?? '240',
       useHtfFilter: settings.indicators.msttUseHtfFilter ?? false,
       htfRsiLen: settings.indicators.msttHtfRsiLen ?? 14,
+      keepN: settings.indicators.msttKeepN ?? 10,
+      targetFocus: settings.indicators.msttTargetFocus ?? 'TP1',
+      targetMode: settings.indicators.msttTargetMode ?? 'atr',
+      pointsSl: settings.indicators.msttPointsSl ?? 220,
+      pointsTp1: settings.indicators.msttPointsTp1 ?? 1030,
+      pointsTp2: settings.indicators.msttPointsTp2 ?? 2060,
+      pointsTp3: settings.indicators.msttPointsTp3 ?? 3090,
+      preventLateEntry: settings.indicators.msttPreventLateEntry ?? true,
+      maxBreakoutDelay: settings.indicators.msttMaxBreakoutDelay ?? 1,
     }, (symbolName || 'MARKET').replace(/^(FRX|CRY|OTC|DERIV)_?/i, ''));
   }, [
     candles,
@@ -844,6 +853,15 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.msttHtfRes,
     settings.indicators.msttUseHtfFilter,
     settings.indicators.msttHtfRsiLen,
+    settings.indicators.msttKeepN,
+    settings.indicators.msttTargetFocus,
+    settings.indicators.msttTargetMode,
+    settings.indicators.msttPointsSl,
+    settings.indicators.msttPointsTp1,
+    settings.indicators.msttPointsTp2,
+    settings.indicators.msttPointsTp3,
+    settings.indicators.msttPreventLateEntry,
+    settings.indicators.msttMaxBreakoutDelay,
   ]);
 
   // Compute VIP Market Scanner™ (Single Pair Matrix Engine)
@@ -917,7 +935,10 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         slBuf: settings.indicators.tpSlBuf ?? 0.20,
         minStop: settings.indicators.tpMinStop ?? 0.50,
         maxStop: settings.indicators.tpMaxStop ?? 3.0,
-        pbBars: settings.indicators.tpPbBars ?? 10,
+        retestMode: settings.indicators.tpRetestMode ?? 'retest_touch',
+        retestTouchTarget: settings.indicators.tpRetestTouchTarget ?? 'slow_ema',
+        exhaustionFilter: settings.indicators.tpExhaustionFilter ?? true,
+        maxClimaxPoints: settings.indicators.tpMaxClimaxPoints ?? 5000,
         targetMode: settings.indicators.tpTargetMode ?? 'r_multiple',
         cashSl: settings.indicators.tpCashSl ?? 1.0,
         cashTp1: settings.indicators.tpCashTp1 ?? 1.0,
@@ -980,6 +1001,10 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.tpMinStop,
     settings.indicators.tpMaxStop,
     settings.indicators.tpPbBars,
+    settings.indicators.tpRetestMode,
+    settings.indicators.tpRetestTouchTarget,
+    settings.indicators.tpExhaustionFilter,
+    settings.indicators.tpMaxClimaxPoints,
     settings.indicators.tpTargetMode,
     settings.indicators.tpCashSl,
     settings.indicators.tpCashTp1,
@@ -1391,6 +1416,17 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
+
+  // Trade Planner Audit jump and focus handler
+  const handleSelectTradePlannerTrade = useCallback((trade: RecentTradeAudit) => {
+    setSelectedTradePlannerTradeId(trade.id);
+    if (candles.length > 0 && trade.entryBar >= 0) {
+      const paddingRight = 50;
+      const targetScroll = (candles.length - 1 - trade.entryBar) * candleWidth + paddingRight - chartWidth / 2;
+      setScrollOffset(Math.max(-200, targetScroll));
+      setVerticalPanPixels(0);
+    }
+  }, [candles.length, candleWidth, chartWidth]);
 
   // Compute indices range of visible candles
   const visibleRange = useMemo(() => {
@@ -7077,16 +7113,21 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         const tp2Alpha = settings.indicators.msttTp2ShadeAlpha ?? 0.15;
         const tp3Alpha = settings.indicators.msttTp3ShadeAlpha ?? 0.05;
 
-        if (settings.indicators.msttShowSlShade ?? true) {
+        const effectiveShowSl = msttResults.dashboard.showSl;
+        const effectiveShowTp1 = msttResults.dashboard.showTp1;
+        const effectiveShowTp2 = msttResults.dashboard.showTp2;
+        const effectiveShowTp3 = msttResults.dashboard.showTp3;
+
+        if ((settings.indicators.msttShowSlShade ?? true) && effectiveShowSl) {
           drawFill(msttResults.slFill, slAlpha);
         }
-        if (settings.indicators.msttShowTp1Shade ?? true) {
+        if ((settings.indicators.msttShowTp1Shade ?? true) && effectiveShowTp1) {
           drawFill(msttResults.tp1Fill, tp1Alpha);
         }
-        if (settings.indicators.msttShowTp2Shade ?? true) {
+        if ((settings.indicators.msttShowTp2Shade ?? true) && effectiveShowTp2) {
           drawFill(msttResults.tp2Fill, tp2Alpha);
         }
-        if (settings.indicators.msttShowTp3Shade ?? true) {
+        if ((settings.indicators.msttShowTp3Shade ?? true) && effectiveShowTp3) {
           drawFill(msttResults.tp3Fill, tp3Alpha);
         }
       }
@@ -7128,12 +7169,17 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
       // 4. Draw Entry / SL / TP1 / TP2 / TP3 Lines & Labels
       if (settings.indicators.msttShowTpSl ?? true) {
+        const effectiveShowSl = msttResults.dashboard.showSl;
+        const effectiveShowTp1 = msttResults.dashboard.showTp1;
+        const effectiveShowTp2 = msttResults.dashboard.showTp2;
+        const effectiveShowTp3 = msttResults.dashboard.showTp3;
+
         const linesToDraw: Array<{ line: typeof msttResults.entryLine; lbl: typeof msttResults.entryLabel; show: boolean }> = [
           { line: msttResults.entryLine, lbl: msttResults.entryLabel, show: true },
-          { line: msttResults.slLine, lbl: msttResults.slLabel, show: settings.indicators.msttShowSl ?? true },
-          { line: msttResults.tp1Line, lbl: msttResults.tp1Label, show: settings.indicators.msttShowTp1 ?? true },
-          { line: msttResults.tp2Line, lbl: msttResults.tp2Label, show: settings.indicators.msttShowTp2 ?? true },
-          { line: msttResults.tp3Line, lbl: msttResults.tp3Label, show: settings.indicators.msttShowTp3 ?? true },
+          { line: msttResults.slLine, lbl: msttResults.slLabel, show: (settings.indicators.msttShowSl ?? true) && effectiveShowSl },
+          { line: msttResults.tp1Line, lbl: msttResults.tp1Label, show: (settings.indicators.msttShowTp1 ?? true) && effectiveShowTp1 },
+          { line: msttResults.tp2Line, lbl: msttResults.tp2Label, show: (settings.indicators.msttShowTp2 ?? true) && effectiveShowTp2 },
+          { line: msttResults.tp3Line, lbl: msttResults.tp3Label, show: (settings.indicators.msttShowTp3 ?? true) && effectiveShowTp3 },
         ];
 
         linesToDraw.forEach(({ line, lbl, show }) => {
@@ -7186,28 +7232,103 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         });
       }
 
+      // 4b. Draw Historical Trade Brackets on Chart (for last keepN trades)
+      if ((settings.indicators.msttShowHistoricalTrades ?? true) && msttResults.stats && msttResults.stats.recentTrades.length > 0) {
+        const showTp1 = msttResults.dashboard.showTp1;
+        const showTp2 = msttResults.dashboard.showTp2;
+        const showTp3 = msttResults.dashboard.showTp3;
+
+        msttResults.stats.recentTrades.forEach((tr) => {
+          const startX = getXFromIndex(tr.entryBar);
+          const endX = getXFromIndex(tr.endBar);
+          const renderX1 = Math.max(0, startX);
+          const renderX2 = Math.min(chartWidth, endX);
+          if (renderX2 <= renderX1) return;
+
+          const yEntry = getYFromPrice(tr.entryPrice);
+          const ySl = getYFromPrice(tr.slPrice);
+
+          // Subtle shaded risk area
+          const slTop = Math.min(yEntry, ySl);
+          const slH = Math.abs(ySl - yEntry);
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.08)';
+          ctx.fillRect(renderX1, slTop, renderX2 - renderX1, slH);
+
+          // TP1 Bracket & Fill if showTp1 is active
+          if (showTp1) {
+            const yTp1 = getYFromPrice(tr.tp1Price);
+            const tp1Top = Math.min(yEntry, yTp1);
+            const tp1H = Math.abs(yTp1 - yEntry);
+            ctx.fillStyle = tr.isWin ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.04)';
+            ctx.fillRect(renderX1, tp1Top, renderX2 - renderX1, tp1H);
+
+            ctx.strokeStyle = '#00dc82';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(renderX1, yTp1);
+            ctx.lineTo(renderX2, yTp1);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+
+          // TP2 Bracket & Fill if showTp2 is active
+          if (showTp2) {
+            const yTp2 = getYFromPrice(tr.tp2Price);
+            const yBase = showTp1 ? getYFromPrice(tr.tp1Price) : yEntry;
+            const tp2Top = Math.min(yBase, yTp2);
+            const tp2H = Math.abs(yTp2 - yBase);
+            ctx.fillStyle = tr.isWin ? 'rgba(0, 255, 180, 0.10)' : 'rgba(0, 255, 180, 0.03)';
+            ctx.fillRect(renderX1, tp2Top, renderX2 - renderX1, tp2H);
+
+            ctx.strokeStyle = '#00ffb4';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(renderX1, yTp2);
+            ctx.lineTo(renderX2, yTp2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+
+          // TP3 Bracket & Fill if showTp3 is active
+          if (showTp3) {
+            const yTp3 = getYFromPrice(tr.tp3Price);
+            const yBase = showTp2 ? getYFromPrice(tr.tp2Price) : showTp1 ? getYFromPrice(tr.tp1Price) : yEntry;
+            const tp3Top = Math.min(yBase, yTp3);
+            const tp3H = Math.abs(yTp3 - yBase);
+            ctx.fillStyle = tr.isWin ? 'rgba(0, 255, 255, 0.08)' : 'rgba(0, 255, 255, 0.02)';
+            ctx.fillRect(renderX1, tp3Top, renderX2 - renderX1, tp3H);
+
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(renderX1, yTp3);
+            ctx.lineTo(renderX2, yTp3);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+
+          // Entry ray
+          ctx.strokeStyle = tr.isWin ? '#22c55e' : '#ef4444';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 2]);
+          ctx.beginPath();
+          ctx.moveTo(renderX1, yEntry);
+          ctx.lineTo(renderX2, yEntry);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        });
+      }
+
       // 5. Draw Dashboard Table (table.new(position.top_right, 2, 15))
       if (settings.indicators.msttShowDashboard ?? true) {
         const d = msttResults.dashboard;
-        const colW0 = 85;
-        const colW1 = Math.max(120, Math.min(220, Math.round(d.filterStr.length * 6.2 + 16)));
+        const colW0 = 95;
+        const colW1 = Math.max(135, Math.min(240, Math.round(d.filterStr.length * 6.2 + 16)));
         const tableW = colW0 + colW1;
         const rowH = 17;
-        const numRows = 17;
-        const tableH = rowH * numRows;
-
-        // Position: Top Right (respecting right price scale and existing dashboards)
-        const tableX = (settings.indicators.showMarketStructureSignals ?? false)
-          ? chartWidth - tableW - 220
-          : chartWidth - tableW - 12;
-        const tableY = 40;
-
-        // Frame and border (color.rgb(50,50,70,20), border_width=1)
-        ctx.fillStyle = settings.indicators.msttDashBgColor ?? 'rgb(10,10,18)';
-        ctx.strokeStyle = 'rgba(60,60,90,0.9)';
-        ctx.lineWidth = 1;
-        ctx.fillRect(tableX, tableY, tableW, tableH);
-        ctx.strokeRect(tableX, tableY, tableW, tableH);
 
         const rows: Array<{
           c0: string;
@@ -7226,14 +7347,61 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           { c0: 'Target', c1: d.tgtLvlStr, c1Color: 'rgb(200,200,60)', bg: 'rgba(10,10,18,0.95)' },
           { c0: 'Tgt Status', c1: d.tgtHitStr, c1Color: d.tgtHitCol, bg: 'rgba(20,20,25,0.95)' },
           { c0: '► Entry', c1: d.entryStr, c1Color: 'rgb(100,180,255)', bg: 'rgba(10,10,18,0.95)' },
-          { c0: '✕ SL', c1: d.slStr, c1Color: 'rgb(255,60,60)', bg: 'rgba(20,20,25,0.95)' },
-          { c0: '● TP1', c1: d.tp1Str, c1Color: 'rgb(0,220,130)', bg: 'rgba(10,10,18,0.95)' },
-          { c0: '★ TP2', c1: d.tp2Str, c1Color: 'rgb(0,255,180)', bg: 'rgba(20,20,25,0.95)' },
-          { c0: '◆ TP3', c1: d.tp3Str, c1Color: 'rgb(0,255,255)', bg: 'rgba(10,10,18,0.95)' },
+          ...(d.showSl ? [{ c0: '✕ SL', c1: d.slStr, c1Color: 'rgb(255,60,60)', bg: 'rgba(20,20,25,0.95)' }] : []),
+          ...(d.showTp1 ? [{ c0: '● TP1', c1: d.tp1Str, c1Color: 'rgb(0,220,130)', bg: 'rgba(10,10,18,0.95)' }] : []),
+          ...(d.showTp2 ? [{ c0: '★ TP2', c1: d.tp2Str, c1Color: 'rgb(0,255,180)', bg: 'rgba(20,20,25,0.95)' }] : []),
+          ...(d.showTp3 ? [{ c0: '◆ TP3', c1: d.tp3Str, c1Color: 'rgb(0,255,255)', bg: 'rgba(10,10,18,0.95)' }] : []),
           { c0: 'R:R', c1: d.rrStr, c1Color: d.rrCol, bg: 'rgba(20,20,25,0.95)' },
           { c0: 'Duration', c1: d.durationStr, c1Color: 'rgb(140,180,255)', bg: 'rgba(10,10,18,0.95)' },
           { c0: 'Total BOS', c1: d.totalStr, c1Color: 'rgb(180,180,220)', bg: 'rgba(30,30,45,0.95)' },
+          // PERFORMANCE SCORECARD (Evaluated over keepN)
+          { c0: `PERF (LAST ${d.keepN})`, c1: `${d.totalTradesStr}`, c0Color: '#38bdf8', c1Color: '#38bdf8', bg: 'rgba(15,40,70,0.95)' },
+          { c0: 'Win / Loss', c1: d.winLossStr, c0Color: 'rgb(200,200,210)', c1Color: '#34d399', bg: 'rgba(10,10,18,0.95)' },
+          { c0: 'Win Rate', c1: d.winRateStr, c0Color: 'rgb(200,200,210)', c1Color: d.winRateCol, bg: 'rgba(20,20,25,0.95)' },
+          { c0: 'Consec W/L', c1: d.consecStr, c0Color: 'rgb(200,200,210)', c1Color: 'rgb(180,220,180)', bg: 'rgba(10,10,18,0.95)' },
         ];
+
+        // Append Last keepN Trades Audit rows
+        if (d.stats && d.stats.recentTrades.length > 0) {
+          rows.push({
+            c0: `TRADE LOG (LAST ${Math.min(d.stats.recentTrades.length, d.keepN)})`,
+            c1: `${d.stats.wins}W · ${d.stats.losses}L`,
+            c0Color: '#facc15',
+            c1Color: '#facc15',
+            bg: 'rgba(40,35,15,0.95)',
+          });
+
+          d.stats.recentTrades.slice(0, Math.min(d.keepN, 20)).forEach((tr, i) => {
+            const badge = tr.isWin
+              ? `✓ WIN (${tr.exitReason.includes('TP3') ? 'TP3' : tr.exitReason.includes('TP2') ? 'TP2' : 'TP1'})`
+              : '✕ LOSS';
+            const badgeCol = tr.isWin ? 'rgb(0, 220, 130)' : 'rgb(255, 60, 60)';
+            const dirIcon = tr.dir === 'BULL' ? '▲' : '▼';
+            rows.push({
+              c0: `#${i + 1} ${dirIcon} ${tr.dir}`,
+              c1: `${badge}`,
+              c0Color: tr.dir === 'BULL' ? 'rgb(0, 200, 120)' : 'rgb(220, 50, 50)',
+              c1Color: badgeCol,
+              bg: i % 2 === 0 ? 'rgba(10,10,18,0.95)' : 'rgba(18,18,30,0.95)',
+            });
+          });
+        }
+
+        const numRows = rows.length;
+        const tableH = rowH * numRows;
+
+        // Position: Top Right (respecting right price scale and existing dashboards)
+        const tableX = (settings.indicators.showMarketStructureSignals ?? false)
+          ? chartWidth - tableW - 220
+          : chartWidth - tableW - 12;
+        const tableY = 40;
+
+        // Frame and border (color.rgb(50,50,70,20), border_width=1)
+        ctx.fillStyle = settings.indicators.msttDashBgColor ?? 'rgb(10,10,18)';
+        ctx.strokeStyle = 'rgba(60,60,90,0.9)';
+        ctx.lineWidth = 1;
+        ctx.fillRect(tableX, tableY, tableW, tableH);
+        ctx.strokeRect(tableX, tableY, tableW, tableH);
 
         ctx.font = '10px JetBrains Mono, monospace';
         const txtColorDefault = settings.indicators.msttDashTxtColor ?? 'rgb(220,220,235)';
@@ -7870,68 +8038,120 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             drawTagBadge(plan.tp3LabelText, yTP3, LUNQ_PALETTE.UP);
           }
         }
-
-        // D. Buy / Sell Entry Signals on entryBar
-        if (settings.indicators.tpShowSignals ?? true) {
-          const entryBarCandle = candles[plan.entryBar];
-          if (entryBarCandle && plan.entryBar >= start - 2 && plan.entryBar <= end + 2) {
-            const isBuy = plan.dir === 1;
-            const sigCol = isBuy ? LUNQ_PALETTE.UP : LUNQ_PALETTE.DN;
-            const signalY = isBuy ? getYFromPrice(entryBarCandle.low) : getYFromPrice(entryBarCandle.high);
-
-            // Signal Arrow
-            const arrowTipY = isBuy ? signalY + 4 : signalY - 4;
-            ctx.fillStyle = sigCol;
-            ctx.beginPath();
-            if (isBuy) {
-              ctx.moveTo(x1, arrowTipY);
-              ctx.lineTo(x1 - 6, arrowTipY + 9);
-              ctx.lineTo(x1 - 2.5, arrowTipY + 9);
-              ctx.lineTo(x1 - 2.5, arrowTipY + 15);
-              ctx.lineTo(x1 + 2.5, arrowTipY + 15);
-              ctx.lineTo(x1 + 2.5, arrowTipY + 9);
-              ctx.lineTo(x1 + 6, arrowTipY + 9);
-            } else {
-              ctx.moveTo(x1, arrowTipY);
-              ctx.lineTo(x1 - 6, arrowTipY - 9);
-              ctx.lineTo(x1 - 2.5, arrowTipY - 9);
-              ctx.lineTo(x1 - 2.5, arrowTipY - 15);
-              ctx.lineTo(x1 + 2.5, arrowTipY - 15);
-              ctx.lineTo(x1 + 2.5, arrowTipY - 9);
-              ctx.lineTo(x1 + 6, arrowTipY - 9);
-            }
-            ctx.closePath();
-            ctx.fill();
-
-            // Entry Text Pill: Only show if explicitly toggled ON (default: false, eliminates unit and text clutter)
-            if (settings.indicators.tpShowEntryLabel ?? false) {
-              const text = plan.entryLabelText;
-              ctx.font = `bold ${tagFontPx + 0.5}px JetBrains Mono, monospace`;
-              const tw = ctx.measureText(text).width;
-              const bW = tw + 10;
-              const pillH = tagH + 2;
-              const bY = isBuy ? arrowTipY + 17 : arrowTipY - 17 - pillH;
-
-              ctx.fillStyle = LUNQ_PALETTE.CARD;
-              ctx.strokeStyle = sigCol;
-              ctx.lineWidth = 1.2;
-              ctx.beginPath();
-              if (typeof ctx.roundRect === 'function') {
-                ctx.roundRect(x1 - bW / 2, bY, bW, pillH, 4);
-              } else {
-                ctx.rect(x1 - bW / 2, bY, bW, pillH);
-              }
-              ctx.fill();
-              ctx.stroke();
-
-              ctx.fillStyle = sigCol;
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(text, x1, bY + pillH / 2);
-            }
-          }
-        }
       });
+
+      // 4. Buy / Sell Retest Entry Arrows (Rendered for ALL detected EMA retests across the chart!)
+      if ((settings.indicators.tpShowSignals ?? true) && tradePlannerResults.signals) {
+        tradePlannerResults.signals.forEach((sig) => {
+          if (sig.barIndex < start - 2 || sig.barIndex > end + 2) return;
+          const entryBarCandle = candles[sig.barIndex];
+          if (!entryBarCandle) return;
+
+          const x = getXFromIndex(sig.barIndex);
+          const isBuy = sig.dir === 1;
+          const sigCol = isBuy ? LUNQ_PALETTE.UP : LUNQ_PALETTE.DN;
+          const signalY = isBuy ? getYFromPrice(entryBarCandle.low) : getYFromPrice(entryBarCandle.high);
+
+          // Signal Arrow
+          const arrowTipY = isBuy ? signalY + 4 : signalY - 4;
+          ctx.save();
+          ctx.fillStyle = sigCol;
+          ctx.beginPath();
+          if (isBuy) {
+            ctx.moveTo(x, arrowTipY);
+            ctx.lineTo(x - 6, arrowTipY + 9);
+            ctx.lineTo(x - 2.5, arrowTipY + 9);
+            ctx.lineTo(x - 2.5, arrowTipY + 15);
+            ctx.lineTo(x + 2.5, arrowTipY + 15);
+            ctx.lineTo(x + 2.5, arrowTipY + 9);
+            ctx.lineTo(x + 6, arrowTipY + 9);
+          } else {
+            ctx.moveTo(x, arrowTipY);
+            ctx.lineTo(x - 6, arrowTipY - 9);
+            ctx.lineTo(x - 2.5, arrowTipY - 9);
+            ctx.lineTo(x - 2.5, arrowTipY - 15);
+            ctx.lineTo(x + 2.5, arrowTipY - 15);
+            ctx.lineTo(x + 2.5, arrowTipY - 9);
+            ctx.lineTo(x + 6, arrowTipY - 9);
+          }
+          ctx.closePath();
+          ctx.fill();
+
+          // Entry Text Pill: Only show if explicitly toggled ON (default: false, eliminates unit and text clutter)
+          if (settings.indicators.tpShowEntryLabel ?? false) {
+            const text = sig.labelText;
+            ctx.font = `bold ${tagFontPx + 0.5}px JetBrains Mono, monospace`;
+            const tw = ctx.measureText(text).width;
+            const bW = tw + 10;
+            const pillH = tagH + 2;
+            const bY = isBuy ? arrowTipY + 17 : arrowTipY - 17 - pillH;
+
+            ctx.fillStyle = LUNQ_PALETTE.CARD;
+            ctx.strokeStyle = sigCol;
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            if (typeof ctx.roundRect === 'function') {
+              ctx.roundRect(x - bW / 2, bY, bW, pillH, 4);
+            } else {
+              ctx.rect(x - bW / 2, bY, bW, pillH);
+            }
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = sigCol;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x, bY + pillH / 2);
+          }
+          ctx.restore();
+        });
+      }
+
+      // 5. Audit Focus Highlight: When user clicks any trade in Trade Audit Log
+      if (selectedTradePlannerTradeId) {
+        const auditPlan =
+          tradePlannerResults.plans.find((p) => p.id === selectedTradePlannerTradeId) ||
+          tradePlannerResults.allHistoricalPlans?.find((p) => p.id === selectedTradePlannerTradeId);
+
+        if (auditPlan) {
+          const x1 = getXFromIndex(auditPlan.entryBar);
+          const x2 = getXFromIndex(auditPlan.endBar);
+          const renderX1 = Math.max(0, x1);
+          const renderX2 = Math.min(chartWidth, x2);
+
+          const yEntry = getYFromPrice(auditPlan.entryPrice);
+          const ySL = getYFromPrice(auditPlan.slPrice);
+          const yTP1 = getYFromPrice(auditPlan.tp1Price);
+
+          ctx.save();
+          const topBoxY = Math.min(yEntry, ySL, yTP1);
+          const botBoxY = Math.max(yEntry, ySL, yTP1);
+          const boxH = Math.max(28, botBoxY - topBoxY);
+          const boxW = Math.max(48, renderX2 - renderX1);
+
+          // Glowing animated focus frame
+          ctx.strokeStyle = '#00F5D4';
+          ctx.lineWidth = 2.5;
+          ctx.setLineDash([5, 3]);
+          ctx.strokeRect(renderX1 - 4, topBoxY - 4, boxW + 8, boxH + 8);
+          ctx.setLineDash([]);
+
+          // Focus Badge
+          const focusText = `📍 AUDIT FOCUS: Trade #${auditPlan.id} (${auditPlan.dir === 1 ? 'BUY' : 'SELL'}) · ${auditPlan.isWin ? '✓ WIN' : '✗ LOSS'} (${auditPlan.exitReason || 'running'})`;
+          ctx.font = 'bold 10px JetBrains Mono, monospace';
+          const tw = ctx.measureText(focusText).width + 16;
+          ctx.fillStyle = '#0E141D';
+          ctx.fillRect(renderX1, topBoxY - 26, tw, 20);
+          ctx.strokeStyle = auditPlan.isWin ? '#00F5D4' : '#FF4D6D';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(renderX1, topBoxY - 26, tw, 20);
+          ctx.fillStyle = auditPlan.isWin ? '#00F5D4' : '#FF4D6D';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(focusText, renderX1 + 8, topBoxY - 16);
+          ctx.restore();
+        }
+      }
 
       ctx.restore();
     }
@@ -10988,6 +11208,8 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           visible={settings.indicators.tpShowHud ?? true}
           position={settings.indicators.tpHudPos ?? 'Top Right'}
           size={settings.indicators.tpHudSize ?? 'Normal'}
+          onSelectTrade={handleSelectTradePlannerTrade}
+          selectedTradeId={selectedTradePlannerTradeId}
           onClose={() => {
             if (onUpdateIndicator) {
               onUpdateIndicator('tpShowHud', false);

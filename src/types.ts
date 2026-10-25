@@ -584,6 +584,21 @@ export interface ChartSettings {
     msttShowDashboard?: boolean; // Show Dashboard (default: true)
     msttDashBgColor?: string; // Dashboard BG (default: 'rgb(10,10,18)')
     msttDashTxtColor?: string; // Dashboard Text (default: 'rgb(220,220,235)')
+    msttKeepN?: number; // Number of trades to keep & evaluate in HUD (default: 10, min: 1, max: 100)
+    msttTargetFocus?: 'TP1' | 'TP2' | 'TP3' | 'TP1_AND_TP2' | 'ALL'; // Target level for WIN determination (default: 'TP1')
+    msttTargetMode?: 'atr' | 'points'; // SL & TP calculation sizing mode: ATR Multiplier vs Exact Points (default: 'atr')
+    msttPointsSl?: number; // Stop Loss Size in Points/Pips (default: 220)
+    msttPointsTp1?: number; // TP1 Size in Points/Pips (default: 1030)
+    msttPointsTp2?: number; // TP2 Size in Points/Pips (default: 2060)
+    msttPointsTp3?: number; // TP3 Size in Points/Pips (default: 3090)
+    msttShowHistoricalTrades?: boolean; // Show last keepN historical trade brackets on chart (default: true)
+    msttPreventLateEntry?: boolean; // Prevent late & overextended breakout signals (default: true)
+    msttMaxBreakoutDelay?: number; // Max delay candles between breakout and signal confirmation (default: 1, min: 0, max: 3)
+    msttTgBotToken?: string; // Telegram Bot Token for 24/7 Cloud Alerts
+    msttTgChatId?: string; // Telegram Chat ID for 24/7 Cloud Alerts
+    msttTgAlertsEnabled?: boolean; // Enable 24/7 Cloud Telegram Alerts (default: false)
+    msttTgSymbol?: string; // Symbol to monitor (default: '1HZ75V')
+    msttTgTimeframe?: string; // Timeframe to monitor (default: '1H')
     // VIP Market Scanner™ (VIP Algos) - Single Pair Matrix
     showVipMarketScanner?: boolean;
     vipScannerShowHud?: boolean;
@@ -633,6 +648,10 @@ export interface ChartSettings {
     tpR2?: number; // TP2 (R) (default: 2.0)
     tpR3?: number; // TP3 (R) (default: 3.0)
     tpTargetMode?: 'r_multiple' | 'cash_amount' | 'pips'; // Calculation mode: R-Multiple vs Fixed Cash $ Amount vs Exact Pips (default: 'r_multiple')
+    tpRetestMode?: 'retest_touch' | 'standard_pullback'; // EMA Retest Mode: Exact EMA Touch & Rejection vs Standard Pullback (default: 'retest_touch')
+    tpRetestTouchTarget?: 'slow_ema' | 'value_zone_deep' | 'both_emas'; // Retest Touch Target: Slow EMA (Recommended) vs Deep Value Zone vs Both EMAs
+    tpExhaustionFilter?: boolean; // Protect against extreme 5,000+ pt overextended climax traps & break-through crashes (default: true)
+    tpMaxClimaxPoints?: number; // Max climax points before trigger requires high-absorption confirmation (default: 5000)
     tpCashSl?: number; // Exact cash loss amount for SL in $ (e.g. 1.0 for $1, 2.2 for $2.20)
     tpCashTp1?: number; // Exact cash win amount for TP1 in $ (e.g. 1.0 for $1, 10.3 for $10.30)
     tpCashTp2?: number; // Exact cash win amount for TP2 in $ (e.g. 2.0 for $2 win)

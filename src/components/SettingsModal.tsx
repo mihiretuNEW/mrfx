@@ -89,6 +89,114 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [tgPasscodeError, setTgPasscodeError] = useState('');
   const [isTgVerifying, setIsTgVerifying] = useState(false);
 
+  // Telegram 24/7 Cloud Alert (cron-job.org) State & Handlers
+  const [tgAlertTesting, setTgAlertTesting] = useState(false);
+  const [tgAlertSyncing, setTgAlertSyncing] = useState(false);
+  const [tgAlertMsg, setTgAlertMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showTgTokenSecret, setShowTgTokenSecret] = useState(false);
+  const [cronUrlCopied, setCronUrlCopied] = useState(false);
+
+  const handleTestTgCloudAlert = async () => {
+    const token = (settings.indicators.msttTgBotToken || '').trim();
+    const chat = (settings.indicators.msttTgChatId || '').trim();
+    if (!token || !chat) {
+      setTgAlertMsg({ type: 'error', text: 'Bot Token እና Chat ID ሳያስገቡ መሞከር አይቻልም። እባክዎ መጀመሪያ ይሙሉ!' });
+      return;
+    }
+    setTgAlertTesting(true);
+    setTgAlertMsg(null);
+    try {
+      const res = await fetch('/api/cloud-alert-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'test',
+          botToken: token,
+          chatId: chat,
+          symbol: settings.indicators.msttTgSymbol || '1HZ75V',
+          timeframe: settings.indicators.msttTgTimeframe || '1H',
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setTgAlertMsg({ type: 'success', text: '✅ የሙከራ መልእክት (Test Message) ወደ Telegram Bot ተልኳል! Telegramዎን ይመልከቱ።' });
+      } else {
+        setTgAlertMsg({ type: 'error', text: `❌ ስህተት ተፈጥሯል: ${data.error || 'Token ወይም Chat ID የተሳሳተ ነው'}` });
+      }
+    } catch (e: any) {
+      setTgAlertMsg({ type: 'error', text: `❌ የግንኙነት ችግር: ${e.message}` });
+    } finally {
+      setTgAlertTesting(false);
+    }
+  };
+
+  const handleSyncCloudSettings = async (customIndicators?: any) => {
+    const ind = customIndicators || settings.indicators;
+    setTgAlertSyncing(true);
+    setTgAlertMsg(null);
+    try {
+      const payload = {
+        botToken: (ind.msttTgBotToken || '').trim(),
+        chatId: (ind.msttTgChatId || '').trim(),
+        enabled: Boolean(ind.msttTgAlertsEnabled),
+        symbol: ind.msttTgSymbol || '1HZ75V',
+        timeframe: ind.msttTgTimeframe || '1H',
+        options: {
+          targetMode: ind.msttTargetMode ?? 'points',
+          pointsSl: ind.msttPointsSl ?? 220,
+          pointsTp1: ind.msttPointsTp1 ?? 1030,
+          pointsTp2: ind.msttPointsTp2 ?? 2060,
+          pointsTp3: ind.msttPointsTp3 ?? 3090,
+          targetFocus: ind.msttTargetFocus ?? 'TP1',
+          swingLen: ind.msttSwingLen ?? 5,
+          useStructureFilter: ind.msttUseStructureFilter ?? true,
+          structureTf: ind.msttStructureTf ?? '15',
+          filterSwingLen: ind.msttFilterSwingLen ?? 5,
+          useWickFilter: ind.msttUseWickFilter ?? true,
+          maxWickRatio: ind.msttMaxWickRatio ?? 0.70,
+          useSweepFilter: ind.msttUseSweepFilter ?? false,
+          sweepLookback: ind.msttSweepLookback ?? 10,
+          useBodyCloseFilter: ind.msttUseBodyCloseFilter ?? true,
+          minBodyRatio: ind.msttMinBodyRatio ?? 0.50,
+          useDisplacementFilter: ind.msttUseDisplacementFilter ?? true,
+          minDisplacementAtr: ind.msttMinDisplacementAtr ?? 0.80,
+          useFvgFilter: ind.msttUseFvgFilter ?? false,
+          useVolumeFilter: ind.msttUseVolumeFilter ?? false,
+          volumeLength: ind.msttVolumeLength ?? 20,
+          volumeMultiplier: ind.msttVolumeMultiplier ?? 1.20,
+          useScoreFilter: ind.msttUseScoreFilter ?? false,
+          minContinuationScore: ind.msttMinContinuationScore ?? 60,
+          useHtfFilter: ind.msttUseHtfFilter ?? false,
+          htfRes: ind.msttHtfRes ?? '240',
+          htfRsiLen: ind.msttHtfRsiLen ?? 14,
+          slMulti: ind.msttSlMulti ?? 1.0,
+          tp1Multi: ind.msttTp1Multi ?? 1.5,
+          tp2Multi: ind.msttTp2Multi ?? 3.0,
+          tp3Multi: ind.msttTp3Multi ?? 5.0,
+          atrLen: ind.msttAtrLen ?? 14,
+          preventLateEntry: ind.msttPreventLateEntry ?? true,
+          maxBreakoutDelay: ind.msttMaxBreakoutDelay ?? 1,
+        },
+      };
+
+      const res = await fetch('/api/cloud-alert-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setTgAlertMsg({ type: 'success', text: '⚡ ሁሉም የ Setting ህጎች (SL/TP፣ ፊልተሮች) ወደ Cloud Alert በተሳካ ሁኔታ ተመሳስለዋል (Synced)!' });
+      } else {
+        setTgAlertMsg({ type: 'error', text: `❌ ማስቀመጥ አልተቻለም: ${data.error || 'Server error'}` });
+      }
+    } catch (e: any) {
+      setTgAlertMsg({ type: 'error', text: `❌ ስህተት: ${e.message}` });
+    } finally {
+      setTgAlertSyncing(false);
+    }
+  };
+
   // State for confirming permanent indicator deletion
   const [indicatorToDelete, setIndicatorToDelete] = useState<{ id: string; name: string } | null>(null);
 
@@ -7454,7 +7562,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               <input
                                 id="settings-mstt-show-tp1"
                                 type="checkbox"
-                                checked={settings.indicators.msttShowTp1 ?? true}
+                                checked={settings.indicators.msttShowTp1 ?? ((settings.indicators.msttTargetFocus ?? 'TP1') === 'TP1' || (settings.indicators.msttTargetFocus ?? 'TP1') === 'TP1_AND_TP2' || (settings.indicators.msttTargetFocus ?? 'TP1') === 'ALL')}
                                 onChange={(e) => handleUpdateIndicators('msttShowTp1', e.target.checked)}
                                 className="sr-only peer"
                               />
@@ -7469,7 +7577,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               <input
                                 id="settings-mstt-show-tp2"
                                 type="checkbox"
-                                checked={settings.indicators.msttShowTp2 ?? true}
+                                checked={settings.indicators.msttShowTp2 ?? ((settings.indicators.msttTargetFocus ?? 'TP1') === 'TP2' || (settings.indicators.msttTargetFocus ?? 'TP1') === 'TP1_AND_TP2' || (settings.indicators.msttTargetFocus ?? 'TP1') === 'ALL')}
                                 onChange={(e) => handleUpdateIndicators('msttShowTp2', e.target.checked)}
                                 className="sr-only peer"
                               />
@@ -7484,7 +7592,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               <input
                                 id="settings-mstt-show-tp3"
                                 type="checkbox"
-                                checked={settings.indicators.msttShowTp3 ?? true}
+                                checked={settings.indicators.msttShowTp3 ?? ((settings.indicators.msttTargetFocus ?? 'TP1') === 'TP3' || (settings.indicators.msttTargetFocus ?? 'TP1') === 'ALL')}
                                 onChange={(e) => handleUpdateIndicators('msttShowTp3', e.target.checked)}
                                 className="sr-only peer"
                               />
@@ -7522,7 +7630,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               <input
                                 id="settings-mstt-show-tp1-shade"
                                 type="checkbox"
-                                checked={settings.indicators.msttShowTp1Shade ?? true}
+                                checked={settings.indicators.msttShowTp1Shade ?? ((settings.indicators.msttTargetFocus ?? 'TP1') === 'TP1' || (settings.indicators.msttTargetFocus ?? 'TP1') === 'TP1_AND_TP2' || (settings.indicators.msttTargetFocus ?? 'TP1') === 'ALL')}
                                 onChange={(e) => handleUpdateIndicators('msttShowTp1Shade', e.target.checked)}
                                 className="sr-only peer"
                               />
@@ -7537,7 +7645,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               <input
                                 id="settings-mstt-show-tp2-shade"
                                 type="checkbox"
-                                checked={settings.indicators.msttShowTp2Shade ?? true}
+                                checked={settings.indicators.msttShowTp2Shade ?? ((settings.indicators.msttTargetFocus ?? 'TP1') === 'TP2' || (settings.indicators.msttTargetFocus ?? 'TP1') === 'TP1_AND_TP2' || (settings.indicators.msttTargetFocus ?? 'TP1') === 'ALL')}
                                 onChange={(e) => handleUpdateIndicators('msttShowTp2Shade', e.target.checked)}
                                 className="sr-only peer"
                               />
@@ -7552,7 +7660,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               <input
                                 id="settings-mstt-show-tp3-shade"
                                 type="checkbox"
-                                checked={settings.indicators.msttShowTp3Shade ?? true}
+                                checked={settings.indicators.msttShowTp3Shade ?? ((settings.indicators.msttTargetFocus ?? 'TP1') === 'TP3' || (settings.indicators.msttTargetFocus ?? 'TP1') === 'ALL')}
                                 onChange={(e) => handleUpdateIndicators('msttShowTp3Shade', e.target.checked)}
                                 className="sr-only peer"
                               />
@@ -7732,63 +7840,152 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
 
-                      {/* ATR Multipliers Grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
-                          <span className="text-[11px] font-semibold text-gray-300">SL ATR Multi</span>
-                          <input
-                            id="settings-mstt-sl-multi"
-                            type="number"
-                            step={0.1}
-                            min={0.1}
-                            max={10.0}
-                            value={settings.indicators.msttSlMulti ?? 1.0}
-                            onChange={(e) => handleUpdateIndicators('msttSlMulti', parseFloat(e.target.value) || 1.0)}
-                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
-                          />
+                      {/* Target Sizing Mode (ATR vs Written Points/Pips) */}
+                      <div className="space-y-3 p-3 bg-neutral-900/80 rounded-lg border border-neutral-800">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
+                              SL &amp; TP Sizing Mode
+                            </span>
+                            <span className="text-[11px] text-gray-400">
+                              Follow exact written Points / Pips or dynamic ATR volatility multipliers
+                            </span>
+                          </div>
+                          <div className="flex bg-neutral-950 p-1 rounded-lg border border-neutral-800 gap-1 self-start sm:self-auto">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateIndicators('msttTargetMode', 'points')}
+                              className={`px-3 py-1 text-xs rounded font-medium transition-all ${(settings.indicators.msttTargetMode ?? 'atr') === 'points' ? 'bg-amber-500 text-neutral-950 font-bold shadow' : 'text-gray-400 hover:text-white'}`}
+                            >
+                              Points / Pips
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateIndicators('msttTargetMode', 'atr')}
+                              className={`px-3 py-1 text-xs rounded font-medium transition-all ${(settings.indicators.msttTargetMode ?? 'atr') === 'atr' ? 'bg-emerald-500 text-neutral-950 font-bold shadow' : 'text-gray-400 hover:text-white'}`}
+                            >
+                              ATR Multiplier
+                            </button>
+                          </div>
                         </div>
 
-                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
-                          <span className="text-[11px] font-semibold text-gray-300">TP1 ATR Multi</span>
-                          <input
-                            id="settings-mstt-tp1-multi"
-                            type="number"
-                            step={0.1}
-                            min={0.1}
-                            max={20.0}
-                            value={settings.indicators.msttTp1Multi ?? 1.5}
-                            onChange={(e) => handleUpdateIndicators('msttTp1Multi', parseFloat(e.target.value) || 1.5)}
-                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
-                          />
-                        </div>
-
-                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
-                          <span className="text-[11px] font-semibold text-gray-300">TP2 ATR Multi</span>
-                          <input
-                            id="settings-mstt-tp2-multi"
-                            type="number"
-                            step={0.1}
-                            min={0.1}
-                            max={20.0}
-                            value={settings.indicators.msttTp2Multi ?? 3.0}
-                            onChange={(e) => handleUpdateIndicators('msttTp2Multi', parseFloat(e.target.value) || 3.0)}
-                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
-                          />
-                        </div>
-
-                        <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
-                          <span className="text-[11px] font-semibold text-gray-300">TP3 ATR Multi</span>
-                          <input
-                            id="settings-mstt-tp3-multi"
-                            type="number"
-                            step={0.1}
-                            min={0.1}
-                            max={20.0}
-                            value={settings.indicators.msttTp3Multi ?? 5.0}
-                            onChange={(e) => handleUpdateIndicators('msttTp3Multi', parseFloat(e.target.value) || 5.0)}
-                            className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
-                          />
-                        </div>
+                        {(settings.indicators.msttTargetMode ?? 'atr') === 'points' ? (
+                          <div className="space-y-2">
+                            <div className="text-[11px] text-amber-300 bg-amber-500/10 p-2 rounded border border-amber-500/20">
+                              ⚡ <strong>Written Points Mode Active:</strong> SL &amp; TP directly follow the exact numbers written below (e.g. 220 SL, 1030 TP1).
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-rose-500/30">
+                                <span className="text-[11px] font-semibold text-rose-400">SL (Points/Pips)</span>
+                                <input
+                                  id="settings-mstt-points-sl"
+                                  type="number"
+                                  step={1}
+                                  min={1}
+                                  value={settings.indicators.msttPointsSl ?? 220}
+                                  onChange={(e) => handleUpdateIndicators('msttPointsSl', Math.max(1, parseFloat(e.target.value) || 220))}
+                                  className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-rose-300 font-bold text-center font-mono focus:border-rose-500"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-emerald-500/30">
+                                <span className="text-[11px] font-semibold text-emerald-400">TP1 (Points/Pips)</span>
+                                <input
+                                  id="settings-mstt-points-tp1"
+                                  type="number"
+                                  step={1}
+                                  min={1}
+                                  value={settings.indicators.msttPointsTp1 ?? 1030}
+                                  onChange={(e) => handleUpdateIndicators('msttPointsTp1', Math.max(1, parseFloat(e.target.value) || 1030))}
+                                  className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-emerald-300 font-bold text-center font-mono focus:border-emerald-500"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-teal-500/30">
+                                <span className="text-[11px] font-semibold text-teal-400">TP2 (Points/Pips)</span>
+                                <input
+                                  id="settings-mstt-points-tp2"
+                                  type="number"
+                                  step={1}
+                                  min={1}
+                                  value={settings.indicators.msttPointsTp2 ?? 2060}
+                                  onChange={(e) => handleUpdateIndicators('msttPointsTp2', Math.max(1, parseFloat(e.target.value) || 2060))}
+                                  className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-teal-300 font-bold text-center font-mono focus:border-teal-500"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-cyan-500/30">
+                                <span className="text-[11px] font-semibold text-cyan-400">TP3 (Points/Pips)</span>
+                                <input
+                                  id="settings-mstt-points-tp3"
+                                  type="number"
+                                  step={1}
+                                  min={1}
+                                  value={settings.indicators.msttPointsTp3 ?? 3090}
+                                  onChange={(e) => handleUpdateIndicators('msttPointsTp3', Math.max(1, parseFloat(e.target.value) || 3090))}
+                                  className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-cyan-300 font-bold text-center font-mono focus:border-cyan-500"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="text-[11px] text-emerald-300 bg-emerald-500/10 p-2 rounded border border-emerald-500/20">
+                              📐 <strong>ATR Multiplier Mode Active:</strong> Target sizes scale dynamically with market volatility (ATR × multiplier).
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                                <span className="text-[11px] font-semibold text-rose-400">SL ATR Multi</span>
+                                <input
+                                  id="settings-mstt-sl-multi"
+                                  type="number"
+                                  step={0.1}
+                                  min={0.1}
+                                  max={10.0}
+                                  value={settings.indicators.msttSlMulti ?? 1.0}
+                                  onChange={(e) => handleUpdateIndicators('msttSlMulti', parseFloat(e.target.value) || 1.0)}
+                                  className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                                <span className="text-[11px] font-semibold text-emerald-400">TP1 ATR Multi</span>
+                                <input
+                                  id="settings-mstt-tp1-multi"
+                                  type="number"
+                                  step={0.1}
+                                  min={0.1}
+                                  max={20.0}
+                                  value={settings.indicators.msttTp1Multi ?? 1.5}
+                                  onChange={(e) => handleUpdateIndicators('msttTp1Multi', parseFloat(e.target.value) || 1.5)}
+                                  className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                                <span className="text-[11px] font-semibold text-teal-400">TP2 ATR Multi</span>
+                                <input
+                                  id="settings-mstt-tp2-multi"
+                                  type="number"
+                                  step={0.1}
+                                  min={0.1}
+                                  max={20.0}
+                                  value={settings.indicators.msttTp2Multi ?? 3.0}
+                                  onChange={(e) => handleUpdateIndicators('msttTp2Multi', parseFloat(e.target.value) || 3.0)}
+                                  className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-neutral-850">
+                                <span className="text-[11px] font-semibold text-cyan-400">TP3 ATR Multi</span>
+                                <input
+                                  id="settings-mstt-tp3-multi"
+                                  type="number"
+                                  step={0.1}
+                                  min={0.1}
+                                  max={20.0}
+                                  value={settings.indicators.msttTp3Multi ?? 5.0}
+                                  onChange={(e) => handleUpdateIndicators('msttTp3Multi', parseFloat(e.target.value) || 5.0)}
+                                  className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* ATR Length */}
@@ -7888,6 +8085,312 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           />
                           <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
                         </label>
+                      </div>
+
+                      {/* GROUP: PERFORMANCE TRACKING & KEEPN */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-neutral-800 pb-1 pt-2">
+                        Performance Tracking &amp; KeepN Audit Log
+                      </div>
+
+                      {/* KeepN Trades Setting */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">KeepN Trades Evaluated</span>
+                          <span className="text-xs text-gray-500">Calculates Win Rate, Total Trades, Won/Loss, and Consec W/L for the last N trades (min: 0, max: 1000, default: 10)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            id="settings-mstt-keep-n"
+                            type="number"
+                            min={0}
+                            max={1000}
+                            value={settings.indicators.msttKeepN ?? 10}
+                            onChange={(e) => {
+                              const parsed = parseInt(e.target.value, 10);
+                              handleUpdateIndicators('msttKeepN', isNaN(parsed) ? 0 : Math.min(1000, Math.max(0, parsed)));
+                            }}
+                            className="w-24 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-emerald-400 font-bold text-center font-mono focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Target Focus Setting (TP1 / TP2 / TP3 / Both / ALL) */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-neutral-900 rounded-lg border border-emerald-500/30 gap-2">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-semibold text-emerald-300">Win Target Benchmark &amp; Visibility</span>
+                          <span className="text-xs text-gray-400">
+                            Select which Target to show on Chart/HUD and evaluate as WIN (TP1 Only, TP2 Only, Both TP1 &amp; TP2, etc.)
+                          </span>
+                        </div>
+                        <select
+                          id="settings-mstt-target-focus"
+                          value={settings.indicators.msttTargetFocus ?? 'TP1'}
+                          onChange={(e) => {
+                            const val = e.target.value as 'TP1' | 'TP2' | 'TP3' | 'TP1_AND_TP2' | 'ALL';
+                            handleUpdateIndicators('msttTargetFocus', val);
+                            if (val === 'TP1') {
+                              handleUpdateIndicators('msttShowTp1', true);
+                              handleUpdateIndicators('msttShowTp2', false);
+                              handleUpdateIndicators('msttShowTp3', false);
+                              handleUpdateIndicators('msttShowTp1Shade', true);
+                              handleUpdateIndicators('msttShowTp2Shade', false);
+                              handleUpdateIndicators('msttShowTp3Shade', false);
+                            } else if (val === 'TP2') {
+                              handleUpdateIndicators('msttShowTp1', false);
+                              handleUpdateIndicators('msttShowTp2', true);
+                              handleUpdateIndicators('msttShowTp3', false);
+                              handleUpdateIndicators('msttShowTp1Shade', false);
+                              handleUpdateIndicators('msttShowTp2Shade', true);
+                              handleUpdateIndicators('msttShowTp3Shade', false);
+                            } else if (val === 'TP1_AND_TP2') {
+                              handleUpdateIndicators('msttShowTp1', true);
+                              handleUpdateIndicators('msttShowTp2', true);
+                              handleUpdateIndicators('msttShowTp3', false);
+                              handleUpdateIndicators('msttShowTp1Shade', true);
+                              handleUpdateIndicators('msttShowTp2Shade', true);
+                              handleUpdateIndicators('msttShowTp3Shade', false);
+                            } else if (val === 'TP3') {
+                              handleUpdateIndicators('msttShowTp1', false);
+                              handleUpdateIndicators('msttShowTp2', false);
+                              handleUpdateIndicators('msttShowTp3', true);
+                              handleUpdateIndicators('msttShowTp1Shade', false);
+                              handleUpdateIndicators('msttShowTp2Shade', false);
+                              handleUpdateIndicators('msttShowTp3Shade', true);
+                            } else if (val === 'ALL') {
+                              handleUpdateIndicators('msttShowTp1', true);
+                              handleUpdateIndicators('msttShowTp2', true);
+                              handleUpdateIndicators('msttShowTp3', true);
+                              handleUpdateIndicators('msttShowTp1Shade', true);
+                              handleUpdateIndicators('msttShowTp2Shade', true);
+                              handleUpdateIndicators('msttShowTp3Shade', true);
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-neutral-950 border border-emerald-500/40 rounded text-xs text-emerald-400 font-bold focus:outline-none focus:border-emerald-500 font-mono"
+                        >
+                          <option value="TP1">TP1 Only (Show Only TP1 &amp; Track TP1 Win)</option>
+                          <option value="TP2">TP2 Only (Show Only TP2 &amp; Track TP2 Win)</option>
+                          <option value="TP1_AND_TP2">Both (Show Both TP1 &amp; TP2 &amp; Track Both)</option>
+                          <option value="TP3">TP3 Only (Show Only TP3 &amp; Track TP3 Win)</option>
+                          <option value="ALL">ALL (Show TP1, TP2, TP3 &amp; Track All)</option>
+                        </select>
+                      </div>
+
+                      {/* Show Historical Trade Brackets */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Historical Trade Brackets</span>
+                          <span className="text-xs text-gray-500">Render entry, TP, SL brackets and outcome tags on chart for the last keepN trades</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-show-historical-trades"
+                            type="checkbox"
+                            checked={settings.indicators.msttShowHistoricalTrades ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttShowHistoricalTrades', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* GROUP: ANTI-LAG & LATE SIGNAL PREVENTION */}
+                      <div className="text-xs font-bold uppercase tracking-wider text-rose-400 border-b border-neutral-800 pb-1 pt-2">
+                        Anti-Lag &amp; Late Signal Prevention
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Prevent Late &amp; Overextended Signals</span>
+                          <span className="text-xs text-gray-500">
+                            Stops signals from printing late (candles after breakout) or when price has already reached or is near TP1
+                          </span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-prevent-late-entry"
+                            type="checkbox"
+                            checked={settings.indicators.msttPreventLateEntry ?? true}
+                            onChange={(e) => handleUpdateIndicators('msttPreventLateEntry', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-rose-500"></div>
+                        </label>
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Max Breakout Delay (Bars)</span>
+                          <span className="text-xs text-gray-500">
+                            Maximum allowed delay between swing break and signal confirmation (0 = instant break candle only, 1 = default)
+                          </span>
+                        </div>
+                        <input
+                          id="settings-mstt-max-breakout-delay"
+                          type="number"
+                          min={0}
+                          max={3}
+                          value={settings.indicators.msttMaxBreakoutDelay ?? 1}
+                          onChange={(e) => handleUpdateIndicators('msttMaxBreakoutDelay', Math.max(0, Math.min(3, parseInt(e.target.value) || 0)))}
+                          className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-rose-300 font-bold text-center font-mono focus:border-rose-500"
+                        />
+                      </div>
+
+                      {/* GROUP: 24/7 CLOUD TELEGRAM ALERTS & CRON SYNC (cron-job.org) */}
+                      <div className="mt-4 pt-3 border-t border-sky-500/30 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
+                              <span>🤖</span> 24/7 Cloud Telegram Alerts (cron-job.org)
+                            </span>
+                            <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold rounded bg-sky-500/10 text-sky-400 border border-sky-500/30">
+                              CLOUD SERVERLESS
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settings.indicators.msttTgAlertsEnabled ?? false}
+                              onChange={(e) => {
+                                const nextVal = e.target.checked;
+                                handleUpdateIndicators('msttTgAlertsEnabled', nextVal);
+                                handleSyncCloudSettings({ ...settings.indicators, msttTgAlertsEnabled: nextVal });
+                              }}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-sky-500"></div>
+                          </label>
+                        </div>
+
+                        <p className="text-xs text-gray-400 leading-relaxed">
+                          ስልክዎ ቢጠፋ፣ ኮምፒውተርዎ ቢዘጋ ወይም Internet ባይኖርም እንኳን <b>cron-job.org</b> ከደመና (Cloud API) ላይ Deriv candles እየፈተሸ አዲስ የ BOS Signal ሲወጣ ወዲያውኑ ወደ Telegram ቦትዎ ሙሉ SL &amp; TP መረጃ የያዘ መልእክት ይልካል።
+                        </p>
+
+                        {/* Telegram Bot Token Input */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <label className="font-medium text-gray-300">Telegram Bot Token</label>
+                            <button
+                              type="button"
+                              onClick={() => setShowTgTokenSecret(!showTgTokenSecret)}
+                              className="text-[11px] text-sky-400 hover:text-sky-300 transition-colors"
+                            >
+                              {showTgTokenSecret ? 'ደብቅ (Hide)' : 'አሳይ (Show)'}
+                            </button>
+                          </div>
+                          <input
+                            type={showTgTokenSecret ? 'text' : 'password'}
+                            value={settings.indicators.msttTgBotToken || ''}
+                            onChange={(e) => handleUpdateIndicators('msttTgBotToken', e.target.value)}
+                            placeholder="7123456789:AAHxxxxx..."
+                            className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-sky-500 placeholder-neutral-600"
+                          />
+                        </div>
+
+                        {/* Telegram Chat ID Input */}
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-gray-300">Your Telegram Chat ID</label>
+                          <input
+                            type="text"
+                            value={settings.indicators.msttTgChatId || ''}
+                            onChange={(e) => handleUpdateIndicators('msttTgChatId', e.target.value)}
+                            placeholder="e.g. 583920194 or @channel_username"
+                            className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-sky-500 placeholder-neutral-600"
+                          />
+                        </div>
+
+                        {/* Pair & Timeframe for Cloud Monitoring */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] font-medium text-gray-400 mb-1">Target Pair / Symbol</label>
+                            <input
+                              type="text"
+                              value={settings.indicators.msttTgSymbol || '1HZ75V'}
+                              onChange={(e) => handleUpdateIndicators('msttTgSymbol', e.target.value)}
+                              placeholder="1HZ75V"
+                              className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-sky-300 font-bold focus:outline-none focus:border-sky-500"
+                            />
+                            <span className="text-[10px] text-gray-500">1HZ75V = Volatility 75 (1s)</span>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-gray-400 mb-1">Alert Timeframe</label>
+                            <select
+                              value={settings.indicators.msttTgTimeframe || '1H'}
+                              onChange={(e) => handleUpdateIndicators('msttTgTimeframe', e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-emerald-300 font-bold focus:outline-none focus:border-emerald-500"
+                            >
+                              <option value="1M">1 Minute (1M)</option>
+                              <option value="5M">5 Minutes (5M)</option>
+                              <option value="15M">15 Minutes (15M)</option>
+                              <option value="30M">30 Minutes (30M)</option>
+                              <option value="1H">1 Hour (1H)</option>
+                              <option value="4H">4 Hours (4H)</option>
+                            </select>
+                            <span className="text-[10px] text-gray-500">Matches chart timeframe</span>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons: Test Connection & Sync Active Rules */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={tgAlertTesting}
+                            onClick={handleTestTgCloudAlert}
+                            className="flex-1 min-w-[130px] px-3 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/40 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
+                          >
+                            <span>{tgAlertTesting ? '⏳ እየሞከረ ነው...' : '📨 Test Telegram Bot'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={tgAlertSyncing}
+                            onClick={() => handleSyncCloudSettings()}
+                            className="flex-1 min-w-[150px] px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
+                          >
+                            <span>{tgAlertSyncing ? '⏳ Sync እየተደረገ ነው...' : '🔄 Sync Settings to Cloud'}</span>
+                          </button>
+                        </div>
+
+                        {/* Feedback message banner */}
+                        {tgAlertMsg && (
+                          <div
+                            className={`p-2.5 rounded-lg text-xs font-medium border ${
+                              tgAlertMsg.type === 'success'
+                                ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300'
+                                : 'bg-rose-950/60 border-rose-500/50 text-rose-300'
+                            }`}
+                          >
+                            {tgAlertMsg.text}
+                          </div>
+                        )}
+
+                        {/* Step-by-Step CRON-JOB.ORG URL Box */}
+                        <div className="p-3 bg-neutral-950/90 rounded-lg border border-neutral-800 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-gray-200 flex items-center gap-1.5">
+                              <span>🔗</span> ወደ cron-job.org የምትገለብጠው URL:
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const cronUrl = `${window.location.origin}/api/cron-check`;
+                                navigator.clipboard.writeText(cronUrl);
+                                setCronUrlCopied(true);
+                                setTimeout(() => setCronUrlCopied(false), 3000);
+                              }}
+                              className="px-2 py-0.5 text-[10px] font-semibold bg-neutral-800 hover:bg-neutral-700 text-sky-400 rounded border border-neutral-700 transition-colors"
+                            >
+                              {cronUrlCopied ? '✅ ተገልብጧል (Copied)!' : 'ኮፒ አድርግ (Copy URL)'}
+                            </button>
+                          </div>
+                          <div className="p-2 bg-neutral-900 rounded border border-neutral-850 text-[11px] font-mono text-amber-300 break-all select-all">
+                            {typeof window !== 'undefined' ? `${window.location.origin}/api/cron-check` : 'https://your-domain.vercel.app/api/cron-check'}
+                          </div>
+                          <div className="text-[11px] text-gray-400 space-y-1">
+                            <p><b>1.</b> በ <b>cron-job.org</b> ላይ <b>"CREATE CRONJOB"</b> የሚለውን ይጫኑ።</p>
+                            <p><b>2.</b> ከላይ ያለውን URL <b>URL</b> በሚለው ሳጥን ውስጥ paste ያድርጉ።</p>
+                            <p><b>3.</b> <b>Schedule</b> የሚለውን <b>"Every 1 minute"</b> ወይም <b>"Every 5 minutes"</b> ይምረጡ።</p>
+                            <p><b>4.</b> <b>"CREATE"</b> ይበሉ። አበቃ! ከአሁን በኋላ ስልክ ቢዘጋም 24/7 signal ይላክልዎታል!</p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -8382,6 +8885,113 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {/* GROUP 1: SETUP & MOVING TREND */}
                       <div className="text-xs font-bold uppercase tracking-wider text-cyan-400 border-b border-neutral-800 pb-1">
                         1️⃣ Setup &amp; Trend Engine (Value Zone &amp; Moving EMA Lines)
+                      </div>
+
+                      {/* Signal Generation Mode & Touch Target */}
+                      <div className="p-3 bg-neutral-900 rounded-lg border border-cyan-500/30 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 pb-2.5">
+                          <div>
+                            <div className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
+                              <span>🎯</span> Retest Signal Engine Mode
+                            </div>
+                            <div className="text-[10px] text-gray-400">
+                              Choose how BUY/SELL signals trigger on EMA retests and pullbacks.
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateIndicators('tpRetestMode', 'retest_touch')}
+                              className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
+                                (settings.indicators.tpRetestMode ?? 'retest_touch') === 'retest_touch'
+                                  ? 'bg-cyan-500 text-black font-semibold'
+                                  : 'bg-neutral-800 text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              Exact EMA Touch &amp; Reject (Recommended)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateIndicators('tpRetestMode', 'standard_pullback')}
+                              className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
+                                settings.indicators.tpRetestMode === 'standard_pullback'
+                                  ? 'bg-cyan-500 text-black font-semibold'
+                                  : 'bg-neutral-800 text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              Classic Pullback
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Touch Line Target & Climax Protection */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-0.5">
+                          <div className="flex flex-col gap-1 p-2 bg-neutral-950/70 rounded border border-neutral-800">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-amber-300 flex items-center gap-1">
+                                <span>📍</span> Retest Touch Target
+                              </span>
+                              <span className="text-[10px] text-emerald-400">Excludes Fast-only touch</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 pt-0.5">
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateIndicators('tpRetestTouchTarget', 'slow_ema')}
+                                className={`flex-1 py-1 text-[11px] rounded font-medium transition-colors text-center ${
+                                  (settings.indicators.tpRetestTouchTarget ?? 'slow_ema') === 'slow_ema'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 font-semibold'
+                                    : 'bg-neutral-900 text-gray-400 hover:text-white border border-neutral-800'
+                                }`}
+                              >
+                                Slow EMA Touch (User Setup)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateIndicators('tpRetestTouchTarget', 'both_emas')}
+                                className={`flex-1 py-1 text-[11px] rounded font-medium transition-colors text-center ${
+                                  settings.indicators.tpRetestTouchTarget === 'both_emas'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 font-semibold'
+                                    : 'bg-neutral-900 text-gray-400 hover:text-white border border-neutral-800'
+                                }`}
+                              >
+                                Either Fast or Slow EMA
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-1 p-2 bg-neutral-950/70 rounded border border-neutral-800">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-rose-300 flex items-center gap-1">
+                                <span>🛡️</span> Climax Overextension &amp; Breakdown Shield
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateIndicators('tpExhaustionFilter', !(settings.indicators.tpExhaustionFilter ?? true))}
+                                className={`px-2 py-0.5 text-[10px] rounded font-bold uppercase transition-colors ${
+                                  (settings.indicators.tpExhaustionFilter ?? true)
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                    : 'bg-neutral-800 text-gray-500 border border-neutral-700'
+                                }`}
+                              >
+                                {(settings.indicators.tpExhaustionFilter ?? true) ? 'ON' : 'OFF'}
+                              </button>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-gray-400 pt-1">
+                              <span>Max Runaway Climax Points:</span>
+                              <input
+                                type="number"
+                                min={500}
+                                step={500}
+                                value={settings.indicators.tpMaxClimaxPoints ?? 5000}
+                                onChange={(e) => handleUpdateIndicators('tpMaxClimaxPoints', Math.max(500, parseInt(e.target.value) || 5000))}
+                                className="w-20 px-1.5 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-[11px] text-white text-center font-mono"
+                              />
+                            </div>
+                            <span className="text-[9px] text-gray-500">
+                              Blocks traps when 5,000+ pt moves collapse and smash through EMAs
+                            </span>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

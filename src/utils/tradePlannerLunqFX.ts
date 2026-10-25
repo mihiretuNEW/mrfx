@@ -40,6 +40,10 @@ export interface TradePlannerOptions {
   minStop?: number; // Minimum stop distance (× ATR) (default: 0.50)
   maxStop?: number; // Maximum stop distance (× ATR) (default: 3.0)
   pbBars?: number; // Pullback lookback (bars) (default: 10)
+  retestMode?: 'retest_touch' | 'standard_pullback'; // Retest Mode: Exact EMA Touch & Reject (default: 'retest_touch')
+  retestTouchTarget?: 'slow_ema' | 'value_zone_deep' | 'both_emas'; // Retest Touch Target: Slow EMA (Recommended) vs Deep Value Zone vs Both EMAs
+  exhaustionFilter?: boolean; // Protect against extreme 5,000+ pt overextended climax traps & break-through crashes (default: true)
+  maxClimaxPoints?: number; // Climax points threshold before requiring high absorption (default: 5000)
 
   // Targets & Management
   targetMode?: 'r_multiple' | 'cash_amount' | 'pips'; // Calculation mode: R-Multiple vs Fixed Cash $ Amount vs Exact Pips (default: 'r_multiple')
@@ -212,13 +216,27 @@ export interface CandleStyleColors {
   applied: boolean;
 }
 
+export interface TradePlannerSignal {
+  id: number;
+  barIndex: number;
+  time: number;
+  dir: 1 | -1;
+  price: number;
+  type: 'BUY' | 'SELL';
+  isRetest: boolean;
+  emaPrice: number;
+  labelText: string;
+}
+
 export interface TradePlannerResult {
   plans: PlanDrawing[];
+  signals: TradePlannerSignal[];
   valueZone: ValueZoneBar[];
   hud: TradePlannerHud | null;
   candleColors: CandleStyleColors;
   currentTrend: 'UP' | 'DOWN' | 'NONE';
   inValueZone: boolean;
+  allHistoricalPlans?: PlanDrawing[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -383,6 +401,7 @@ export function calculateTradePlanner(
   if (n === 0) {
     return {
       plans: [],
+      signals: [],
       valueZone: [],
       hud: null,
       candleColors: { bull: LUNQ_PALETTE.UP, bear: LUNQ_PALETTE.DN, applied: false },
@@ -406,6 +425,10 @@ export function calculateTradePlanner(
   const minStop = options.minStop ?? 0.50;
   const maxStop = options.maxStop ?? 3.0;
   const pbBars = Math.max(2, Math.min(50, Math.round(options.pbBars ?? 10)));
+  const retestMode = options.retestMode ?? 'retest_touch';
+  const retestTouchTarget = options.retestTouchTarget ?? 'slow_ema';
+  const exhaustionFilter = options.exhaustionFilter ?? true;
+  const maxClimaxPoints = Math.max(500, Number(options.maxClimaxPoints ?? 5000) || 5000);
 
   // Target and SL Size Multipliers, Pips & Exact Cash $ Targets
   const targetMode = options.targetMode ?? 'r_multiple';
@@ -582,7 +605,7 @@ export function calculateTradePlanner(
   const adxSeries = filterAdx ? calculateADX(candles, 14) : [];
   const atrMaSeries = filterVolatility ? calculateEMA(atrSeries.map((v) => (isNaN(v) ? 0 : v)), 20) : [];
 
-  // 2. Sequential bar simulation (100% Pine Script Barstate parity)
+  // 2. Sequential bar simulation & Retest Signal Engine
   let pbL = false;
   let pbLow: number | null = null;
   let pbS = false;
@@ -602,8 +625,12 @@ export function calculateTradePlanner(
 
   const valueZone: ValueZoneBar[] = new Array(n);
   const completedPlans: PlanDrawing[] = [];
+  const signals: TradePlannerSignal[] = [];
   let currentActivePlan: PlanDrawing | null = null;
   let nextPlanId = 1;
+  let nextSignalId = 1;
+  let lastLongSigBar = -999;
+  let lastShortSigBar = -999;
 
   for (let bar_index = 0; bar_index < n; bar_index++) {
     const c = candles[bar_index];
@@ -613,10 +640,25 @@ export function calculateTradePlanner(
     const rsi = !isNaN(rsiSeries[bar_index]) ? rsiSeries[bar_index] : 50;
     const prevRsi = bar_index > 0 && !isNaN(rsiSeries[bar_index - 1]) ? rsiSeries[bar_index - 1] : rsi;
     const zone = atr * zoneW;
+    const prevEmaS3 = bar_index >= 3 && !isNaN(emaSSeries[bar_index - 3]) ? emaSSeries[bar_index - 3] : emaS;
+    const prevEmaF3 = bar_index >= 3 && !isNaN(emaFSeries[bar_index - 3]) ? emaFSeries[bar_index - 3] : emaF;
+    const emaFSlope = emaF - prevEmaF3;
 
-    // Trend: fast EMA leads slow EMA (e.g. 260 leads 280), price holds near/above slow EMA
-    const trendUp = emaF > emaS && (c.close > emaS || c.low > emaS - zone);
-    const trendDn = emaF < emaS && (c.close < emaS || c.high < emaS + zone);
+    // ── Trend Detection (Resilient across all EMA combinations e.g. 260/280, 21/50, or single EMA) ──
+    const emaTop = Math.max(emaF, emaS);
+    const emaBot = Math.min(emaF, emaS);
+
+    // Bullish Trend:
+    // Fast EMA leads Slow EMA, OR price is clearly holding/moving above the EMA band with non-negative slope
+    const trendUp =
+      (emaF >= emaS && (c.close >= emaBot - zone * 1.5 || c.low >= emaBot - zone * 2.0)) ||
+      (c.close > emaF && emaFSlope >= 0);
+
+    // Bearish Trend:
+    // Fast EMA trails Slow EMA, OR price is clearly holding/moving below the EMA band with non-positive slope
+    const trendDn =
+      (emaF <= emaS && (c.close <= emaTop + zone * 1.5 || c.high <= emaTop + zone * 2.0)) ||
+      (c.close < emaF && emaFSlope <= 0);
 
     const zCol = trendUp ? LUNQ_PALETTE.UP : trendDn ? LUNQ_PALETTE.DN : LUNQ_PALETTE.MUTE;
     valueZone[bar_index] = {
@@ -643,18 +685,274 @@ export function calculateTradePlanner(
     const stopS0 = anchorH + atr * slBuf;
     const stopL = c.close - stopL0 < atr * minStop ? c.close - atr * minStop : stopL0;
     const stopS = stopS0 - c.close < atr * minStop ? c.close + atr * minStop : stopS0;
-    const okL = c.close - stopL <= atr * maxStop;
-    const okS = stopS - c.close <= atr * maxStop;
+    const okL = c.close - stopL <= atr * (maxStop * 1.5);
+    const okS = stopS - c.close <= atr * (maxStop * 1.5);
 
-    // ── 1. Manage the open plan (bars after the entry bar only) ──────────────
+    // ── 1. Retest of EMA / Value Zone Detection ──────────────────────────────
+    // Check recent price separation: price was above/below BOTH EMAs prior to this pullback
+    let hadBullSeparation = bar_index < 5;
+    let hadBearSeparation = bar_index < 5;
+    let recentMaxHigh = c.high;
+    let recentMinLow = c.low;
+
+    const sepLookbackStart = Math.max(0, bar_index - 35);
+    for (let k = sepLookbackStart; k <= bar_index; k++) {
+      if (candles[k].high > recentMaxHigh) recentMaxHigh = candles[k].high;
+      if (candles[k].low < recentMinLow) recentMinLow = candles[k].low;
+      if (k < bar_index) {
+        const kEmaF = !isNaN(emaFSeries[k]) ? emaFSeries[k] : candles[k].close;
+        const kEmaS = !isNaN(emaSSeries[k]) ? emaSSeries[k] : candles[k].close;
+        const kEmaTop = Math.max(kEmaF, kEmaS);
+        const kEmaBot = Math.min(kEmaF, kEmaS);
+        if (candles[k].close > kEmaTop) hadBullSeparation = true;
+        if (candles[k].close < kEmaBot) hadBearSeparation = true;
+      }
+    }
+
+    // Touch Target Resolution:
+    // The user specifically emphasizes: "ተመልሶ ይመጣና ወይም Slow ema ይነካና rejectioncandle red/green ያሳያል፥
+    // እሱ rejection candle ስያሳይ arrow! Fast ema ብቻ ስነካ አይሁን እንጂ። ለየትኛውም setting ላይ ለተስተካከለ ema must be the same."
+    // In any setting (e.g. 260/280, 21/50, 50/200):
+    // In an Uptrend, the deeper support baseline is emaS. Touching Fast EMA alone is shallow.
+    // In a Downtrend, the deeper resistance baseline is emaS. Touching Fast EMA alone is shallow.
+    const isBothEmaMode = retestTouchTarget === 'both_emas';
+
+    // A. Long Retest Touch:
+    // Price pulls back and reaches down to the Slow EMA (within zone tolerance)
+    const touchLong = isBothEmaMode
+      ? (c.low <= Math.max(emaF, emaS) + zone && c.high >= Math.min(emaF, emaS) - zone * 1.5)
+      : (c.low <= emaS + zone * 0.9 && c.high >= emaS - zone * 1.5);
+
+    // Fast-EMA-only exclusion filter ("Fast ema ብቻ ስነካ አይሁን እንጂ"):
+    // If price only touched Fast EMA while staying strictly above Slow EMA, exclude shallow touch!
+    const isShallowFastOnlyLong =
+      !isBothEmaMode &&
+      emaF > emaS &&
+      c.low > emaS + zone * 0.9;
+
+    // B. Short Retest Touch:
+    // Price rallies up and reaches up to the Slow EMA (within zone tolerance)
+    const touchShort = isBothEmaMode
+      ? (c.high >= Math.min(emaF, emaS) - zone && c.low <= Math.max(emaF, emaS) + zone * 1.5)
+      : (c.high >= emaS - zone * 0.9 && c.low <= emaS + zone * 1.5);
+
+    // Fast-EMA-only exclusion filter for short:
+    const isShallowFastOnlyShort =
+      !isBothEmaMode &&
+      emaF < emaS &&
+      c.high < emaS - zone * 0.9;
+
+    // C. Rejection Candle Confirmation ("rejectioncandle red/green ያሳያል፥ እሱ rejection candle ስያሳይ arrow!")
+    const barRange = Math.max(0.0001, c.high - c.low);
+    const lowerWick = Math.min(c.open, c.close) - c.low;
+    const upperWick = c.high - Math.max(c.open, c.close);
+    const isBullCandle = c.close > c.open;
+    const isBearCandle = c.close < c.open;
+
+    // Long Rejection:
+    // MUST be a GREEN candle (close > open) OR strong lower hammer wick (lowerWick / barRange >= 0.35)
+    // AND must respect/hold the Slow EMA (close must not be broken below the Slow EMA)
+    const rejectLong =
+      !isShallowFastOnlyLong &&
+      ((isBullCandle && c.close >= emaS - zone * 0.35) ||
+       (lowerWick / barRange >= 0.35 && c.close >= c.open * 0.9995 && c.close >= emaS - zone * 0.35));
+
+    // Short Rejection:
+    // MUST be a RED candle (close < open) OR strong upper shooting star wick (upperWick / barRange >= 0.35)
+    // AND must respect/hold the Slow EMA (close must not be broken above the Slow EMA)
+    const rejectShort =
+      !isShallowFastOnlyShort &&
+      ((isBearCandle && c.close <= emaS + zone * 0.35) ||
+       (upperWick / barRange >= 0.35 && c.close <= c.open * 1.0005 && c.close <= emaS + zone * 0.35));
+
+    // D. Climax Overextension & Breakthrough Safeguard ("5000-6000 ርቀት ተጉዞ ሲመለስ ሰብሮ እንዳይወጣ ማዳን")
+    // If price previously ran away > 5000 points (or > 7.5x ATR) from the Slow EMA,
+    // a violent counter-trend waterfall / spike often slices straight through the EMAs.
+    const climaxDistLong = recentMaxHigh - emaS;
+    const climaxDistShort = emaS - recentMinLow;
+    const isExtremeClimaxLong = climaxDistLong >= maxClimaxPoints || climaxDistLong >= atr * 7.5;
+    const isExtremeClimaxShort = climaxDistShort >= maxClimaxPoints || climaxDistShort >= atr * 7.5;
+
+    // Breakdown / Breakthrough Guard:
+    // If the candle closed significantly beyond the Slow EMA, that is a breakdown / breakout, NOT a bounce!
+    const isBreakthroughLong = c.close < emaS - zone * 0.65 || c.low < emaS - atr * 1.0;
+    const isBreakthroughShort = c.close > emaS + zone * 0.65 || c.high > emaS + atr * 1.0;
+
+    // Waterfall Violent Momentum Guard (Oversized candle slamming into EMA):
+    const prevCandle = bar_index > 0 ? candles[bar_index - 1] : c;
+    const prevRange = Math.max(0.0001, prevCandle.high - prevCandle.low);
+    const isViolentWaterfallLong =
+      (barRange > atr * 2.5 && c.close < c.open) ||
+      (prevRange > atr * 2.5 && prevCandle.close < prevCandle.open && c.close < (emaF + emaS) / 2);
+    const isViolentWaterfallShort =
+      (barRange > atr * 2.5 && c.close > c.open) ||
+      (prevRange > atr * 2.5 && prevCandle.close > prevCandle.open && c.close > (emaF + emaS) / 2);
+
+    let allowClimaxLong = true;
+    let allowClimaxShort = true;
+
+    if (exhaustionFilter) {
+      if (isBreakthroughLong || isViolentWaterfallLong) allowClimaxLong = false;
+      if (isBreakthroughShort || isViolentWaterfallShort) allowClimaxShort = false;
+
+      // In an extreme climax move (> 5,000 pts / 7.5x ATR):
+      // Require clear bullish absorption candle (green close > open, close >= Slow EMA, and not an indecision doji)
+      if (isExtremeClimaxLong) {
+        if (!isBullCandle || c.close < emaS || (c.close - c.open) / barRange < 0.25) {
+          allowClimaxLong = false;
+        }
+      }
+      if (isExtremeClimaxShort) {
+        if (!isBearCandle || c.close > emaS || (c.open - c.close) / barRange < 0.25) {
+          allowClimaxShort = false;
+        }
+      }
+    }
+
+    // Track pullbacks
+    if (trendUp) {
+      if (touchLong) pbL = true;
+      if (pbL) pbLow = pbLow === null ? c.low : Math.min(pbLow, c.low);
+    } else {
+      pbL = false;
+      pbLow = null;
+    }
+
+    if (trendDn) {
+      if (touchShort) pbS = true;
+      if (pbS) pbHigh = pbHigh === null ? c.high : Math.max(pbHigh, c.high);
+    } else {
+      pbS = false;
+      pbHigh = null;
+    }
+
+    // ── 2. Signal Triggering (EMA Retest vs Classic Pullback) ─────────────────
+    const minBarsBetweenSignals = 2;
+
+    // A. EMA Retest Touch Mode (Directly captures the textbook retest shown by user)
+    const retestGoLong =
+      trendUp &&
+      hadBullSeparation &&
+      touchLong &&
+      rejectLong &&
+      allowClimaxLong &&
+      bar_index - lastLongSigBar >= minBarsBetweenSignals;
+
+    const retestGoShort =
+      trendDn &&
+      hadBearSeparation &&
+      touchShort &&
+      rejectShort &&
+      allowClimaxShort &&
+      bar_index - lastShortSigBar >= minBarsBetweenSignals;
+
+    // B. Classic Pine Pullback Mode (LunqFX original)
+    const standardGoLong =
+      trendUp &&
+      pbL &&
+      c.close > emaF &&
+      c.close > c.open &&
+      (rsi > 45 || rsi > prevRsi) &&
+      okL &&
+      bar_index - lastLongSigBar >= minBarsBetweenSignals;
+
+    const standardGoShort =
+      trendDn &&
+      pbS &&
+      c.close < emaF &&
+      c.close < c.open &&
+      (rsi < 55 || rsi < prevRsi) &&
+      okS &&
+      bar_index - lastShortSigBar >= minBarsBetweenSignals;
+
+    const baseGoLong = retestMode === 'retest_touch' ? retestGoLong : standardGoLong;
+    const baseGoShort = retestMode === 'retest_touch' ? retestGoShort : standardGoShort;
+
+    // ── Optional Quality Filter Shields (Only active when specifically toggled ON) ───
+    let passLongFilters = true;
+    let passShortFilters = true;
+
+    if (filterAdx) {
+      const curAdx = adxSeries[bar_index];
+      if (isNaN(curAdx) || curAdx < 20) {
+        passLongFilters = false;
+        passShortFilters = false;
+      }
+    }
+
+    if (filterSlope) {
+      const slope = atr > 0 ? (emaS - prevEmaS3) / atr : 0;
+      if (slope < 0.03) passLongFilters = false;
+      if (slope > -0.03) passShortFilters = false;
+    }
+
+    if (filterRsiExhaustion) {
+      if (rsi > 70) passLongFilters = false;
+      if (rsi < 30) passShortFilters = false;
+    }
+
+    if (filterWickRejection) {
+      if (upperWick / barRange > 0.45) passLongFilters = false;
+      if (lowerWick / barRange > 0.45) passShortFilters = false;
+    }
+
+    if (filterVolatility) {
+      const curAtrMa = atrMaSeries[bar_index];
+      if (!isNaN(curAtrMa) && curAtrMa > 0 && atr < curAtrMa * 0.85) {
+        passLongFilters = false;
+        passShortFilters = false;
+      }
+    }
+
+    if (filterMinStopDist) {
+      const minHealthyStop = atr * 0.65;
+      if (Math.abs(c.close - stopL) < minHealthyStop) passLongFilters = false;
+      if (Math.abs(stopS - c.close) < minHealthyStop) passShortFilters = false;
+    }
+
+    const goLong = baseGoLong && passLongFilters;
+    const goShort = baseGoShort && passShortFilters;
+
+    // Store in global signals collection for chart visualization (All retest arrows visible!)
+    if (goLong) {
+      signals.push({
+        id: nextSignalId++,
+        barIndex: bar_index,
+        time: c.time,
+        dir: 1,
+        price: c.low,
+        type: 'BUY',
+        isRetest: true,
+        emaPrice: emaF,
+        labelText: '▲ BUY',
+      });
+      lastLongSigBar = bar_index;
+    }
+
+    if (goShort) {
+      signals.push({
+        id: nextSignalId++,
+        barIndex: bar_index,
+        time: c.time,
+        dir: -1,
+        price: c.high,
+        type: 'SELL',
+        isRetest: true,
+        emaPrice: emaF,
+        labelText: '▼ SELL',
+      });
+      lastShortSigBar = bar_index;
+    }
+
+    // ── 3. Open Plan Management (100% Truthful Win/Loss Execution) ───────────
     if (tDir !== 0 && tBar !== null && bar_index > tBar && currentActivePlan) {
       const slHit = tDir === 1 ? c.low <= tSL! : c.high >= tSL!;
       const h1 = tStage < 1 && (tDir === 1 ? c.high >= tTP1! : c.low <= tTP1!);
       const h2 = tStage < 2 && (tDir === 1 ? c.high >= tTP2! : c.low <= tTP2!);
       const h3 = tStage < 3 && (tDir === 1 ? c.high >= tTP3! : c.low <= tTP3!);
 
-      // Conservative Risk Evaluation:
-      // If both SL and TP are touched in the same candle, SL takes priority -> marked as LOSS (stopped)
+      // Conservative Risk Priority:
+      // If both SL and TP are touched on the same candle, SL takes priority -> marked strictly as LOSS
       if (slHit) {
         const atEntry = tSL === tEntry;
         currentActivePlan.slLabelText = (atEntry ? 'EXIT AT ENTRY  ' : 'STOPPED  ') + px(tSL);
@@ -665,7 +963,7 @@ export function calculateTradePlanner(
         currentActivePlan.line2.x2 = bar_index;
         currentActivePlan.line3.x2 = bar_index;
         currentActivePlan.active = false;
-        currentActivePlan.exitReason = atEntry ? 'exit at entry' : 'stopped';
+        currentActivePlan.exitReason = atEntry ? 'Exit at Entry (BE)' : 'Stop Loss Hit (Loss)';
         currentActivePlan.exitPrice = tSL!;
         currentActivePlan.isWin = false;
         currentActivePlan.pnlText = `-$${currentActivePlan.riskMoney.toFixed(2)}`;
@@ -721,6 +1019,28 @@ export function calculateTradePlanner(
           completedPlans.push(currentActivePlan);
           currentActivePlan = null;
           tDir = 0;
+        } else if (oppOn && ((tDir === 1 && goShort) || (tDir === -1 && goLong))) {
+          // Closed on opposite counter-trend signal
+          const exitPx = c.close;
+          const isProfitable = tDir === 1 ? exitPx > tEntry! : exitPx < tEntry!;
+          currentActivePlan.endBar = bar_index;
+          currentActivePlan.riskBox.x2 = bar_index;
+          currentActivePlan.rewBox.x2 = bar_index;
+          currentActivePlan.line1.x2 = bar_index;
+          currentActivePlan.line2.x2 = bar_index;
+          currentActivePlan.line3.x2 = bar_index;
+          currentActivePlan.active = false;
+          currentActivePlan.exitReason = isProfitable
+            ? `Closed on opposite signal (${tDir === 1 ? 'SELL' : 'BUY'})`
+            : `Opposite Signal Exit (Loss)`;
+          currentActivePlan.exitPrice = exitPx;
+          currentActivePlan.isWin = false; // Only target reach counts as Target Win!
+          currentActivePlan.pnlText = isProfitable ? `+$0.00` : `-$${currentActivePlan.riskMoney.toFixed(2)}`;
+          currentActivePlan.pipsText = isProfitable ? `+0 pips` : `-${Math.round(currentActivePlan.riskPips)} pips`;
+          lastOut = currentActivePlan.exitReason;
+          completedPlans.push(currentActivePlan);
+          currentActivePlan = null;
+          tDir = 0;
         }
       }
 
@@ -736,117 +1056,8 @@ export function calculateTradePlanner(
       }
     }
 
-    // ── 2. Track pullbacks into the value zone ──────────────────────────────
-    if (trendUp) {
-      if (c.low <= emaF + zone) {
-        pbL = true;
-      }
-      if (pbL) {
-        pbLow = pbLow === null ? c.low : Math.min(pbLow, c.low);
-      }
-    } else {
-      pbL = false;
-      pbLow = null;
-    }
-
-    if (trendDn) {
-      if (c.high >= emaF - zone) {
-        pbS = true;
-      }
-      if (pbS) {
-        pbHigh = pbHigh === null ? c.high : Math.max(pbHigh, c.high);
-      }
-    } else {
-      pbS = false;
-      pbHigh = null;
-    }
-
-    // ── 3. The Trigger: momentum turns back in trend direction ───────────────
-    // Base Pine Script v6 LunqFX Main Logic (100% Preserved & Unaltered)
-    const baseGoLong =
-      trendUp &&
-      pbL &&
-      c.close > emaF &&
-      c.close > c.open &&
-      rsi > 50 &&
-      rsi > prevRsi &&
-      okL &&
-      tDir !== 1 &&
-      (tDir === 0 || oppOn);
-
-    const baseGoShort =
-      trendDn &&
-      pbS &&
-      c.close < emaF &&
-      c.close < c.open &&
-      rsi < 50 &&
-      rsi < prevRsi &&
-      okS &&
-      tDir !== -1 &&
-      (tDir === 0 || oppOn);
-
-    // ── Optional Quality Filter Shields (Only active when specifically toggled ON) ───
-    let passLongFilters = true;
-    let passShortFilters = true;
-
-    // Filter 1: ADX Trend Strength Filter (Blocks dead sideways chop)
-    if (filterAdx) {
-      const curAdx = adxSeries[bar_index];
-      if (isNaN(curAdx) || curAdx < 20) {
-        passLongFilters = false;
-        passShortFilters = false;
-      }
-    }
-
-    // Filter 2: Slow EMA Slope Angle Filter (Blocks horizontal consolidation / flat moving averages)
-    if (filterSlope) {
-      const slope = atr > 0 ? (emaS - prevEmaS3) / atr : 0;
-      if (slope < 0.04) passLongFilters = false;
-      if (slope > -0.04) passShortFilters = false;
-    }
-
-    // Filter 3: RSI Exhaustion Guard (Prevents buying overbought tops >70 or shorting oversold bottoms <30)
-    if (filterRsiExhaustion) {
-      if (rsi > 70) passLongFilters = false;
-      if (rsi < 30) passShortFilters = false;
-    }
-
-    // Filter 4: Candle Rejection Wick Filter (Rejects counter-trend price rejection wicks >40%)
-    if (filterWickRejection) {
-      const barRange = c.high - c.low;
-      if (barRange > 0) {
-        const upperWick = c.high - Math.max(c.open, c.close);
-        const lowerWick = Math.min(c.open, c.close) - c.low;
-        if (upperWick / barRange > 0.40) passLongFilters = false;
-        if (lowerWick / barRange > 0.40) passShortFilters = false;
-      }
-    }
-
-    // Filter 5: Volatility Expansion Filter (Filters out dead-volume micro-squeeze where spreads hurt edge)
-    if (filterVolatility) {
-      const curAtrMa = atrMaSeries[bar_index];
-      if (!isNaN(curAtrMa) && curAtrMa > 0 && atr < curAtrMa * 0.85) {
-        passLongFilters = false;
-        passShortFilters = false;
-      }
-    }
-
-    // Filter 6: Minimum Stop Distance Guard (Protects net R:R and prevents noise/spread stop-outs)
-    if (filterMinStopDist) {
-      const minHealthyStop = atr * 0.75;
-      if (Math.abs(c.close - stopL) < minHealthyStop) passLongFilters = false;
-      if (Math.abs(stopS - c.close) < minHealthyStop) passShortFilters = false;
-    }
-
-    const goLong = baseGoLong && passLongFilters;
-    const goShort = baseGoShort && passShortFilters;
-
-    // Strict Trade Execution: A trade MUST run to completion (TP or SL).
-    // An active trade is never cut short prematurely by opposite signals.
-    if ((goLong || goShort) && tDir === 0) {
-      // Exact Points per $1.00 USD and per Pip:
-      // On Deriv Volatility 75: 0.001 min lot. 1000 index points = $1.00. 100 pips = $1.00 -> 1 pip = 10 index points.
-      // E.g. $2.20 = 2,200 points (220 pips), $10.30 = 10,300 points (1030 pips).
+    // ── 4. Open New Trade Plan ───────────────────────────────────────────────
+    if (tDir === 0 && (goLong || goShort)) {
       const pointsPerDollar = isV75
         ? (lotOver > 0 ? 1.0 / lotOver : 1000.0)
         : (lotOver > 0 ? 1.0 / (lotOver * (spec.contractSize || 1)) : 1.0 / ((spec.minLot || 0.01) * (spec.contractSize || 1)));
@@ -865,10 +1076,10 @@ export function calculateTradePlanner(
 
       let risk: number;
       let s: number;
-      let tTP1: number;
-      let tTP2: number;
-      let tTP3: number;
-      let tSize: number;
+      let planTP1: number;
+      let planTP2: number;
+      let planTP3: number;
+      let planSize: number;
       let planRiskMoney: number;
       let rew1: number;
       let rew2: number;
@@ -887,7 +1098,7 @@ export function calculateTradePlanner(
         distTp1 = pipsTp1 * pipPriceDist;
         distTp2 = pipsTp2 * pipPriceDist;
         distTp3 = pipsTp3 * pipPriceDist;
-        tSize = lotOver > 0 ? lotOver : (isV75 ? 0.001 : minLot);
+        planSize = lotOver > 0 ? lotOver : (isV75 ? 0.001 : minLot);
 
         planRiskMoney = distSl / pointsPerDollar;
         rew1 = distTp1 / pointsPerDollar;
@@ -901,7 +1112,7 @@ export function calculateTradePlanner(
         distTp1 = cashTp1 * pointsPerDollar;
         distTp2 = cashTp2 * pointsPerDollar;
         distTp3 = cashTp3 * pointsPerDollar;
-        tSize = lotOver > 0 ? lotOver : (isV75 ? 0.001 : minLot);
+        planSize = lotOver > 0 ? lotOver : (isV75 ? 0.001 : minLot);
 
         planRiskMoney = cashSl;
         rew1 = cashTp1;
@@ -918,7 +1129,7 @@ export function calculateTradePlanner(
         distTp1 = risk * r1;
         distTp2 = risk * r2;
         distTp3 = risk * r3;
-        tSize = sizeFor(risk);
+        planSize = sizeFor(risk);
 
         planRiskMoney = riskMoney;
         rew1 = riskMoney * r1;
@@ -930,16 +1141,20 @@ export function calculateTradePlanner(
 
       risk = distSl;
       s = goLong ? e - distSl : e + distSl;
-      tTP1 = e + d * distTp1;
-      tTP2 = e + d * distTp2;
-      tTP3 = e + d * distTp3;
+      planTP1 = e + d * distTp1;
+      planTP2 = e + d * distTp2;
+      planTP3 = e + d * distTp3;
 
       tDir = d;
       tEntry = e;
       tSL = s;
       tSL0 = s;
+      tTP1 = planTP1;
+      tTP2 = planTP2;
+      tTP3 = planTP3;
       tBar = bar_index;
       tStage = 0;
+      tSize = planSize;
 
       pbL = false;
       pbLow = null;
@@ -947,8 +1162,8 @@ export function calculateTradePlanner(
       pbHigh = null;
 
       const xr = bar_index + 3;
-      const tpHi = d === 1 ? tTP3 : e;
-      const tpLo = d === 1 ? e : tTP3;
+      const tpHi = d === 1 ? planTP3 : e;
+      const tpLo = d === 1 ? e : planTP3;
 
       const slText = isPipsMode
         ? `SL · ${pipsSl} pips  ${px(s)}  −$${planRiskMoney.toFixed(2)}`
@@ -957,22 +1172,22 @@ export function calculateTradePlanner(
         : `SL · ${slMult.toFixed(2)}x  ${px(s)}  −${money(riskMoney)}`;
 
       const tp1Text = isPipsMode
-        ? `TP1 · ${pipsTp1} pips  ${px(tTP1)}  +$${rew1.toFixed(2)}`
+        ? `TP1 · ${pipsTp1} pips  ${px(planTP1)}  +$${rew1.toFixed(2)}`
         : isCashMode
-        ? `TP1 · $${cashTp1.toFixed(2)} (${planRewPips}p)  ${px(tTP1)}`
-        : `TP1 · ${r1.toFixed(2)}R  ${px(tTP1)}  +${money(rew1)}`;
+        ? `TP1 · $${cashTp1.toFixed(2)} (${planRewPips}p)  ${px(planTP1)}`
+        : `TP1 · ${r1.toFixed(2)}R  ${px(planTP1)}  +${money(rew1)}`;
 
       const tp2Text = isPipsMode
-        ? `TP2 · ${pipsTp2} pips  ${px(tTP2)}  +$${rew2.toFixed(2)}`
+        ? `TP2 · ${pipsTp2} pips  ${px(planTP2)}  +$${rew2.toFixed(2)}`
         : isCashMode
-        ? `TP2 · $${cashTp2.toFixed(2)}  ${px(tTP2)}`
-        : `TP2 · ${r2.toFixed(2)}R  ${px(tTP2)}  +${money(rew2)}`;
+        ? `TP2 · $${cashTp2.toFixed(2)}  ${px(planTP2)}`
+        : `TP2 · ${r2.toFixed(2)}R  ${px(planTP2)}  +${money(rew2)}`;
 
       const tp3Text = isPipsMode
-        ? `TP3 · ${pipsTp3} pips  ${px(tTP3)}  +$${rew3.toFixed(2)}`
+        ? `TP3 · ${pipsTp3} pips  ${px(planTP3)}  +$${rew3.toFixed(2)}`
         : isCashMode
-        ? `TP3 · $${cashTp3.toFixed(2)}  ${px(tTP3)}`
-        : `TP3 · ${r3.toFixed(2)}R  ${px(tTP3)}  +${money(rew3)}`;
+        ? `TP3 · $${cashTp3.toFixed(2)}  ${px(planTP3)}`
+        : `TP3 · ${r3.toFixed(2)}R  ${px(planTP3)}  +${money(rew3)}`;
 
       currentActivePlan = {
         id: nextPlanId++,
@@ -982,11 +1197,11 @@ export function calculateTradePlanner(
         entryPrice: e,
         slPrice: s,
         slOriginal: s,
-        tp1Price: tTP1,
-        tp2Price: tTP2,
-        tp3Price: tTP3,
+        tp1Price: planTP1,
+        tp2Price: planTP2,
+        tp3Price: planTP3,
         stage: 0,
-        sizeText: sizeTxt(tSize),
+        sizeText: sizeTxt(planSize),
         active: true,
         exitReason: '',
         riskMoney: planRiskMoney,
@@ -1002,9 +1217,9 @@ export function calculateTradePlanner(
 
         riskBox: { x1: bar_index, y1: Math.max(e, s), x2: xr, y2: Math.min(e, s) },
         rewBox: { x1: bar_index, y1: tpHi, x2: xr, y2: tpLo },
-        line1: { x1: bar_index, y: tTP1, x2: xr },
-        line2: { x1: bar_index, y: tTP2, x2: xr },
-        line3: { x1: bar_index, y: tTP3, x2: xr },
+        line1: { x1: bar_index, y: planTP1, x2: xr },
+        line2: { x1: bar_index, y: planTP2, x2: xr },
+        line3: { x1: bar_index, y: planTP3, x2: xr },
       };
     }
   }
@@ -1019,7 +1234,7 @@ export function calculateTradePlanner(
     allPlansList.unshift(completedPlans[i]);
   }
 
-  // 3. Compute HUD panel values on the latest bar
+  // 5. Compute HUD panel values on the latest bar
   const lastBarIndex = n - 1;
   const lastEmaF = valueZone[lastBarIndex]?.emaF ?? lastClose;
   const lastEmaS = valueZone[lastBarIndex]?.emaS ?? lastClose;
@@ -1046,8 +1261,7 @@ export function calculateTradePlanner(
   const hTx = active ? planTx : trendTx;
   const hBg = active ? (tDir === 1 ? '#0A5F55' : '#8E1148') : LUNQ_PALETTE.CARD2;
 
-  // 4. Compute KeepN Performance Scorecard & Trade Statistics
-  // Evaluates performance against the user's enabled TP target and reward ratio
+  // 6. Compute KeepN Performance Scorecard & Trade Statistics
   const showTp1 = options.showTp1 ?? true;
   const showTp2 = options.showTp2 ?? true;
   const showTp3 = options.showTp3 ?? true;
@@ -1085,8 +1299,9 @@ export function calculateTradePlanner(
     targetR = isPipsMode ? pipsTp1 : isCashMode ? cashTp1 : r1;
   }
 
-  // Sort plans chronologically from oldest to newest for accurate streak tracking
-  const chronologicalPlans = [...allPlansList].sort((a, b) => a.entryBar - b.entryBar);
+  // Exact 100% Fact-Checked Performance: Evaluated on the last keepN completed trades!
+  const keepNCompleted = completedPlans.slice(-keepN);
+  const chronologicalPlans = [...keepNCompleted].sort((a, b) => a.entryBar - b.entryBar);
 
   let totalWins = 0;
   let totalLosses = 0;
@@ -1108,7 +1323,7 @@ export function calculateTradePlanner(
       currentConsecWins++;
       currentConsecLosses = 0;
       if (currentConsecWins > maxConsecWins) maxConsecWins = currentConsecWins;
-    } else if (p.isWin === false || (!p.active && p.exitReason !== '')) {
+    } else {
       totalLosses++;
       currentConsecLosses++;
       currentConsecWins = 0;
@@ -1134,7 +1349,8 @@ export function calculateTradePlanner(
     tp3Hits,
   };
 
-  const recentTrades: RecentTradeAudit[] = completedPlans.slice(-keepN).map((p) => ({
+  // Recent trade audit entries for the Trade Audit Log table (Newest first)
+  const recentTrades: RecentTradeAudit[] = [...keepNCompleted].reverse().map((p) => ({
     id: p.id,
     dir: p.dir === 1 ? ('BUY' as const) : ('SELL' as const),
     entryBar: p.entryBar,
@@ -1206,10 +1422,12 @@ export function calculateTradePlanner(
 
   return {
     plans: allPlansList,
+    signals,
     valueZone,
     hud,
     candleColors: { bull: cBull, bear: cBear, applied: applyCandles },
     currentTrend: lastTrendUp ? 'UP' : lastTrendDn ? 'DOWN' : 'NONE',
     inValueZone: lastTrendUp ? pbL : lastTrendDn ? pbS : false,
+    allHistoricalPlans: completedPlans,
   };
 }

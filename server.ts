@@ -13,6 +13,8 @@ import logoutHandler from "./api/logout";
 import { handleHeartbeat, handleGetDevices } from "./api/telemetry";
 import telegramHandler from "./api/telegram";
 import mproAccessHandler from "./api/mproAccess";
+import cloudAlertConfigHandler from "./api/cloudAlertConfig";
+import cronCheckHandler from "./api/cronCheck";
 
 async function startServer() {
   const app = express();
@@ -58,6 +60,14 @@ async function startServer() {
 
   app.post("/api/telegram", (req, res) => {
     telegramHandler(req, res);
+  });
+
+  app.all("/api/cloud-alert-config", (req, res) => {
+    cloudAlertConfigHandler(req, res);
+  });
+
+  app.all("/api/cron-check", (req, res) => {
+    cronCheckHandler(req, res);
   });
 
   // Standard health route

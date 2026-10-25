@@ -53,6 +53,13 @@ export interface MsttOptions {
   showDashboard?: boolean; // Show Dashboard (default true)
   dashBgColor?: string; // BG (default rgb(10,10,18))
   dashTxtColor?: string; // Text (default rgb(220,220,235))
+  keepN?: number; // Number of trades to keep / evaluate in HUD (default 10, min 1, max 100)
+  targetFocus?: 'TP1' | 'TP2' | 'TP3' | 'TP1_AND_TP2' | 'ALL'; // Target level for WIN determination (default 'TP1')
+  targetMode?: 'atr' | 'points'; // Sizing mode: ATR Multiplier vs Exact Points (default 'atr')
+  pointsSl?: number; // Stop Loss Size in Points/Pips (default 220)
+  pointsTp1?: number; // TP1 Size in Points/Pips (default 1030)
+  pointsTp2?: number; // TP2 Size in Points/Pips (default 2060)
+  pointsTp3?: number; // TP3 Size in Points/Pips (default 3090)
   // Group Advanced Filters (Enhanced Filters Edition)
   useStructureFilter?: boolean; // 15M Structure Bias Filter (default true)
   structureTf?: string; // Structure Timeframe (default "15")
@@ -72,6 +79,8 @@ export interface MsttOptions {
   volumeMultiplier?: number; // Volume vs Average (default 1.20, min 1.0, max 5.0)
   useScoreFilter?: boolean; // Continuation Confluence Score Filter (default false)
   minContinuationScore?: number; // Minimum Continuation Score (0-100) (default 60, min 20, max 100)
+  preventLateEntry?: boolean; // Block signals that appear late after breakout or when target already reached (default: true)
+  maxBreakoutDelay?: number; // Max delay candles between breakout and signal (default: 1, min: 0, max: 3)
 }
 
 export interface MsttLine {
@@ -111,6 +120,37 @@ export interface MsttSignalMarker {
   color: string;
 }
 
+export interface MsttHistoricalTrade {
+  id: number;
+  dir: 'BULL' | 'BEAR';
+  entryBar: number;
+  endBar: number;
+  entryPrice: number;
+  slPrice: number;
+  tp1Price: number;
+  tp2Price: number;
+  tp3Price: number;
+  exitPrice: number;
+  exitReason: string;
+  isWin: boolean;
+  barsHeld: number;
+  pipsText?: string;
+}
+
+export interface MsttTradeStats {
+  totalTrades: number;
+  totalAllTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  consecWins: number;
+  consecLosses: number;
+  tp1Hits: number;
+  tp2Hits: number;
+  tp3Hits: number;
+  recentTrades: MsttHistoricalTrade[];
+}
+
 export interface MsttDashboard {
   ticker: string;
   tag: string;
@@ -132,10 +172,23 @@ export interface MsttDashboard {
   tp1Str: string;
   tp2Str: string;
   tp3Str: string;
+  showTp1: boolean;
+  showTp2: boolean;
+  showTp3: boolean;
+  showSl: boolean;
+  targetFocus: string;
   rrStr: string;
   rrCol: string;
   durationStr: string;
   totalStr: string;
+  // KeepN Trade Performance stats
+  keepN: number;
+  totalTradesStr: string;
+  winLossStr: string;
+  winRateStr: string;
+  winRateCol: string;
+  consecStr: string;
+  stats?: MsttTradeStats;
 }
 
 export interface MsttResult {
@@ -159,8 +212,11 @@ export interface MsttResult {
   tp3Fill: MsttLineFill | null;
   // Chart markers (plotshape for Bullish & Bearish BOS)
   signalMarkers: MsttSignalMarker[];
-  // Dashboard (17 rows matching Pine Script v6)
+  // Dashboard (17 rows matching Pine Script v6 + Trade Scorecard & Audit)
   dashboard: MsttDashboard;
+  // Trade stats & history
+  stats: MsttTradeStats;
+  historicalTrades: MsttHistoricalTrade[];
   // State
   bosActive: boolean;
   targetHit: boolean;
@@ -495,10 +551,15 @@ export function calculateMarketStructureTargetTracker(
 
   // SL/TP
   const showTpSl = options.showTpSl ?? true;
+  const targetMode = options.targetMode ?? 'atr';
   const slMulti = options.slMulti ?? 1.0;
   const tp1Multi = options.tp1Multi ?? 1.5;
   const tp2Multi = options.tp2Multi ?? 3.0;
   const tp3Multi = options.tp3Multi ?? 5.0;
+  const pointsSl = options.pointsSl ?? 220;
+  const pointsTp1 = options.pointsTp1 ?? 1030;
+  const pointsTp2 = options.pointsTp2 ?? 2060;
+  const pointsTp3 = options.pointsTp3 ?? 3090;
   const atrLen = Math.max(1, Math.min(50, Math.round(options.atrLen ?? 14)));
   const colEntry = options.colEntry ?? 'rgb(100, 180, 255)';
   const colSl = options.colSl ?? 'rgb(255, 60, 60)';
@@ -506,14 +567,25 @@ export function calculateMarketStructureTargetTracker(
   const colTp2 = options.colTp2 ?? 'rgb(0, 255, 180)';
   const colTp3 = options.colTp3 ?? 'rgb(0, 255, 255)';
 
+  const targetFocus = options.targetFocus ?? 'TP1';
   const showSl = options.showSl ?? true;
-  const showTp1 = options.showTp1 ?? true;
-  const showTp2 = options.showTp2 ?? true;
-  const showTp3 = options.showTp3 ?? true;
+  // Synchronize target visibility strictly with targetFocus:
+  // - 'TP1': shows ONLY TP1
+  // - 'TP2': shows ONLY TP2
+  // - 'TP1_AND_TP2': shows BOTH TP1 & TP2
+  // - 'TP3': shows ONLY TP3
+  // - 'ALL': shows TP1, TP2, TP3
+  const focusShowsTp1 = targetFocus === 'TP1' || targetFocus === 'TP1_AND_TP2' || targetFocus === 'ALL';
+  const focusShowsTp2 = targetFocus === 'TP2' || targetFocus === 'TP1_AND_TP2' || targetFocus === 'ALL';
+  const focusShowsTp3 = targetFocus === 'TP3' || targetFocus === 'ALL';
+
+  const showTp1 = options.showTp1 !== undefined ? (options.showTp1 && focusShowsTp1) : focusShowsTp1;
+  const showTp2 = options.showTp2 !== undefined ? (options.showTp2 && focusShowsTp2) : focusShowsTp2;
+  const showTp3 = options.showTp3 !== undefined ? (options.showTp3 && focusShowsTp3) : focusShowsTp3;
   const showSlShade = options.showSlShade ?? true;
-  const showTp1Shade = options.showTp1Shade ?? true;
-  const showTp2Shade = options.showTp2Shade ?? true;
-  const showTp3Shade = options.showTp3Shade ?? true;
+  const showTp1Shade = options.showTp1Shade !== undefined ? (options.showTp1Shade && showTp1) : showTp1;
+  const showTp2Shade = options.showTp2Shade !== undefined ? (options.showTp2Shade && showTp2) : showTp2;
+  const showTp3Shade = options.showTp3Shade !== undefined ? (options.showTp3Shade && showTp3) : showTp3;
 
   // HTF
   const htfRes = options.htfRes ?? '240';
@@ -543,9 +615,26 @@ export function calculateMarketStructureTargetTracker(
   const volumeMultiplier = options.volumeMultiplier ?? 1.20;
   const useScoreFilter = options.useScoreFilter ?? false;
   const minContinuationScore = Math.max(20, Math.min(100, Math.round(options.minContinuationScore ?? 60)));
+  const keepN = Math.max(0, Math.min(1000, Math.round(options.keepN ?? 10)));
+  const preventLateEntry = options.preventLateEntry ?? true;
+  const maxBreakoutDelay = Math.max(0, Math.min(3, Math.round(options.maxBreakoutDelay ?? 1)));
 
   const n = candles.length;
   if (n === 0) {
+    const emptyStats: MsttTradeStats = {
+      totalTrades: 0,
+      totalAllTrades: 0,
+      wins: 0,
+      losses: 0,
+      winRate: 0,
+      consecWins: 0,
+      consecLosses: 0,
+      tp1Hits: 0,
+      tp2Hits: 0,
+      tp3Hits: 0,
+      recentTrades: [],
+    };
+
     return {
       bosLine: null,
       bosLabel: null,
@@ -585,11 +674,25 @@ export function calculateMarketStructureTargetTracker(
         tp1Str: '—',
         tp2Str: '—',
         tp3Str: '—',
+        showTp1,
+        showTp2,
+        showTp3,
+        showSl,
+        targetFocus,
         rrStr: '—',
         rrCol: 'rgb(110, 110, 110)',
         durationStr: '—',
         totalStr: '0 (0▲ / 0▼)',
+        keepN,
+        totalTradesStr: '0 Trades',
+        winLossStr: '0W · 0L',
+        winRateStr: '0.0%',
+        winRateCol: 'rgb(140, 140, 140)',
+        consecStr: '0W · 0L',
+        stats: emptyStats,
       },
+      stats: emptyStats,
+      historicalTrades: [],
       bosActive: false,
       targetHit: false,
       bosIsBull: false,
@@ -669,6 +772,8 @@ export function calculateMarketStructureTargetTracker(
   let invalidSwingRef: number | null = null;
   let lastProcessedHighBar: number | null = null;
   let lastProcessedLowBar: number | null = null;
+  let firstBreakHighBar: number | null = null;
+  let firstBreakLowBar: number | null = null;
 
   let lastBullSweepBar: number | null = null;
   let lastBearSweepBar: number | null = null;
@@ -687,6 +792,21 @@ export function calculateMarketStructureTargetTracker(
   let curTp2Lbl: MsttLabel | null = null;
   let curTp3Lbl: MsttLabel | null = null;
 
+  // Trade Simulation & Audit Log (Win/Loss, Consecutive W/L, KeepN)
+  interface ActiveTradeState {
+    id: number;
+    dir: 'BULL' | 'BEAR';
+    entryBar: number;
+    entryPrice: number;
+    slPrice: number;
+    tp1Price: number;
+    tp2Price: number;
+    tp3Price: number;
+  }
+  let activeTrade: ActiveTradeState | null = null;
+  const completedTrades: MsttHistoricalTrade[] = [];
+  let nextTradeId = 1;
+
   // Historical plotshape signals
   const signalMarkers: MsttSignalMarker[] = [];
   let lastBosAlert: string | null = null;
@@ -697,6 +817,201 @@ export function calculateMarketStructureTargetTracker(
     const c = candles[bar_index];
     const atrVal = !isNaN(atrSeries[bar_index]) ? atrSeries[bar_index] : 0;
     const atrLocked = bar_index > 0 && !isNaN(atrSeries[bar_index - 1]) ? atrSeries[bar_index - 1] : atrVal;
+
+    // ── Evaluate Open Trade Simulation on Current Bar ────────────────────────
+    if (activeTrade !== null && bar_index > activeTrade.entryBar) {
+      if (activeTrade.dir === 'BULL') {
+        const slHit = c.low <= activeTrade.slPrice;
+        const tp1Hit = c.high >= activeTrade.tp1Price;
+        const tp2Hit = c.high >= activeTrade.tp2Price;
+        const tp3Hit = c.high >= activeTrade.tp3Price;
+
+        // Conservative risk priority: if both SL and TP hit on same candle, SL takes priority (LOSS)
+        if (slHit) {
+          completedTrades.push({
+            id: activeTrade.id,
+            dir: 'BULL',
+            entryBar: activeTrade.entryBar,
+            endBar: bar_index,
+            entryPrice: activeTrade.entryPrice,
+            slPrice: activeTrade.slPrice,
+            tp1Price: activeTrade.tp1Price,
+            tp2Price: activeTrade.tp2Price,
+            tp3Price: activeTrade.tp3Price,
+            exitPrice: activeTrade.slPrice,
+            exitReason: 'Stop Loss Hit (Loss)',
+            isWin: false,
+            barsHeld: bar_index - activeTrade.entryBar,
+            pipsText: `-${Math.abs(activeTrade.entryPrice - activeTrade.slPrice).toFixed(1)} pts`,
+          });
+          activeTrade = null;
+        } else {
+          let isTargetReached = false;
+          let hitReason = 'Target Hit (Win)';
+          let exitP = activeTrade.tp1Price;
+
+          if (targetFocus === 'TP1') {
+            if (tp1Hit) {
+              isTargetReached = true;
+              hitReason = 'TP1 Hit (Win)';
+              exitP = activeTrade.tp1Price;
+            }
+          } else if (targetFocus === 'TP2') {
+            if (tp2Hit) {
+              isTargetReached = true;
+              hitReason = 'TP2 Hit (Win)';
+              exitP = activeTrade.tp2Price;
+            }
+          } else if (targetFocus === 'TP1_AND_TP2') {
+            if (tp2Hit) {
+              isTargetReached = true;
+              hitReason = 'TP2 Hit (Win)';
+              exitP = activeTrade.tp2Price;
+            } else if (tp1Hit) {
+              isTargetReached = true;
+              hitReason = 'TP1 Hit (Win)';
+              exitP = activeTrade.tp1Price;
+            }
+          } else if (targetFocus === 'TP3') {
+            if (tp3Hit) {
+              isTargetReached = true;
+              hitReason = 'TP3 Hit (Win)';
+              exitP = activeTrade.tp3Price;
+            }
+          } else {
+            // 'ALL'
+            if (tp3Hit) {
+              isTargetReached = true;
+              hitReason = 'TP3 Hit (Win)';
+              exitP = activeTrade.tp3Price;
+            } else if (tp2Hit) {
+              isTargetReached = true;
+              hitReason = 'TP2 Hit (Win)';
+              exitP = activeTrade.tp2Price;
+            } else if (tp1Hit) {
+              isTargetReached = true;
+              hitReason = 'TP1 Hit (Win)';
+              exitP = activeTrade.tp1Price;
+            }
+          }
+
+          if (isTargetReached) {
+            completedTrades.push({
+              id: activeTrade.id,
+              dir: 'BULL',
+              entryBar: activeTrade.entryBar,
+              endBar: bar_index,
+              entryPrice: activeTrade.entryPrice,
+              slPrice: activeTrade.slPrice,
+              tp1Price: activeTrade.tp1Price,
+              tp2Price: activeTrade.tp2Price,
+              tp3Price: activeTrade.tp3Price,
+              exitPrice: exitP,
+              exitReason: hitReason,
+              isWin: true,
+              barsHeld: bar_index - activeTrade.entryBar,
+              pipsText: `+${Math.abs(exitP - activeTrade.entryPrice).toFixed(1)} pts`,
+            });
+            activeTrade = null;
+          }
+        }
+      } else {
+        // BEAR Trade
+        const slHit = c.high >= activeTrade.slPrice;
+        const tp1Hit = c.low <= activeTrade.tp1Price;
+        const tp2Hit = c.low <= activeTrade.tp2Price;
+        const tp3Hit = c.low <= activeTrade.tp3Price;
+
+        if (slHit) {
+          completedTrades.push({
+            id: activeTrade.id,
+            dir: 'BEAR',
+            entryBar: activeTrade.entryBar,
+            endBar: bar_index,
+            entryPrice: activeTrade.entryPrice,
+            slPrice: activeTrade.slPrice,
+            tp1Price: activeTrade.tp1Price,
+            tp2Price: activeTrade.tp2Price,
+            tp3Price: activeTrade.tp3Price,
+            exitPrice: activeTrade.slPrice,
+            exitReason: 'Stop Loss Hit (Loss)',
+            isWin: false,
+            barsHeld: bar_index - activeTrade.entryBar,
+            pipsText: `-${Math.abs(activeTrade.slPrice - activeTrade.entryPrice).toFixed(1)} pts`,
+          });
+          activeTrade = null;
+        } else {
+          let isTargetReached = false;
+          let hitReason = 'Target Hit (Win)';
+          let exitP = activeTrade.tp1Price;
+
+          if (targetFocus === 'TP1') {
+            if (tp1Hit) {
+              isTargetReached = true;
+              hitReason = 'TP1 Hit (Win)';
+              exitP = activeTrade.tp1Price;
+            }
+          } else if (targetFocus === 'TP2') {
+            if (tp2Hit) {
+              isTargetReached = true;
+              hitReason = 'TP2 Hit (Win)';
+              exitP = activeTrade.tp2Price;
+            }
+          } else if (targetFocus === 'TP1_AND_TP2') {
+            if (tp2Hit) {
+              isTargetReached = true;
+              hitReason = 'TP2 Hit (Win)';
+              exitP = activeTrade.tp2Price;
+            } else if (tp1Hit) {
+              isTargetReached = true;
+              hitReason = 'TP1 Hit (Win)';
+              exitP = activeTrade.tp1Price;
+            }
+          } else if (targetFocus === 'TP3') {
+            if (tp3Hit) {
+              isTargetReached = true;
+              hitReason = 'TP3 Hit (Win)';
+              exitP = activeTrade.tp3Price;
+            }
+          } else {
+            // 'ALL'
+            if (tp3Hit) {
+              isTargetReached = true;
+              hitReason = 'TP3 Hit (Win)';
+              exitP = activeTrade.tp3Price;
+            } else if (tp2Hit) {
+              isTargetReached = true;
+              hitReason = 'TP2 Hit (Win)';
+              exitP = activeTrade.tp2Price;
+            } else if (tp1Hit) {
+              isTargetReached = true;
+              hitReason = 'TP1 Hit (Win)';
+              exitP = activeTrade.tp1Price;
+            }
+          }
+
+          if (isTargetReached) {
+            completedTrades.push({
+              id: activeTrade.id,
+              dir: 'BEAR',
+              entryBar: activeTrade.entryBar,
+              endBar: bar_index,
+              entryPrice: activeTrade.entryPrice,
+              slPrice: activeTrade.slPrice,
+              tp1Price: activeTrade.tp1Price,
+              tp2Price: activeTrade.tp2Price,
+              tp3Price: activeTrade.tp3Price,
+              exitPrice: exitP,
+              exitReason: hitReason,
+              isWin: true,
+              barsHeld: bar_index - activeTrade.entryBar,
+              pipsText: `+${Math.abs(activeTrade.entryPrice - exitP).toFixed(1)} pts`,
+            });
+            activeTrade = null;
+          }
+        }
+      }
+    }
 
     // HTF RSI Filter
     const htfRsi = !isNaN(rsiSeries[bar_index]) ? rsiSeries[bar_index] : 50;
@@ -731,12 +1046,14 @@ export function calculateMarketStructureTargetTracker(
       prevSwingHigh = lastSwingHigh;
       lastSwingHigh = ph;
       lastSwingHighBar = bar_index - swingLen;
+      firstBreakHighBar = null;
     }
 
     if (pl !== null) {
       prevSwingLow = lastSwingLow;
       lastSwingLow = pl;
       lastSwingLowBar = bar_index - swingLen;
+      firstBreakLowBar = null;
     }
 
     // ── Structure Bias Filter (HH/HL or LH/LL) ────────────────────────────────
@@ -849,17 +1166,92 @@ export function calculateMarketStructureTargetTracker(
     lastBullScore = bullScore;
     lastBearScore = bearScore;
 
+    // ── Track Fresh Breakout and Timing ──────────────────────────────────────
+    const isHighCross = lastSwingHigh !== null && c.close > lastSwingHigh;
+    if (isHighCross && firstBreakHighBar === null && lastSwingHighBar !== lastProcessedHighBar) {
+      firstBreakHighBar = bar_index;
+    }
+    const isLowCross = lastSwingLow !== null && c.close < lastSwingLow;
+    if (isLowCross && firstBreakLowBar === null && lastSwingLowBar !== lastProcessedLowBar) {
+      firstBreakLowBar = bar_index;
+    }
+
+    const barsSinceBreakBull = firstBreakHighBar !== null ? bar_index - firstBreakHighBar : 999;
+    const barsSinceBreakBear = firstBreakLowBar !== null ? bar_index - firstBreakLowBar : 999;
+
+    // ── Candidate Target Levels & Anti-Lag / Target Pre-Hit Protection ────────
+    const candEntryBull = lastSwingHigh !== null ? lastSwingHigh + (targetMode === 'points' ? 0 : atrLocked * 0.1) : null;
+    const candTp1Bull = candEntryBull !== null ? (targetMode === 'points' ? candEntryBull + pointsTp1 : candEntryBull + atrLocked * tp1Multi) : null;
+    const candSlBull = candEntryBull !== null ? (targetMode === 'points' ? candEntryBull - pointsSl : lastSwingHigh! - atrLocked * slMulti) : null;
+
+    let targetAlreadyReachedBull = false;
+    let overextendedBull = false;
+    if (candEntryBull !== null && candTp1Bull !== null) {
+      // 1. Target already touched/reached before or on the signal bar
+      if (c.high >= candTp1Bull || c.close >= candTp1Bull) {
+        targetAlreadyReachedBull = true;
+      }
+      // 2. Or candle low already breached stop loss
+      if (candSlBull !== null && c.low <= candSlBull) {
+        targetAlreadyReachedBull = true;
+      }
+      // 3. Or price ran away (overextended > 40% of the entire TP1 distance from entry)
+      const tpDist = candTp1Bull - candEntryBull;
+      if (tpDist > 0 && (c.close - candEntryBull) > tpDist * 0.40) {
+        overextendedBull = true;
+      }
+    }
+
+    const candEntryBear = lastSwingLow !== null ? lastSwingLow - (targetMode === 'points' ? 0 : atrLocked * 0.1) : null;
+    const candTp1Bear = candEntryBear !== null ? (targetMode === 'points' ? candEntryBear - pointsTp1 : candEntryBear - atrLocked * tp1Multi) : null;
+    const candSlBear = candEntryBear !== null ? (targetMode === 'points' ? candEntryBear + pointsSl : lastSwingLow! + atrLocked * slMulti) : null;
+
+    let targetAlreadyReachedBear = false;
+    let overextendedBear = false;
+    if (candEntryBear !== null && candTp1Bear !== null) {
+      // 1. Target already touched/reached before or on the signal bar
+      if (c.low <= candTp1Bear || c.close <= candTp1Bear) {
+        targetAlreadyReachedBear = true;
+      }
+      // 2. Or candle high already breached stop loss
+      if (candSlBear !== null && c.high >= candSlBear) {
+        targetAlreadyReachedBear = true;
+      }
+      // 3. Or price ran away (overextended > 40% of the entire TP1 distance from entry)
+      const tpDist = candEntryBear - candTp1Bear;
+      if (tpDist > 0 && (candEntryBear - c.close) > tpDist * 0.40) {
+        overextendedBear = true;
+      }
+    }
+
+    const timelyOkBull = !preventLateEntry || (barsSinceBreakBull <= maxBreakoutDelay && !targetAlreadyReachedBull && !overextendedBull);
+    const timelyOkBear = !preventLateEntry || (barsSinceBreakBear <= maxBreakoutDelay && !targetAlreadyReachedBear && !overextendedBear);
+
+    // If breakout occurred but delay window expired or target was already hit, mark swing as consumed
+    if (preventLateEntry && lastSwingHighBar !== null && lastSwingHighBar !== lastProcessedHighBar && firstBreakHighBar !== null) {
+      if (barsSinceBreakBull > maxBreakoutDelay || targetAlreadyReachedBull || overextendedBull) {
+        lastProcessedHighBar = lastSwingHighBar;
+      }
+    }
+    if (preventLateEntry && lastSwingLowBar !== null && lastSwingLowBar !== lastProcessedLowBar && firstBreakLowBar !== null) {
+      if (barsSinceBreakBear > maxBreakoutDelay || targetAlreadyReachedBear || overextendedBear) {
+        lastProcessedLowBar = lastSwingLowBar;
+      }
+    }
+
     // ── Candidate BOS events gated by all enabled filters ─────────────────────
     const rawBosBull =
       lastSwingHigh !== null &&
       c.close > lastSwingHigh &&
       htfOkBull &&
+      timelyOkBull &&
       (lastProcessedHighBar === null || lastSwingHighBar !== lastProcessedHighBar);
 
     const rawBosBear =
       lastSwingLow !== null &&
       c.close < lastSwingLow &&
       htfOkBear &&
+      timelyOkBear &&
       (lastProcessedLowBar === null || lastSwingLowBar !== lastProcessedLowBar);
 
     const bosBull =
@@ -907,6 +1299,7 @@ export function calculateMarketStructureTargetTracker(
     // ── Bullish BOS/CHoCH Handler ─────────────────────────────────────────────
     if (bosBull) {
       lastProcessedHighBar = lastSwingHighBar;
+      firstBreakHighBar = null;
       const _lbl = trend === 1 ? 'BOS' : 'CHoCH';
       trend = 1;
       bosLevel = lastSwingHigh;
@@ -919,12 +1312,49 @@ export function calculateMarketStructureTargetTracker(
       totalBos += 1;
       bullBosCount += 1;
 
-      entryPrice = bosLevel! + atrLocked * 0.1;
-      slPrice = bosLevel! - atrLocked * slMulti;
-      tp1Price = entryPrice + atrLocked * tp1Multi;
-      tp2Price = entryPrice + atrLocked * tp2Multi;
-      tp3Price = entryPrice + atrLocked * tp3Multi;
+      entryPrice = bosLevel! + (targetMode === 'points' ? 0 : atrLocked * 0.1);
+      if (targetMode === 'points') {
+        slPrice = entryPrice - pointsSl;
+        tp1Price = entryPrice + pointsTp1;
+        tp2Price = entryPrice + pointsTp2;
+        tp3Price = entryPrice + pointsTp3;
+      } else {
+        slPrice = bosLevel! - atrLocked * slMulti;
+        tp1Price = entryPrice + atrLocked * tp1Multi;
+        tp2Price = entryPrice + atrLocked * tp2Multi;
+        tp3Price = entryPrice + atrLocked * tp3Multi;
+      }
       invalidSwingRef = lastSwingLow;
+
+      if (activeTrade !== null) {
+        const isWin = activeTrade.dir === 'BULL' ? c.close >= activeTrade.entryPrice : c.close <= activeTrade.entryPrice;
+        completedTrades.push({
+          id: activeTrade.id,
+          dir: activeTrade.dir,
+          entryBar: activeTrade.entryBar,
+          endBar: bar_index,
+          entryPrice: activeTrade.entryPrice,
+          slPrice: activeTrade.slPrice,
+          tp1Price: activeTrade.tp1Price,
+          tp2Price: activeTrade.tp2Price,
+          tp3Price: activeTrade.tp3Price,
+          exitPrice: c.close,
+          exitReason: isWin ? 'Closed on New BOS (Win)' : 'Closed on New BOS (Loss)',
+          isWin,
+          barsHeld: bar_index - activeTrade.entryBar,
+          pipsText: isWin ? `+${Math.abs(c.close - activeTrade.entryPrice).toFixed(1)} pts` : `-${Math.abs(c.close - activeTrade.entryPrice).toFixed(1)} pts`,
+        });
+      }
+      activeTrade = {
+        id: nextTradeId++,
+        dir: 'BULL',
+        entryBar: bar_index,
+        entryPrice: entryPrice!,
+        slPrice: slPrice!,
+        tp1Price: tp1Price!,
+        tp2Price: tp2Price!,
+        tp3Price: tp3Price!,
+      };
 
       if (showBosLine && bosLevel !== null) {
         const x1Bull = lastSwingHighBar === null ? bar_index : Math.max(lastSwingHighBar, bar_index - 499);
@@ -1010,6 +1440,7 @@ export function calculateMarketStructureTargetTracker(
     // ── Bearish BOS/CHoCH Handler ─────────────────────────────────────────────
     if (bosBear) {
       lastProcessedLowBar = lastSwingLowBar;
+      firstBreakLowBar = null;
       const _lbl = trend === -1 ? 'BOS' : 'CHoCH';
       trend = -1;
       bosLevel = lastSwingLow;
@@ -1022,12 +1453,49 @@ export function calculateMarketStructureTargetTracker(
       totalBos += 1;
       bearBosCount += 1;
 
-      entryPrice = bosLevel! - atrLocked * 0.1;
-      slPrice = bosLevel! + atrLocked * slMulti;
-      tp1Price = entryPrice - atrLocked * tp1Multi;
-      tp2Price = entryPrice - atrLocked * tp2Multi;
-      tp3Price = entryPrice - atrLocked * tp3Multi;
+      entryPrice = bosLevel! - (targetMode === 'points' ? 0 : atrLocked * 0.1);
+      if (targetMode === 'points') {
+        slPrice = entryPrice + pointsSl;
+        tp1Price = entryPrice - pointsTp1;
+        tp2Price = entryPrice - pointsTp2;
+        tp3Price = entryPrice - pointsTp3;
+      } else {
+        slPrice = bosLevel! + atrLocked * slMulti;
+        tp1Price = entryPrice - atrLocked * tp1Multi;
+        tp2Price = entryPrice - atrLocked * tp2Multi;
+        tp3Price = entryPrice - atrLocked * tp3Multi;
+      }
       invalidSwingRef = lastSwingHigh;
+
+      if (activeTrade !== null) {
+        const isWin = activeTrade.dir === 'BULL' ? c.close >= activeTrade.entryPrice : c.close <= activeTrade.entryPrice;
+        completedTrades.push({
+          id: activeTrade.id,
+          dir: activeTrade.dir,
+          entryBar: activeTrade.entryBar,
+          endBar: bar_index,
+          entryPrice: activeTrade.entryPrice,
+          slPrice: activeTrade.slPrice,
+          tp1Price: activeTrade.tp1Price,
+          tp2Price: activeTrade.tp2Price,
+          tp3Price: activeTrade.tp3Price,
+          exitPrice: c.close,
+          exitReason: isWin ? 'Closed on New BOS (Win)' : 'Closed on New BOS (Loss)',
+          isWin,
+          barsHeld: bar_index - activeTrade.entryBar,
+          pipsText: isWin ? `+${Math.abs(c.close - activeTrade.entryPrice).toFixed(1)} pts` : `-${Math.abs(c.close - activeTrade.entryPrice).toFixed(1)} pts`,
+        });
+      }
+      activeTrade = {
+        id: nextTradeId++,
+        dir: 'BEAR',
+        entryBar: bar_index,
+        entryPrice: entryPrice!,
+        slPrice: slPrice!,
+        tp1Price: tp1Price!,
+        tp2Price: tp2Price!,
+        tp3Price: tp3Price!,
+      };
 
       if (showBosLine && bosLevel !== null) {
         const x1Bear = lastSwingLowBar === null ? bar_index : Math.max(lastSwingLowBar, bar_index - 499);
@@ -1157,6 +1625,25 @@ export function calculateMarketStructureTargetTracker(
       invalidateMode;
 
     if (invalidated) {
+      if (activeTrade !== null) {
+        completedTrades.push({
+          id: activeTrade.id,
+          dir: activeTrade.dir,
+          entryBar: activeTrade.entryBar,
+          endBar: bar_index,
+          entryPrice: activeTrade.entryPrice,
+          slPrice: activeTrade.slPrice,
+          tp1Price: activeTrade.tp1Price,
+          tp2Price: activeTrade.tp2Price,
+          tp3Price: activeTrade.tp3Price,
+          exitPrice: c.close,
+          exitReason: 'Invalidated (Loss)',
+          isWin: false,
+          barsHeld: bar_index - activeTrade.entryBar,
+          pipsText: `-${Math.abs(c.close - activeTrade.entryPrice).toFixed(1)} pts`,
+        });
+        activeTrade = null;
+      }
       bosLevel = null;
       bosBar = null;
       bosBarTime = null;
@@ -1270,9 +1757,24 @@ export function calculateMarketStructureTargetTracker(
   const htfDirCol = htfBull ? 'rgb(0, 200, 120)' : htfBear ? 'rgb(220, 50, 50)' : '#9ca3af';
 
   const slDiff = entryPrice !== null && slPrice !== null ? Math.abs(entryPrice - slPrice) : 0;
+  let targetDiff = 0;
+  if (targetFocus === 'TP2' && tp2Price !== null && entryPrice !== null) {
+    targetDiff = Math.abs(tp2Price - entryPrice);
+  } else if (targetFocus === 'TP3' && tp3Price !== null && entryPrice !== null) {
+    targetDiff = Math.abs(tp3Price - entryPrice);
+  } else if (entryPrice !== null) {
+    if (showTp1 && tp1Price !== null) {
+      targetDiff = Math.abs(tp1Price - entryPrice);
+    } else if (showTp2 && tp2Price !== null) {
+      targetDiff = Math.abs(tp2Price - entryPrice);
+    } else if (showTp3 && tp3Price !== null) {
+      targetDiff = Math.abs(tp3Price - entryPrice);
+    }
+  }
+
   const rrVal =
-    isBosActiveNow && tp1Price !== null && entryPrice !== null && slPrice !== null && slDiff > 0
-      ? Math.abs(tp1Price - entryPrice) / slDiff
+    isBosActiveNow && targetDiff > 0 && slDiff > 0
+      ? targetDiff / slDiff
       : 0;
 
   const rrStr = isBosActiveNow ? rrVal.toFixed(2) + ' R' : '—';
@@ -1284,6 +1786,65 @@ export function calculateMarketStructureTargetTracker(
       : rrVal >= 1.0
       ? 'rgb(200, 200, 0)'
       : 'rgb(110, 110, 110)';
+
+  // ── Calculate Evaluated Trade Performance over last keepN trades ───────────
+  const evaluatedTrades = keepN === 0 ? [] : completedTrades.slice(-keepN);
+  let wins = 0;
+  let losses = 0;
+  let curConsecW = 0;
+  let maxConsecW = 0;
+  let curConsecL = 0;
+  let maxConsecL = 0;
+  let tp1Hits = 0;
+  let tp2Hits = 0;
+  let tp3Hits = 0;
+
+  evaluatedTrades.forEach((t) => {
+    if (t.isWin) {
+      wins++;
+      curConsecW++;
+      curConsecL = 0;
+      if (curConsecW > maxConsecW) maxConsecW = curConsecW;
+      if (t.exitReason.includes('TP1')) tp1Hits++;
+      if (t.exitReason.includes('TP2')) tp2Hits++;
+      if (t.exitReason.includes('TP3')) tp3Hits++;
+    } else {
+      losses++;
+      curConsecL++;
+      curConsecW = 0;
+      if (curConsecL > maxConsecL) maxConsecL = curConsecL;
+    }
+  });
+
+  const totalEvaluated = evaluatedTrades.length;
+  const winRate = totalEvaluated > 0 ? (wins / totalEvaluated) * 100 : 0;
+  const winRateStr = totalEvaluated > 0 ? `${winRate.toFixed(1)}%` : '—';
+  const winRateCol =
+    totalEvaluated === 0
+      ? 'rgb(140, 140, 140)'
+      : winRate >= 60
+      ? 'rgb(0, 255, 120)'
+      : winRate >= 45
+      ? 'rgb(255, 200, 0)'
+      : 'rgb(255, 77, 109)';
+
+  const stats: MsttTradeStats = {
+    totalTrades: totalEvaluated,
+    totalAllTrades: completedTrades.length,
+    wins,
+    losses,
+    winRate,
+    consecWins: maxConsecW,
+    consecLosses: maxConsecL,
+    tp1Hits,
+    tp2Hits,
+    tp3Hits,
+    recentTrades: evaluatedTrades.slice().reverse(),
+  };
+
+  const totalTradesStr = `${totalEvaluated} (${completedTrades.length} Total)`;
+  const winLossStr = `${wins}W · ${losses}L`;
+  const consecStr = `Max ${maxConsecW}W · ${maxConsecL}L`;
 
   const dashboard: MsttDashboard = {
     ticker: cleanTicker,
@@ -1306,10 +1867,22 @@ export function calculateMarketStructureTargetTracker(
     tp1Str,
     tp2Str,
     tp3Str,
+    showTp1,
+    showTp2,
+    showTp3,
+    showSl,
+    targetFocus,
     rrStr,
     rrCol,
     durationStr,
     totalStr,
+    keepN,
+    totalTradesStr,
+    winLossStr,
+    winRateStr,
+    winRateCol,
+    consecStr,
+    stats,
   };
 
   return {
@@ -1331,6 +1904,8 @@ export function calculateMarketStructureTargetTracker(
     tp3Fill,
     signalMarkers,
     dashboard,
+    stats,
+    historicalTrades: completedTrades,
     bosActive: isBosActiveNow,
     targetHit,
     bosIsBull,
