@@ -800,6 +800,16 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       pointsTp3: settings.indicators.msttPointsTp3 ?? 3090,
       preventLateEntry: settings.indicators.msttPreventLateEntry ?? true,
       maxBreakoutDelay: settings.indicators.msttMaxBreakoutDelay ?? 1,
+      // EMA, ADX, and Strong Breakout Candle Filters
+      useEmaFilter: settings.indicators.msttUseEmaFilter ?? false,
+      emaLen: settings.indicators.msttEmaLen ?? 200,
+      useAdxFilter: settings.indicators.msttUseAdxFilter ?? false,
+      diLen: settings.indicators.msttDiLen ?? 14,
+      adxSmooth: settings.indicators.msttAdxSmooth ?? 14,
+      minAdx: settings.indicators.msttMinAdx ?? 18.0,
+      useCandleFilter: settings.indicators.msttUseCandleFilter ?? false,
+      minBodyAtr: settings.indicators.msttMinBodyAtr ?? 0.20,
+      breakoutBufferAtr: settings.indicators.msttBreakoutBufferAtr ?? 0.00,
     }, (symbolName || 'MARKET').replace(/^(FRX|CRY|OTC|DERIV)_?/i, ''));
   }, [
     candles,
@@ -862,6 +872,15 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.msttPointsTp3,
     settings.indicators.msttPreventLateEntry,
     settings.indicators.msttMaxBreakoutDelay,
+    settings.indicators.msttUseEmaFilter,
+    settings.indicators.msttEmaLen,
+    settings.indicators.msttUseAdxFilter,
+    settings.indicators.msttDiLen,
+    settings.indicators.msttAdxSmooth,
+    settings.indicators.msttMinAdx,
+    settings.indicators.msttUseCandleFilter,
+    settings.indicators.msttMinBodyAtr,
+    settings.indicators.msttBreakoutBufferAtr,
   ]);
 
   // Compute VIP Market Scanner™ (Single Pair Matrix Engine)
@@ -11872,154 +11891,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         >
           <RotateCcw className="w-4 h-4 text-blue-400" />
         </button>
-
-        {hasSelectedRiskReward && (
-          <>
-            <button
-              id="btn-edit-rr-options"
-              onClick={() => {
-                if (selectedRiskRewardDrawing && selectedRiskRewardDrawing.riskReward) {
-                  const rr = selectedRiskRewardDrawing.riskReward;
-                  onOpenRiskRewardModal?.({
-                    isLong: rr.isLong,
-                    entryPrice: rr.entryPrice,
-                    targetPrice: rr.targetPrice,
-                    stopPrice: rr.stopPrice,
-                    lotSize: rr.lotSize || 0.01,
-                    drawingId: selectedRiskRewardDrawing.id,
-                  });
-                } else {
-                  onOpenRiskRewardModal?.();
-                }
-              }}
-              title="Write SL & TP Options (Deriv MT5 Standard Calculator)"
-              className="p-1 px-2.5 hover:bg-amber-600 bg-amber-700 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
-            >
-              <span>✍️</span> Edit SL/TP
-            </button>
-
-            <button
-              id="btn-flip-rr"
-              onClick={toggleRiskRewardDirection}
-              title="Flip Risk/Reward (Long/Short)"
-              className="p-1 px-2 hover:bg-blue-600 bg-blue-700 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors"
-            >
-              <ArrowUpRight className="w-3 h-3" /> Flip L/S
-            </button>
-          </>
-        )}
-
-        {selectedDrawingId && (
-          <button
-            id="btn-delete-selected"
-            onClick={() => {
-              setDrawings((prev) => prev.filter((d) => d.id !== selectedDrawingId));
-              setSelectedDrawingId(null);
-            }}
-            title="Delete Selected Drawing (Delete / Backspace)"
-            className="p-1.5 hover:bg-red-900 rounded text-red-400 hover:text-red-200 transition-colors border border-red-900/50"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        )}
       </div>
-
-      {/* Floating Color & Style Toolbar for Non-Risk/Reward Drawings (Trendlines, Horizontal lines, Rectangles, etc.) */}
-      {(() => {
-        const selDrawing = (drawings || []).find((d) => d && d.id === selectedDrawingId);
-        if (!selDrawing || selDrawing.type === 'risk_reward') return null;
-
-        const QUICK_DRAWING_COLORS = ['#2962ff', '#089981', '#f23645', '#f59e0b', '#8b5cf6', '#ffffff', '#64748b'];
-
-        return (
-          <div
-            id="drawing-floating-color-bar"
-            className="absolute bottom-12 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-[#1e222d]/95 hover:bg-[#1e222d] text-white px-3 py-1.5 rounded-lg border border-[#2a2e39] shadow-2xl backdrop-blur-md select-none animate-in fade-in duration-150 text-xs"
-          >
-            <span className="text-[11px] font-semibold text-neutral-300 capitalize flex items-center gap-1.5 pr-1 border-r border-neutral-700/60">
-              <Palette className="w-3.5 h-3.5 text-blue-400" />
-              {selDrawing.type.replace('_', ' ')}
-            </span>
-
-            {/* Quick Color Swatches */}
-            <div className="flex items-center gap-1">
-              {QUICK_DRAWING_COLORS.map((hex) => (
-                <button
-                  key={hex}
-                  type="button"
-                  onClick={() => {
-                    setDrawings((prev) =>
-                      prev.map((d) => (d.id === selDrawing.id ? { ...d, color: hex } : d))
-                    );
-                  }}
-                  className={`w-4 h-4 rounded-full border transition-transform hover:scale-110 cursor-pointer ${
-                    selDrawing.color?.toLowerCase() === hex.toLowerCase() ? 'border-white ring-2 ring-blue-500 scale-110' : 'border-neutral-700'
-                  }`}
-                  style={{ backgroundColor: hex }}
-                  title={`Set Color: ${hex}`}
-                />
-              ))}
-              {/* Native Custom Color Picker */}
-              <input
-                type="color"
-                value={selDrawing.color || '#2962ff'}
-                onChange={(e) => {
-                  const newCol = e.target.value;
-                  setDrawings((prev) =>
-                    prev.map((d) => (d.id === selDrawing.id ? { ...d, color: newCol } : d))
-                  );
-                }}
-                title="Custom Color"
-                className="w-5 h-5 rounded cursor-pointer border border-neutral-700 bg-transparent p-0 ml-0.5"
-              />
-            </div>
-
-            {/* Line Width Stepper */}
-            <div className="flex items-center gap-0.5 bg-black/40 px-1 py-0.5 rounded border border-neutral-700/80 ml-1">
-              {[1, 2, 3, 4].map((w) => (
-                <button
-                  key={w}
-                  type="button"
-                  onClick={() => {
-                    setDrawings((prev) =>
-                      prev.map((d) => (d.id === selDrawing.id ? { ...d, lineWidth: w } : d))
-                    );
-                  }}
-                  className={`px-1.5 py-0.5 text-[10px] font-mono rounded cursor-pointer ${
-                    (selDrawing.lineWidth || 1) === w
-                      ? 'bg-blue-600 text-white font-bold'
-                      : 'text-neutral-400 hover:text-white'
-                  }`}
-                  title={`${w}px line width`}
-                >
-                  {w}px
-                </button>
-              ))}
-            </div>
-
-            {/* Delete button */}
-            <button
-              onClick={() => {
-                setDrawings((prev) => prev.filter((d) => d.id !== selDrawing.id));
-                setSelectedDrawingId(null);
-              }}
-              title="Delete Drawing (Delete / Backspace)"
-              className="p-1.5 bg-neutral-800/80 hover:bg-rose-900/60 text-neutral-300 hover:text-rose-300 rounded transition-colors border border-neutral-700 ml-1 cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-
-            {/* Close button */}
-            <button
-              onClick={() => setSelectedDrawingId(null)}
-              title="Deselect"
-              className="p-1 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded transition-colors cursor-pointer"
-            >
-              ✕
-            </button>
-          </div>
-        );
-      })()}
     </div>
   );
 };

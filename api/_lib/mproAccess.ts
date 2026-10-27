@@ -11,7 +11,6 @@ const VALID_MPRO_KEYS = [
   'MCHARTS-MIHIRETU-JUMP10-2019',
 ];
 
-// Mpro2 keys must follow the pattern: 096886-XX-Mchart (e.g., 096886-XX-Mchart, 096886-PRO-Mchart, 096886-01-Mchart, etc.)
 export function isValidMpro2Key(key: string): boolean {
   if (!key || typeof key !== 'string') return false;
   const trimmed = key.trim();
@@ -30,7 +29,6 @@ export interface MproTokenPayload {
 }
 
 export function createMproProToken(indicator: 'mpro' | 'mpro2' = 'mpro'): string {
-  // 10 years validity
   const expiresAt = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
   const payload: MproTokenPayload = {
     isPro: true,
@@ -93,7 +91,6 @@ export default function mproAccessHandler(req: any, res: any) {
 
     const cleanKey = key.trim();
 
-    // Check if verifying for Mpro2 (or if key matches 096886-XX-Mchart pattern)
     if (indicator === 'mpro2' || cleanKey.toUpperCase().startsWith('096886-')) {
       if (isValidMpro2Key(cleanKey)) {
         const proToken = createMproProToken('mpro2');
@@ -110,7 +107,6 @@ export default function mproAccessHandler(req: any, res: any) {
       });
     }
 
-    // Check standard Mpro keys
     const isMatch = VALID_MPRO_KEYS.some((k) => k.toLowerCase() === cleanKey.toLowerCase());
 
     if (isMatch) {
@@ -123,7 +119,6 @@ export default function mproAccessHandler(req: any, res: any) {
       });
     }
 
-    // Also check if user entered an 096886 key in standard Mpro modal
     if (isValidMpro2Key(cleanKey)) {
       const proToken = createMproProToken('mpro2');
       return res.json({
@@ -142,4 +137,3 @@ export default function mproAccessHandler(req: any, res: any) {
 
   return res.status(405).json({ error: 'Method Not Allowed' });
 }
-

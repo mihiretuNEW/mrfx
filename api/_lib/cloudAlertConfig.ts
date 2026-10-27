@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 
-// Store config in tmp directory for serverless / container compatibility
 const CONFIG_FILE = path.join('/tmp', 'mcharts_cloud_alert_config.json');
 
 export interface CloudAlertConfig {
@@ -100,7 +99,6 @@ export async function sendTelegramDirect(botToken: string, chatId: string, text:
 }
 
 export default async function cloudAlertConfigHandler(req: any, res: any) {
-  // CORS & Preflight handling
   if (res.setHeader) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -121,7 +119,6 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
 
   const action = req.query?.action || body?.action;
 
-  // GET: Return current saved config (masking token for security)
   if (req.method === 'GET' && !action) {
     const cfg = loadAlertConfig();
     const masked = {
@@ -132,7 +129,6 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
     return res.status(200).json({ ok: true, config: masked });
   }
 
-  // POST: Save config or test connection
   if (req.method === 'POST') {
     if (action === 'test' || body.action === 'test') {
       const token = body.botToken || loadAlertConfig().botToken;
@@ -155,7 +151,6 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
       }
     }
 
-    // Save configuration
     const saved = saveAlertConfig({
       botToken: body.botToken !== undefined ? body.botToken : undefined,
       chatId: body.chatId !== undefined ? body.chatId : undefined,

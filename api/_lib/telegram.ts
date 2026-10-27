@@ -1,5 +1,3 @@
-import express from 'express';
-
 const BOT_TOKEN = '8864552579:AAGSXeU9Z-WslGPehNXCxENWKSl1xeEe3FA';
 const CHAT_ID = '-1004295328271';
 const PASSCODE = 'Mihiretu12$0962862284';
@@ -24,7 +22,7 @@ export async function sendTelegramMessage(text: string) {
   }
 }
 
-export default async function handler(req: any, res: any) {
+export default async function telegramHandler(req: any, res: any) {
   if (req.method === 'POST') {
     const { action, passcode, text } = req.body || {};
 
@@ -38,15 +36,18 @@ export default async function handler(req: any, res: any) {
 
     if (action === 'send_message') {
       if (!text) {
-        return res.status(400).json({ error: 'Text required' });
+        return res.status(400).json({ success: false, error: 'Message text is required' });
       }
-      const result = await sendTelegramMessage(text);
-      return res.status(200).json(result);
+      const tgRes = await sendTelegramMessage(text);
+      if (tgRes.ok) {
+        return res.status(200).json({ success: true, messageId: tgRes.result?.message_id });
+      } else {
+        return res.status(500).json({ success: false, error: tgRes.description || 'Failed to send Telegram message' });
+      }
     }
 
-    return res.status(400).json({ error: 'Invalid action' });
+    return res.status(400).json({ success: false, error: 'Invalid action' });
   }
 
-  res.setHeader('Allow', ['POST']);
-  res.status(405).json({ error: 'Method Not Allowed' });
+  return res.status(405).json({ error: 'Method Not Allowed' });
 }

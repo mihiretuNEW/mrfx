@@ -49,27 +49,27 @@ const DEFAULT_SETTINGS: ChartSettings = {
   indicators: {
     showMA: false,
     maPeriod: 20,
-    showAutoPriceChannels: true,
+    showAutoPriceChannels: false,
     autoPriceChannelsLineWidth: 2,
     autoPriceChannelsColor: '#38bdf8', // Light sky blue matching image
     autoPriceChannelsShowBreakouts: true,
     autoPriceChannelsFill: true,
     // Institutional Auto Supply/Demand Order Blocks & Parallel Channel
-    showAutoSupplyDemandChannel: true,
-    autoSdcShowSupplyDemand: true,
-    autoSdcShowChannel: true,
-    autoSdcShowFVGProjections: true,
+    showAutoSupplyDemandChannel: false,
+    autoSdcShowSupplyDemand: false,
+    autoSdcShowChannel: false,
+    autoSdcShowFVGProjections: false,
     autoSdcColor: '#0ea5e9',
     autoSdcFvgBuyColor: '#10b981',
     autoSdcFvgSellColor: '#f43f5e',
-    showGTA: true,
+    showGTA: false,
     gtaShortPeriod: 6,
     gtaMidPeriod: 13,
     gtaLongPeriod: 21,
     gtaArrowOffset: 0.10,
-    showGTAEMAs: true,
-    gtaShowArrows: true,
-    gtaColorCandles: true,
+    showGTAEMAs: false,
+    gtaShowArrows: false,
+    gtaColorCandles: false,
     showTrendlinesWithBreaks: false,
     twbLength: 14,
     twbSlopeMultiplier: 1.6,
@@ -208,7 +208,7 @@ const DEFAULT_SETTINGS: ChartSettings = {
     mssDashboardTextSize: 'Normal',
     mssSendTelegramSignals: false,
     // Predictive Ranges [LuxAlgo] Defaults
-    showPredictiveRanges: true,
+    showPredictiveRanges: false,
     prLength: 200,
     prMult: 6.0,
     prUpperColor: '#f23645',
@@ -217,16 +217,16 @@ const DEFAULT_SETTINGS: ChartSettings = {
     prFillOpacity: 10,
     prLineWidth: 1.5,
     prExtendRight: true,
-    prShowLabels: true,
-    prShowTouchMarkers: true,
-    prShowBreakoutMarkers: true,
-    prHighlightActiveTouch: true,
+    prShowLabels: false,
+    prShowTouchMarkers: false,
+    prShowBreakoutMarkers: false,
+    prHighlightActiveTouch: false,
     prMarkerStyle: 'badges',
-    showCenterEntryLine: true,
+    showCenterEntryLine: false,
     // Support Resistance Classification [LuxAlgo] Defaults
-    showSrClassification: true,
+    showSrClassification: false,
     srShowLabels: false,
-    srShowSignals: true,
+    srShowSignals: false,
     srLookback: 100,
     srFade: 5,
     srOpt: 'line',
@@ -241,8 +241,8 @@ const DEFAULT_SETTINGS: ChartSettings = {
     srDisplayMode: 'shadow',
     srShadowVisibility: '1x',
     srShowCenterShadows: false, // Default false: only Higher and Lower shadows
-    srShowStrongShadows: true, // Higher and Lower shadows (top & bottom boundary boxes)
-    srShowMidline: true, // Mpro Middle Equilibrium Line between upper & lower extremes
+    srShowStrongShadows: false, // Higher and Lower shadows (top & bottom boundary boxes)
+    srShowMidline: false, // Mpro Middle Equilibrium Line between upper & lower extremes
     srMidlineType: 'both', // Both 50% Equilibrium level & dynamic historical path
     srMidlineColor: '#06b6d4', // Vibrant Cyan Equilibrium line
     srMidlineWidth: 1.5,
@@ -283,7 +283,7 @@ const DEFAULT_SETTINGS: ChartSettings = {
     srMlt9: 2,
     srRes9: 'W',
     // ECHO mpro (Echo Forecast [LuxAlgo]) Defaults
-    showEchoMpro: true,
+    showEchoMpro: false,
     echoLength: 50,
     echoFcast: 50,
     echoFmode: 'Similarity',
@@ -292,15 +292,15 @@ const DEFAULT_SETTINGS: ChartSettings = {
     echoFcastColor: '#2157f3',
     echoFcastStyle: 'dotted',
     echoLineWidth: 1.5,
-    echoShowArea: true,
+    echoShowArea: false,
     echoRefAreaColor: '#ff5d00',
     echoCorrAreaColor: '#089981',
     echoEvalAreaColor: '#808080',
     // Master Strategy System (Exclusively Mpro2)
-    showMasterSignal: true,
-    showMasterDashboard: true,
+    showMasterSignal: false,
+    showMasterDashboard: false,
     // Mpro2 Signal (Fibonacci Confluence Suite)
-    showMpro2Signal: true,
+    showMpro2Signal: false,
     mpro2RangeMode: 'WeeklyAnchor',
     mpro2LookbackPeriod: 200,
     mpro2DelayBars: 5,
@@ -501,16 +501,16 @@ const DEFAULT_SETTINGS: ChartSettings = {
     msttDashBgColor: 'rgb(10,10,18)',
     msttDashTxtColor: 'rgb(220,220,235)',
     // VIP Market Scanner™ (VIP Algos) - Single Pair Matrix
-    showVipMarketScanner: true,
-    vipScannerShowHud: true,
+    showVipMarketScanner: false,
+    vipScannerShowHud: false,
     vipScannerPosition: 'Top Left',
     vipScannerRsiPeriod: 14,
     vipScannerFastEma: 9,
     vipScannerSlowEma: 21,
     vipScannerSignalEma: 50,
-    vipScannerShowSignals: true,
+    vipScannerShowSignals: false,
     // Premium Signals with Dynamic TP & SL Optimization
-    showDynamicTpSlSignals: true,
+    showDynamicTpSlSignals: false,
     dynPeriod1: 14,
     dynMultiplier1: 1.5,
     dynPeriod2: 34,
@@ -521,17 +521,17 @@ const DEFAULT_SETTINGS: ChartSettings = {
     dynTp3Factor: 3.0,
     dynSlRatio: 0.50,
     dynRangeLookback: 10,
-    dynShowChannels: true,
-    dynShowFill: true,
-    dynShowSignals: true,
-    dynShowTpSlLines: true,
-    dynShowTable: true,
+    dynShowChannels: false,
+    dynShowFill: false,
+    dynShowSignals: false,
+    dynShowTpSlLines: false,
+    dynShowTable: false,
     dynCh1Color: '#38bdf8',
     dynCh2Color: '#818cf8',
     dynBuyColor: '#10b981',
     dynSellColor: '#ef4444',
     // Trade Planner Buy Sell Signals, Stop Loss, TP & Lot Size [LunqFX]
-    showTradePlanner: true,
+    showTradePlanner: false,
     tpBalance: 10000,
     tpRiskPct: 1.0,
     tpAccCur: 'USD',
@@ -565,19 +565,19 @@ const DEFAULT_SETTINGS: ChartSettings = {
     tpBeOn: false,
     tpOppOn: true,
     tpCandSty: 'Neon Bloom',
-    tpShowZone: true,
-    tpShowEmaLines: true,
-    tpShowSignals: true,
+    tpShowZone: false,
+    tpShowEmaLines: false,
+    tpShowSignals: false,
     tpShowEntryLabel: false,
-    tpShowPlans: true,
-    tpShowSl: true,
-    tpShowTp1: true,
-    tpShowTp2: true,
-    tpShowTp3: true,
-    tpShowDottedLines: true,
+    tpShowPlans: false,
+    tpShowSl: false,
+    tpShowTp1: false,
+    tpShowTp2: false,
+    tpShowTp3: false,
+    tpShowDottedLines: false,
     tpKeepN: 2,
     tpTagSize: 'Normal',
-    tpShowHud: true,
+    tpShowHud: false,
     tpHudPos: 'Top Right',
     tpHudSize: 'Normal',
     tpFilterAdx: false,
@@ -587,24 +587,24 @@ const DEFAULT_SETTINGS: ChartSettings = {
     tpFilterVolatility: false,
     tpFilterMinStopDist: false,
     // Fibonacci Sequence Swing [ChartPrime]
-    showFibonacciSequenceSwing: true,
+    showFibonacciSequenceSwing: false,
     fibDepth: 20,
     fibZigCol: 'rgb(146, 151, 167)',
     fibColUp: '#22c55e',
     fibColDn: '#ef4444',
     fibMaxRetest: 30,
-    fibShowZigZag: true,
-    fibShowLevels: true,
-    fibShowLabels: true,
-    fibShowArrows: true,
-    fibShowHistorical: true,
-    fibEarlyTurnMode: true,
+    fibShowZigZag: false,
+    fibShowLevels: false,
+    fibShowLabels: false,
+    fibShowArrows: false,
+    fibShowHistorical: false,
+    fibEarlyTurnMode: false,
     fibEarlyDepth: 12,
     // Multi-Timeframe EMA 15m 1H [Pine Script v6 Exact Port]
-    showMultiTimeframeEma: true,
+    showMultiTimeframeEma: false,
     mtfEmaLength: 20,
-    mtfEmaShow15min: true,
-    mtfEmaShow60min: true,
+    mtfEmaShow15min: false,
+    mtfEmaShow60min: false,
     mtfEmaColor15min: '#0d9488', // Glossy Teal
     mtfEmaColor60min: '#0284c7', // Glazed Water Blue / Cyan
     mtfEmaAdaptiveTf: false,
@@ -653,27 +653,27 @@ function AppContent() {
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const favs = useFavorites();
   
-  // Default on first opening: GOLD (frxXAUUSD), and persist across page refresh / new tabs
+  // Default on first opening: Volatility 75 (R_75)
   const [selectedSymbol, setSelectedSymbol] = useState<string>(() => {
     try {
       const saved = localStorage.getItem('mihiretu_selected_symbol');
-      if (saved && saved.trim()) return saved.trim();
-      return 'frxXAUUSD'; // Default: GOLD (XAU/USD)
+      if (saved && saved.trim() === 'R_75') return 'R_75';
+      return 'R_75'; // Default: Volatility 75 Index (R_75)
     } catch {
-      return 'frxXAUUSD';
+      return 'R_75';
     }
   });
 
-  // Default on first opening: 1 Minute, and persist across page refresh
+  // Default on first opening: 30 Minute, and persist across page refresh
   const [selectedTimeframe, setSelectedTimeframe] = useState<TimeframeId>(() => {
     try {
       const saved = localStorage.getItem('mihiretu_selected_timeframe') as TimeframeId;
       if (saved && ['1M', '2M', '5M', '15M', '30M', '1H', '4H', '1D'].includes(saved)) {
         return saved;
       }
-      return '1M'; // Default: 1 Minute
+      return '30M'; // Default: 30M
     } catch {
-      return '1M';
+      return '30M';
     }
   });
 
@@ -1604,19 +1604,7 @@ function AppContent() {
 
       {/* 2. Main Display Area */}
       <div id="main-display-layout" className="flex flex-grow w-full overflow-hidden relative">
-        {/* Left Vertical Tools Sidebar (Hidden in Chart-Only mode) */}
-        {!isChartOnlyMode && (
-          <LeftToolbar
-            activeTool={activeTool}
-            setActiveTool={setActiveTool}
-            onClearDrawings={handleClearAllDrawings}
-            drawingsCount={(drawings || []).length}
-            isMagnetActive={isMagnetActive}
-            onToggleMagnet={() => setIsMagnetActive((prev) => !prev)}
-            onOpenRiskRewardModal={handleOpenRiskRewardModal}
-            theme={settings.theme}
-          />
-        )}
+        {/* Drawing tools sidebar removed per user request for pure MSTT chart */}
 
         {/* Center Canvas panel with optional overlay loaders */}
         <div id="central-chart-stage" className="flex-grow h-full relative overflow-hidden flex flex-col">

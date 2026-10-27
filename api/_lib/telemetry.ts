@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
-import { verifyToken } from './_auth';
+import { verifyToken } from './auth';
 
 export interface DeviceRecordServer {
   id: string;
@@ -21,10 +21,8 @@ export interface DeviceRecordServer {
 
 const FILE_PATH = path.join(process.cwd(), '.device_telemetry_db.json');
 
-// In-memory devices cache
 let devicesStore: Map<string, DeviceRecordServer> = new Map();
 
-// Load initially from file if exists
 try {
   if (fs.existsSync(FILE_PATH)) {
     const raw = fs.readFileSync(FILE_PATH, 'utf-8');
@@ -128,7 +126,7 @@ export function handleGetDevices(req: Request, res: Response) {
     const devices = Array.from(devicesStore.values());
     const now = Date.now();
     const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
-    const onlineThreshold = now - 2 * 60 * 1000; // 2 mins
+    const onlineThreshold = now - 2 * 60 * 1000;
 
     const todayActive = devices.filter((d) => d.lastActive >= twentyFourHoursAgo);
     const passedPassword = devices.filter((d) => d.passPassed);

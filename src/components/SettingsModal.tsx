@@ -28,35 +28,7 @@ interface SettingsModalProps {
 }
 
 const INDICATOR_NAME_MAP: Record<string, string> = {
-  auto_price_channels: 'Auto Price Channels (4H)',
-  auto_sdc: 'Auto Supply & Demand + Parallel Channel',
-  ma: 'Simple Moving Average (SMA)',
-  gta: 'Grand Trend Alignment (GTA) Filter',
-  twb: 'LuxAlgo Trendlines with Breaks',
-  smc: 'Smart Money Concepts (SMC)',
-  so: 'LuxAlgo® - Signals & Overlays™',
-  fvg: 'Confluence FVG Finder',
-  mss: 'Market Structure Signals',
-  ict: 'Smart Money & ICT Concepts (LuxAlgo)',
-  mstat: 'Market Structure & Price Action Toolkit (Zeiierman)',
-  pr: 'Predictive Ranges [LuxAlgo]',
-  sr: 'Mpro Signals (Support & Resistance Classification)',
-  echo: 'ECHO mpro (Echo Forecast [LuxAlgo])',
-  mpro2: 'Mpro2 Signal',
-  master: 'Master Strategy System & Dashboard',
-  hvn: 'HVN Profile (ATAS Market Profile)',
-  nexus: 'NEXUS: SMART MONEY SUITE',
-  session: 'Session Filter',
-  obv: 'Order Blocks with Volume Delta',
-  pro_ob: 'PRO Order Blocks [Live 8-Score & Shadow]',
-  mstt: 'Market Tick Two [MarkitTick] — Enhanced Filters',
-  vip_scanner: 'VIP Market Scanner™',
-  dynamic_tpsl: 'Premium Signals with Dynamic TP & SL Optimization',
-  trade_planner: 'Trade Planner [LunqFX]',
-  fib_swing: 'Fibonacci Sequence Swing [ChartPrime]',
-  mtf_ema: 'Multi-Timeframe EMA 15m 1H',
-  mrov_trade: 'Mrov Trade: Opening Range',
-  ema_50_100: 'EMA 50/100 + Candle Trend',
+  mstt: 'Market Structure Target Tracker (MSTT) [MarkitTick]',
 };
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({

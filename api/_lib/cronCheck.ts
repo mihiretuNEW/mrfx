@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import WebSocketNode from 'ws';
 import { loadAlertConfig, sendTelegramDirect } from './cloudAlertConfig';
-import { calculateMarketStructureTargetTracker } from '../src/utils/marketStructureTargetTracker';
-import { Candle } from '../src/types';
+import { calculateMarketStructureTargetTracker } from '../../src/utils/marketStructureTargetTracker';
+import { Candle } from '../../src/types';
 
 const LAST_ALERT_FILE = path.join('/tmp', 'mcharts_last_alerted_signal.json');
 
@@ -101,7 +101,6 @@ async function fetchDerivCandles(symbol: string, granularity: number, count = 30
 }
 
 export default async function cronCheckHandler(req: any, res: any) {
-  // CORS handling
   if (res.setHeader) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -111,7 +110,6 @@ export default async function cronCheckHandler(req: any, res: any) {
     return res.status(200).end();
   }
 
-  // Support both GET (from cron-job.org) and POST
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
@@ -126,14 +124,12 @@ export default async function cronCheckHandler(req: any, res: any) {
   }
 
   const config = loadAlertConfig();
-  // Support query params (e.g. from cron-job.org URL), POST body, or saved /tmp config
   const botToken = (req.query?.token || req.query?.botToken || body.botToken || config.botToken)?.toString()?.trim();
   const chatId = (req.query?.chat || req.query?.chatId || body.chatId || config.chatId)?.toString()?.trim();
   const isEnabled = req.query?.enabled !== undefined
     ? (req.query.enabled === 'true' || req.query.enabled === '1')
     : (body.enabled !== undefined ? Boolean(body.enabled) : (config.enabled || Boolean(botToken && chatId)));
 
-  // If alerts are disabled or bot token is missing, report status
   if (!isEnabled || !botToken || !chatId) {
     return res.status(200).json({
       ok: true,
@@ -149,7 +145,6 @@ export default async function cronCheckHandler(req: any, res: any) {
   const tf = (req.query?.tf || req.query?.timeframe || body.timeframe || config.timeframe || '1H').toString();
   const granularity = TIMEFRAME_SECONDS[tf] || 3600;
 
-  // Merge any query-overridden options (e.g. ?sl=220&tp1=1030&targetFocus=TP1)
   const mergedOptions = {
     ...config.options,
     ...(body.options || {}),
@@ -159,7 +154,6 @@ export default async function cronCheckHandler(req: any, res: any) {
   if (req.query?.targetFocus) mergedOptions.targetFocus = req.query.targetFocus.toString();
 
   try {
-    // 1. Fetch live candles directly from Deriv
     const candles = await fetchDerivCandles(symbol, granularity, 350);
     if (!candles || candles.length < 20) {
       return res.status(200).json({
@@ -168,13 +162,11 @@ export default async function cronCheckHandler(req: any, res: any) {
       });
     }
 
-    // 2. Run Market Structure Target Tracker calculation with user's EXACT active settings
     const msttResult = calculateMarketStructureTargetTracker(candles, mergedOptions, symbol);
     const markers = msttResult.signalMarkers || [];
     const lastCandleIdx = candles.length - 1;
     const latestCandle = candles[lastCandleIdx];
 
-    // Check if the most recent signal marker occurred on the current or previous candle
     const recentMarker = markers.length > 0 ? markers[markers.length - 1] : null;
     const lastAlertedTime = getLastAlertedTime();
 
@@ -182,7 +174,6 @@ export default async function cronCheckHandler(req: any, res: any) {
     let signalInfo: any = null;
 
     if (recentMarker && (recentMarker.barIndex === lastCandleIdx || recentMarker.barIndex === lastCandleIdx - 1)) {
-      // Check if this signal timestamp has already been sent to Telegram
       if (recentMarker.time > lastAlertedTime) {
         const isBull = recentMarker.type === 'bull';
         const dirEmoji = isBull ? '🟢' : '🔴';
@@ -193,7 +184,6 @@ export default async function cronCheckHandler(req: any, res: any) {
         const tp2Price = msttResult.tp2Price;
         const rrStr = msttResult.dashboard.rrStr || '1:4.2 R';
 
-        // Format professional HTML Telegram Message
         const message =
           `⚡ <b>NEW BOS SIGNAL TRIGGERED!</b> ⚡\n\n` +
           `📊 <b>Pair:</b> <code>${symbol}</code> (Volatility 75 1s)\n` +

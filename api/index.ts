@@ -1,3 +1,5 @@
+import app from './_app';
+
 export default function handler(req: any, res: any) {
-  return res.status(200).json({ status: "ok" });
+  return app(req, res);
 }
