@@ -448,12 +448,23 @@ function parseTfMinutes(res: string): number {
   return isNaN(num) || num <= 0 ? 15 : num;
 }
 
-// ── HTF RSI Calculation (Pine Script request.security(..., htfRes, ta.rsi(close, len)[1])) ──
-function calculateHtfRsiSeries(candles: Candle[], htfRes: string, htfRsiLen: number): number[] {
+// ── HTF RSI & Macro Regime Calculation (Pine Script request.security(..., htfRes)) ──
+interface HtfRegimeResult {
+  rsiSeries: number[];
+  emaSeries: number[];
+  htfTrend: ('BULL' | 'BEAR' | 'CHOP')[];
+}
+
+function calculateHtfRegimeSeries(candles: Candle[], htfRes: string, htfRsiLen: number, htfEmaLen = 50): HtfRegimeResult {
   const n = candles.length;
-  if (n === 0) return [];
+  if (n === 0) return { rsiSeries: [], emaSeries: [], htfTrend: [] };
   const closeSeries = candles.map((c) => c.close);
-  if (n < 2) return calculateRSI(closeSeries, htfRsiLen);
+  if (n < 2) {
+    const rsi = calculateRSI(closeSeries, htfRsiLen);
+    const ema = calculateEMA(closeSeries, htfEmaLen);
+    const trend = rsi.map((r) => (r > 50 ? 'BULL' : r < 50 ? 'BEAR' : 'CHOP'));
+    return { rsiSeries: rsi, emaSeries: ema, htfTrend: trend as any };
+  }
 
   const htfMin = parseTfMinutes(htfRes);
   const htfSec = htfMin * 60;
@@ -463,7 +474,14 @@ function calculateHtfRsiSeries(candles: Candle[], htfRes: string, htfRsiLen: num
   const chartIntervalSec = Math.max(10, isMs ? diffTime / (n - 1) / 1000 : diffTime / (n - 1));
 
   if (chartIntervalSec >= htfSec) {
-    return calculateRSI(closeSeries, htfRsiLen);
+    const rsi = calculateRSI(closeSeries, htfRsiLen);
+    const ema = calculateEMA(closeSeries, htfEmaLen);
+    const trend = rsi.map((r, i) => {
+      const isBull = r >= 48 && (!isNaN(ema[i]) ? closeSeries[i] >= ema[i] * 0.99 : true);
+      const isBear = r <= 52 && (!isNaN(ema[i]) ? closeSeries[i] <= ema[i] * 1.01 : true);
+      return isBull && !isBear ? 'BULL' : isBear && !isBull ? 'BEAR' : 'CHOP';
+    });
+    return { rsiSeries: rsi, emaSeries: ema, htfTrend: trend as any };
   }
 
   // Resample candles into HTF buckets
@@ -483,22 +501,42 @@ function calculateHtfRsiSeries(candles: Candle[], htfRes: string, htfRsiLen: num
     candleBucketIndices[i] = buckets.length - 1;
   }
 
-  if (buckets.length >= htfRsiLen + 2) {
+  if (buckets.length >= 5) {
     const bucketCloses = buckets.map((b) => b.close);
     const bucketRsi = calculateRSI(bucketCloses, htfRsiLen);
-    const result = new Array(n);
+    const effEmaLen = Math.min(htfEmaLen, Math.max(5, Math.floor(buckets.length / 2)));
+    const bucketEma = calculateEMA(bucketCloses, effEmaLen);
+
+    const rsiRes = new Array(n);
+    const emaRes = new Array(n);
+    const trendRes: ('BULL' | 'BEAR' | 'CHOP')[] = new Array(n);
+
     for (let i = 0; i < n; i++) {
       const bIdx = candleBucketIndices[i];
       // lookahead=barmerge.lookahead_off: uses previous completed bar bucket
       const prevBIdx = Math.max(0, bIdx - 1);
-      result[i] = !isNaN(bucketRsi[prevBIdx]) ? bucketRsi[prevBIdx] : 50;
+      const r = !isNaN(bucketRsi[prevBIdx]) ? bucketRsi[prevBIdx] : 50;
+      const e = !isNaN(bucketEma[prevBIdx]) ? bucketEma[prevBIdx] : candles[i].close;
+      rsiRes[i] = r;
+      emaRes[i] = e;
+
+      const isBull = r >= 48 && candles[i].close >= e * 0.99;
+      const isBear = r <= 52 && candles[i].close <= e * 1.01;
+      trendRes[i] = isBull && !isBear ? 'BULL' : isBear && !isBull ? 'BEAR' : 'CHOP';
     }
-    return result;
+    return { rsiSeries: rsiRes, emaSeries: emaRes, htfTrend: trendRes };
   }
 
   const ratio = Math.max(1, Math.round(htfSec / chartIntervalSec));
   const effectiveLen = Math.max(2, Math.min(200, Math.round(htfRsiLen * ratio)));
-  return calculateRSI(closeSeries, effectiveLen);
+  const rsi = calculateRSI(closeSeries, effectiveLen);
+  const ema = calculateEMA(closeSeries, Math.min(50 * ratio, 200));
+  const trend = rsi.map((r, i) => {
+    const isBull = r >= 48 && (!isNaN(ema[i]) ? closeSeries[i] >= ema[i] * 0.99 : true);
+    const isBear = r <= 52 && (!isNaN(ema[i]) ? closeSeries[i] <= ema[i] * 1.01 : true);
+    return isBull && !isBear ? 'BULL' : isBear && !isBull ? 'BEAR' : 'CHOP';
+  });
+  return { rsiSeries: rsi, emaSeries: ema, htfTrend: trend as any };
 }
 
 // ── Structure Bias Filter Calculation (HH/HL or LH/LL on structureTf) ─────────
@@ -659,7 +697,7 @@ export function calculateMarketStructureTargetTracker(
   const targetMode = options.targetMode ?? 'atr';
   const slMulti = options.slMulti ?? 1.0;
   const tp1Multi = options.tp1Multi ?? 1.5;
-  const tp2Multi = options.tp2Multi ?? 3.0;
+  const tp2Multi = options.tp2Multi ?? 2.5;
   const tp3Multi = options.tp3Multi ?? 5.0;
   const pointsSl = options.pointsSl ?? 220;
   const pointsTp1 = options.pointsTp1 ?? 1030;
@@ -692,9 +730,9 @@ export function calculateMarketStructureTargetTracker(
   const showTp2Shade = options.showTp2Shade !== undefined ? (options.showTp2Shade && showTp2) : showTp2;
   const showTp3Shade = options.showTp3Shade !== undefined ? (options.showTp3Shade && showTp3) : showTp3;
 
-  // HTF
+  // HTF Regime Filter (Default true to block chop / counter-trend fakeouts)
   const htfRes = options.htfRes ?? '240';
-  const useHtfFilter = options.useHtfFilter ?? false;
+  const useHtfFilter = options.useHtfFilter ?? true;
   const htfRsiLen = Math.max(2, Math.round(options.htfRsiLen ?? 14));
 
   // Alerts
@@ -724,13 +762,13 @@ export function calculateMarketStructureTargetTracker(
   const preventLateEntry = options.preventLateEntry ?? true;
   const maxBreakoutDelay = Math.max(0, Math.min(3, Math.round(options.maxBreakoutDelay ?? 1)));
 
-  // Signal Quality Filters (EMA, ADX + DI, Strong Breakout Candle)
+  // Signal Quality Filters (EMA, ADX + DI Regime Engine, Strong Breakout Candle)
   const useEmaFilter = options.useEmaFilter ?? false;
   const emaLen = Math.max(20, Math.min(500, Math.round(options.emaLen ?? 200)));
-  const useAdxFilter = options.useAdxFilter ?? false;
+  const useAdxFilter = options.useAdxFilter ?? true;
   const diLen = Math.max(2, Math.min(50, Math.round(options.diLen ?? 14)));
   const adxSmooth = Math.max(2, Math.min(50, Math.round(options.adxSmooth ?? 14)));
-  const minAdx = options.minAdx ?? 18.0;
+  const minAdx = options.minAdx ?? 20.0;
   const useCandleFilter = options.useCandleFilter ?? false;
   const minBodyAtr = options.minBodyAtr ?? 0.20;
   const breakoutBufferAtr = options.breakoutBufferAtr ?? 0.00;
@@ -841,8 +879,8 @@ export function calculateMarketStructureTargetTracker(
   const volumeSeries = candles.map((c) => c.volume ?? 0);
   const volAvgSeries = calculateSMA(volumeSeries, volumeLength);
 
-  // 3. Calculate HTF RSI based on htfRes
-  const rsiSeries = calculateHtfRsiSeries(candles, htfRes, htfRsiLen);
+  // 3. Calculate HTF RSI & Macro Trend based on htfRes
+  const { rsiSeries, emaSeries: htfEmaSeries, htfTrend: htfTrendSeries } = calculateHtfRegimeSeries(candles, htfRes, htfRsiLen);
 
   // 4. Calculate Structure Pivots for Structure Bias Filter (15m HH/HL vs LH/LL)
   const { structPH: structPHSeries, structPL: structPLSeries } = calculateStructurePivotsSeries(
@@ -1186,10 +1224,16 @@ export function calculateMarketStructureTargetTracker(
         }
       }
     }
-    // HTF RSI Filter
+    // HTF RSI & Macro Trend Alignment Filter
     const htfRsi = !isNaN(rsiSeries[bar_index]) ? rsiSeries[bar_index] : 50;
-    const htfBull = htfRsi > 50.0;
-    const htfBear = htfRsi < 50.0;
+    const htfTrendDir = htfTrendSeries[bar_index] || 'CHOP';
+    const htfEmaVal = htfEmaSeries.length > bar_index && !isNaN(htfEmaSeries[bar_index]) ? htfEmaSeries[bar_index] : null;
+
+    // A clean Bullish breakout requires HTF RSI >= 48 (not in heavy macro dump) AND HTF not trending down against us
+    const htfBull = htfRsi >= 48.0 && htfTrendDir !== 'BEAR' && (htfEmaVal === null || c.close >= htfEmaVal * 0.985);
+    // A clean Bearish breakout requires HTF RSI <= 52 (not in heavy macro rally) AND HTF not trending up against us
+    const htfBear = htfRsi <= 52.0 && htfTrendDir !== 'BULL' && (htfEmaVal === null || c.close <= htfEmaVal * 1.015);
+
     const htfOkBull = !useHtfFilter || htfBull;
     const htfOkBear = !useHtfFilter || htfBear;
 
@@ -1340,17 +1384,25 @@ export function calculateMarketStructureTargetTracker(
     lastBearScore = bearScore;
 
     // ── Track Fresh Breakout and Timing ──────────────────────────────────────
-    const isHighCross = lastSwingHigh !== null && c.close > lastSwingHigh;
+    // A Break of Structure (BOS) is strictly a crossover of the confirmed swing level:
+    // ta.crossover(close, lastSwingHigh) / ta.crossunder(close, lastSwingLow)
+    const prevBarClose = bar_index > 0 ? candles[bar_index - 1].close : c.open;
+    const isHighCross = lastSwingHigh !== null && c.close > lastSwingHigh && prevBarClose <= lastSwingHigh;
     if (isHighCross && firstBreakHighBar === null && lastSwingHighBar !== lastProcessedHighBar) {
       firstBreakHighBar = bar_index;
     }
-    const isLowCross = lastSwingLow !== null && c.close < lastSwingLow;
+    const isLowCross = lastSwingLow !== null && c.close < lastSwingLow && prevBarClose >= lastSwingLow;
     if (isLowCross && firstBreakLowBar === null && lastSwingLowBar !== lastProcessedLowBar) {
       firstBreakLowBar = bar_index;
     }
 
     const barsSinceBreakBull = firstBreakHighBar !== null ? bar_index - firstBreakHighBar : 999;
     const barsSinceBreakBear = firstBreakLowBar !== null ? bar_index - firstBreakLowBar : 999;
+
+    // Strict breakout location: signal MUST only appear on the breakout candle (bar 0) or immediate confirmation candle (bar 1).
+    // It can NEVER jump or trigger on bar 2, 3, 4, 5+ in the middle of a move.
+    const isAtBreakoutLocationBull = firstBreakHighBar !== null && (bar_index === firstBreakHighBar || bar_index === firstBreakHighBar + 1);
+    const isAtBreakoutLocationBear = firstBreakLowBar !== null && (bar_index === firstBreakLowBar || bar_index === firstBreakLowBar + 1);
 
     // ── Candidate Target Levels & Anti-Lag / Target Pre-Hit Protection ────────
     const candEntryBull = lastSwingHigh !== null ? lastSwingHigh + (targetMode === 'points' ? 0 : atrLocked * 0.1) : null;
@@ -1367,7 +1419,7 @@ export function calculateMarketStructureTargetTracker(
         targetAlreadyReachedBull = true;
       }
       const tpDist = candTp1Bull - candEntryBull;
-      if (tpDist > 0 && (c.close - candEntryBull) > tpDist * 0.40) {
+      if (tpDist > 0 && (c.close - candEntryBull) > tpDist * 0.85) {
         overextendedBull = true;
       }
     }
@@ -1386,7 +1438,7 @@ export function calculateMarketStructureTargetTracker(
         targetAlreadyReachedBear = true;
       }
       const tpDist = candEntryBear - candTp1Bear;
-      if (tpDist > 0 && (candEntryBear - c.close) > tpDist * 0.40) {
+      if (tpDist > 0 && (candEntryBear - c.close) > tpDist * 0.85) {
         overextendedBear = true;
       }
     }
@@ -1396,12 +1448,23 @@ export function calculateMarketStructureTargetTracker(
     const emaOkBull = !useEmaFilter || (emaVal === null || c.close > emaVal);
     const emaOkBear = !useEmaFilter || (emaVal === null || c.close < emaVal);
 
-    // ── ADX + DI Filter ───────────────────────────────────────────────────────
+    // ── ADX + DI Market Regime Filter (Chop vs Expansion Engine) ───────────────
     const curAdx = useAdxFilter && adxSeries.length > bar_index && !isNaN(adxSeries[bar_index]) ? adxSeries[bar_index] : null;
+    const prevAdx = useAdxFilter && bar_index > 0 && adxSeries.length > bar_index - 1 && !isNaN(adxSeries[bar_index - 1]) ? adxSeries[bar_index - 1] : curAdx;
     const curPdi = useAdxFilter && pdiSeries.length > bar_index && !isNaN(pdiSeries[bar_index]) ? pdiSeries[bar_index] : null;
     const curMdi = useAdxFilter && mdiSeries.length > bar_index && !isNaN(mdiSeries[bar_index]) ? mdiSeries[bar_index] : null;
-    const adxOkBull = !useAdxFilter || (curAdx === null || (curAdx >= minAdx && (curPdi === null || curMdi === null || curPdi >= curMdi)));
-    const adxOkBear = !useAdxFilter || (curAdx === null || (curAdx >= minAdx && (curPdi === null || curMdi === null || curMdi >= curPdi)));
+
+    // 1. Minimum trend strength threshold (default 20.0, filters flat sideways chop)
+    const isAdxTrending = curAdx !== null && curAdx >= minAdx;
+    // 2. Momentum expansion: ADX >= 24 (strong trend) OR rising/steady (>= prevAdx - 0.4)
+    const isAdxExpanding = curAdx !== null && (curAdx >= 24 || (prevAdx !== null && curAdx >= prevAdx - 0.4));
+    // 3. Directional dominance: Bull must have dominant +DI (at least 2.0 above -DI), Bear must have dominant -DI
+    const diSpreadBull = curPdi !== null && curMdi !== null ? curPdi - curMdi : 0;
+    const diSpreadBear = curPdi !== null && curMdi !== null ? curMdi - curPdi : 0;
+    const minDiSpread = 2.0;
+
+    const adxOkBull = !useAdxFilter || (curAdx === null || (isAdxTrending && isAdxExpanding && diSpreadBull >= minDiSpread));
+    const adxOkBear = !useAdxFilter || (curAdx === null || (isAdxTrending && isAdxExpanding && diSpreadBear >= minDiSpread));
 
     // ── Strong Breakout Candle Filter ─────────────────────────────────────────
     const candleBodyVal = Math.abs(c.close - c.open);
@@ -1418,6 +1481,7 @@ export function calculateMarketStructureTargetTracker(
     const rawBosBull =
       lastSwingHigh !== null &&
       c.close > lastSwingHigh &&
+      isAtBreakoutLocationBull &&
       htfOkBull &&
       timelyOkBull &&
       (lastProcessedHighBar === null || lastSwingHighBar !== lastProcessedHighBar);
@@ -1425,6 +1489,7 @@ export function calculateMarketStructureTargetTracker(
     const rawBosBear =
       lastSwingLow !== null &&
       c.close < lastSwingLow &&
+      isAtBreakoutLocationBear &&
       htfOkBear &&
       timelyOkBear &&
       (lastProcessedLowBar === null || lastSwingLowBar !== lastProcessedLowBar);
@@ -1513,6 +1578,7 @@ export function calculateMarketStructureTargetTracker(
         useScoreFilter ? 'SCORE' : '',
         useEmaFilter ? 'EMA' : '',
         useAdxFilter ? 'ADX' : '',
+        useHtfFilter ? 'HTF' : '',
         useCandleFilter ? 'CANDLE' : '',
       ].filter(Boolean).join(' ');
 
@@ -1695,6 +1761,7 @@ export function calculateMarketStructureTargetTracker(
         useScoreFilter ? 'SCORE' : '',
         useEmaFilter ? 'EMA' : '',
         useAdxFilter ? 'ADX' : '',
+        useHtfFilter ? 'HTF' : '',
         useCandleFilter ? 'CANDLE' : '',
       ].filter(Boolean).join(' ');
 
@@ -1820,6 +1887,15 @@ export function calculateMarketStructureTargetTracker(
       }
     }
 
+    // Close the breakout window for the current swing high / low if it has passed without triggering,
+    // ensuring that no signal can ever "jump" onto later bars (bar 2, 3, 4, 5+).
+    if (firstBreakHighBar !== null && bar_index >= firstBreakHighBar + 1) {
+      lastProcessedHighBar = lastSwingHighBar;
+    }
+    if (firstBreakLowBar !== null && bar_index >= firstBreakLowBar + 1) {
+      lastProcessedLowBar = lastSwingLowBar;
+    }
+
     // ── Active BOS Line Extension ─────────────────────────────────────────────
     const bosActive = bosLevel !== null && bosBar !== null;
     if (bosActive && !bosBull && !bosBear) {
@@ -1912,8 +1988,9 @@ export function calculateMarketStructureTargetTracker(
   // ── Dashboard String & Color Pre-computation (17 rows exact match) ─────────
   const lastBarIndex = n - 1;
   const lastHtfRsi = !isNaN(rsiSeries[lastBarIndex]) ? rsiSeries[lastBarIndex] : 50;
-  const htfBull = lastHtfRsi > 50.0;
-  const htfBear = lastHtfRsi < 50.0;
+  const lastHtfTrend = htfTrendSeries[lastBarIndex] || 'CHOP';
+  const htfBull = lastHtfRsi >= 48.0 && lastHtfTrend !== 'BEAR';
+  const htfBear = lastHtfRsi <= 52.0 && lastHtfTrend !== 'BULL';
 
   const trendStr = trend === 1 ? '▲ Bull' : trend === -1 ? '▼ Bear' : '● Neutral';
   const trendCol = trend === 1 ? 'rgb(0, 200, 120)' : trend === -1 ? 'rgb(220, 50, 50)' : 'rgb(140, 140, 140)';
@@ -1951,6 +2028,7 @@ export function calculateMarketStructureTargetTracker(
     (useScoreFilter ? 'SCORE ' : '') +
     (useEmaFilter ? 'EMA ' : '') +
     (useAdxFilter ? 'ADX ' : '') +
+    (useHtfFilter ? 'HTF ' : '') +
     (useCandleFilter ? 'CANDLE ' : '')).trim();
 
   const bosLvlStr = isBosActiveNow && bosLevel !== null ? formatPrice(bosLevel, minTickPrecision) : '—';
@@ -1965,8 +2043,8 @@ export function calculateMarketStructureTargetTracker(
   const tgtHitCol = targetHit ? colHit : isBosActiveNow ? 'rgb(255, 200, 0)' : 'rgb(110, 110, 110)';
   const durationStr = isBosActiveNow ? '⏳ ' + bosBarsCount.toString() + ' Bars' : '—';
   const totalStr = totalBos.toString() + ' (' + bullBosCount.toString() + '▲ / ' + bearBosCount.toString() + '▼)';
-  const htfStr = htfBull ? '▲ Bull HTF' : htfBear ? '▼ Bear HTF' : '● Neutral HTF';
-  const htfDirCol = htfBull ? 'rgb(0, 200, 120)' : htfBear ? 'rgb(220, 50, 50)' : '#9ca3af';
+  const htfStr = htfBull ? '▲ Bull HTF' : htfBear ? '▼ Bear HTF' : '● Range HTF';
+  const htfDirCol = htfBull ? 'rgb(0, 200, 120)' : htfBear ? 'rgb(220, 50, 50)' : '#f59e0b';
 
   const slDiff = entryPrice !== null && slPrice !== null ? Math.abs(entryPrice - slPrice) : 0;
   let targetDiff = 0;

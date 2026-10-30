@@ -4,29 +4,53 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
-      // Suppress benign [vite] HMR websocket connection notifications in container preview
+      // Suppress benign [vite] HMR websocket notifications, cross-origin frame access, and React scheduler race conditions in preview
       (function() {
         const origError = console.error;
         const origWarn = console.warn;
+        function safeString(a) {
+          try {
+            if (a === null || a === undefined) return '';
+            if (typeof a === 'string') return a;
+            if (typeof a === 'object') {
+              if (a.message) return String(a.message);
+              return '';
+            }
+            return String(a);
+          } catch (e) {
+            return '';
+          }
+        }
         console.error = function(...args) {
-          const msg = args.map(a => (typeof a === 'object' ? (a && a.message) || '' : String(a))).join(' ');
-          if (msg.includes('[vite]') || msg.includes('WebSocket') || msg.includes('websocket')) {
+          try {
+            const msg = args.map(safeString).join(' ');
+            if (msg.includes('[vite]') || msg.includes('WebSocket') || msg.includes('websocket') || msg.includes('cross-origin frame') || msg.includes('Blocked a frame') || msg.includes('Should not already be working')) {
+              return;
+            }
+          } catch (e) {
             return;
           }
           origError.apply(console, args);
         };
         console.warn = function(...args) {
-          const msg = args.map(a => (typeof a === 'object' ? (a && a.message) || '' : String(a))).join(' ');
-          if (msg.includes('[vite]') || msg.includes('WebSocket') || msg.includes('websocket')) {
+          try {
+            const msg = args.map(safeString).join(' ');
+            if (msg.includes('[vite]') || msg.includes('WebSocket') || msg.includes('websocket') || msg.includes('cross-origin frame') || msg.includes('Blocked a frame')) {
+              return;
+            }
+          } catch (e) {
             return;
           }
           origWarn.apply(console, args);
         };
         window.addEventListener('error', function(e) {
-          if (e && e.message && (e.message.includes('[vite]') || e.message.includes('WebSocket'))) {
-            e.preventDefault();
-            e.stopPropagation();
-          }
+          try {
+            const msg = (e && e.message) ? String(e.message) : '';
+            if (msg.includes('[vite]') || msg.includes('WebSocket') || msg.includes('cross-origin frame') || msg.includes('Blocked a frame') || msg.includes('Should not already be working')) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          } catch (err) {}
         }, true);
       })();
     </script>

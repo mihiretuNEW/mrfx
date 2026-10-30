@@ -17,8 +17,6 @@ import { Drawing, DrawingType, ChartSettings, TimeframeId, ChartThemeId } from '
 import { isDarkTheme, getThemePreset } from './utils/themePresets';
 import { ShieldAlert, TrendingUp, Compass, Activity, Star, RotateCcw } from 'lucide-react';
 import { AuthProvider, useAuth } from './hooks/useAuth';
-import { LoginPage } from './components/LoginPage';
-import { LandingPage } from './components/LandingPage';
 import { SupportModal } from './components/SupportModal';
 import { MproSignalsModal } from './components/MproSignalsModal';
 import { Mpro2SignalsModal } from './components/Mpro2SignalsModal';
@@ -450,10 +448,10 @@ const DEFAULT_SETTINGS: ChartSettings = {
     msttSweepLookback: 10,
     msttUseEmaFilter: false,
     msttEmaLen: 200,
-    msttUseAdxFilter: false,
+    msttUseAdxFilter: true,
     msttDiLen: 14,
     msttAdxSmooth: 14,
-    msttMinAdx: 18.0,
+    msttMinAdx: 20.0,
     msttUseCandleFilter: false,
     msttMinBodyAtr: 0.20,
     msttBreakoutBufferAtr: 0.00,
@@ -468,7 +466,7 @@ const DEFAULT_SETTINGS: ChartSettings = {
     msttShowTpSl: true,
     msttSlMulti: 1.0,
     msttTp1Multi: 1.5,
-    msttTp2Multi: 3.0,
+    msttTp2Multi: 2.5,
     msttTp3Multi: 5.0,
     msttAtrLen: 14,
     msttColEntry: '#64b4ff',
@@ -493,7 +491,7 @@ const DEFAULT_SETTINGS: ChartSettings = {
     msttTp2ShadeAlpha: 0.15,
     msttTp3ShadeAlpha: 0.05,
     msttHtfRes: '240',
-    msttUseHtfFilter: false,
+    msttUseHtfFilter: true,
     msttHtfRsiLen: 14,
     msttAlertBos: true,
     msttAlertTarget: true,
@@ -641,7 +639,36 @@ const DEFAULT_SETTINGS: ChartSettings = {
     ema50100SlowColor: '#ff9800',
     ema50100FastLineWidth: 2,
     ema50100SlowLineWidth: 2,
-    deletedIndicators: [],
+    deletedIndicators: [
+      'auto_price_channels',
+      'auto_sdc',
+      'ma',
+      'gta',
+      'twb',
+      'smc',
+      'so',
+      'fvg',
+      'ict',
+      'mstat',
+      'mss',
+      'pr',
+      'sr',
+      'echo',
+      'mpro2',
+      'master',
+      'hvn',
+      'nexus',
+      'session',
+      'obv',
+      'pro_ob',
+      'vip_scanner',
+      'dynamic_tpsl',
+      'trade_planner',
+      'fib_swing',
+      'mtf_ema',
+      'mrov_trade',
+      'ema_50_100',
+    ],
   },
   connection: {
     customServer: '',
@@ -912,6 +939,66 @@ function AppContent() {
     drawingId?: string;
   } | null>(null);
 
+  // Quick Risk/Reward Tap-to-Place Mode ("tap anywhere on chart" to draw immediately)
+  const [rrPlacementState, setRrPlacementState] = useState<{
+    isLong: boolean;
+    slPips: number;
+    ratio: number;
+  } | null>(null);
+
+  const handleStartRRPlacement = (config: { isLong: boolean; slPips: number; ratio: number }) => {
+    setRrPlacementState(config);
+  };
+
+  const handleCompleteRRPlacement = (entryPrice: number, clickTime: number) => {
+    if (!rrPlacementState) return;
+    const { isLong, slPips, ratio } = rrPlacementState;
+
+    const pipUnit = activeSymbolSpec.pipSize > 0 ? activeSymbolSpec.pipSize : (activeSymbolSpec.pointSize || 0.01);
+    const slDist = slPips * pipUnit;
+    const tpDist = slDist * ratio;
+
+    const stopPrice = isLong ? entryPrice - slDist : entryPrice + slDist;
+    const targetPrice = isLong ? entryPrice + tpDist : entryPrice - tpDist;
+
+    const avgSpan = activeCandles.length > 1 ? (activeCandles[1].time - activeCandles[0].time) : 60;
+    const startTime = clickTime || (activeCandles.length > 0 ? activeCandles[activeCandles.length - 1].time : Date.now() / 1000);
+    const endTime = startTime + avgSpan * 28;
+
+    const newDrawing: Drawing = {
+      id: 'drawing_rr_' + Date.now(),
+      type: 'risk_reward',
+      points: [
+        { time: startTime, price: entryPrice },
+        { time: endTime, price: entryPrice },
+      ],
+      color: '#2196f3',
+      lineWidth: 1.5,
+      riskReward: {
+        isLong,
+        entryPrice,
+        targetPrice,
+        stopPrice,
+        riskAmount: 100,
+        lotSize: activeSymbolSpec.minLot,
+      },
+    };
+
+    handleUpdateDrawings((prev) => [...(prev || []), newDrawing]);
+    // "tap ስሆን ያጽሑፎች መጥፋት አለቀ" - prompt texts disappear immediately!
+    setRrPlacementState(null);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && rrPlacementState) {
+        setRrPlacementState(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [rrPlacementState]);
+
   const handleOpenRiskRewardModal = (setup?: {
     isLong: boolean;
     entryPrice: number;
@@ -1032,7 +1119,60 @@ function AppContent() {
           parsed.appearance.backgroundColor = '#000000';
           parsed.appearance.gridColor = '#141414';
         }
+        const allOtherIndicators = [
+          'auto_price_channels', 'auto_sdc', 'ma', 'gta', 'twb', 'smc', 'so', 'fvg', 'ict',
+          'mstat', 'mss', 'pr', 'sr', 'echo', 'mpro2', 'master', 'hvn', 'nexus', 'session',
+          'obv', 'pro_ob', 'vip_scanner', 'dynamic_tpsl', 'trade_planner', 'fib_swing',
+          'mtf_ema', 'mrov_trade', 'ema_50_100',
+        ];
         if (parsed.indicators) {
+          parsed.indicators.deletedIndicators = Array.from(new Set([...(parsed.indicators.deletedIndicators || []), ...allOtherIndicators]));
+          parsed.indicators.showAutoPriceChannels = false;
+          parsed.indicators.showAutoSupplyDemandChannel = false;
+          parsed.indicators.showMA = false;
+          parsed.indicators.showGTA = false;
+          parsed.indicators.showTrendlinesWithBreaks = false;
+          parsed.indicators.showSmartMoneyConcepts = false;
+          parsed.indicators.showSignalsAndOverlays = false;
+          parsed.indicators.showConfluenceFVG = false;
+          parsed.indicators.showIctConcepts = false;
+          parsed.indicators.showMarketStructureToolkit = false;
+          parsed.indicators.showMarketStructureSignals = false;
+          parsed.indicators.showPredictiveRanges = false;
+          parsed.indicators.showSrClassification = false;
+          parsed.indicators.showEchoMpro = false;
+          parsed.indicators.showMpro2Signal = false;
+          parsed.indicators.showMasterDashboard = false;
+          parsed.indicators.showHvnProfile = false;
+          parsed.indicators.showNexusSuite = false;
+          parsed.indicators.showSessionFilter = false;
+          parsed.indicators.showOrderBlocksWithVolume = false;
+          parsed.indicators.showProOrderBlocks = false;
+          parsed.indicators.showVipMarketScanner = false;
+          parsed.indicators.showDynamicTpSlSignals = false;
+          parsed.indicators.showTradePlanner = false;
+          parsed.indicators.showFibonacciSequenceSwing = false;
+          parsed.indicators.showMultiTimeframeEma = false;
+          parsed.indicators.showMrovOpeningRange = false;
+          parsed.indicators.showEma50100Trend = false;
+          if (parsed.indicators.showMarketStructureTargetTracker === undefined) {
+            parsed.indicators.showMarketStructureTargetTracker = true;
+          }
+          if (parsed.indicators.showMarketTickTwo === undefined) {
+            parsed.indicators.showMarketTickTwo = true;
+          }
+          if (parsed.indicators.msttUseAdxFilter === undefined) {
+            parsed.indicators.msttUseAdxFilter = true;
+          }
+          if (parsed.indicators.msttUseHtfFilter === undefined) {
+            parsed.indicators.msttUseHtfFilter = true;
+          }
+          if (parsed.indicators.msttMinAdx === undefined) {
+            parsed.indicators.msttMinAdx = 20.0;
+          }
+          if (parsed.indicators.msttTp2Multi === undefined) {
+            parsed.indicators.msttTp2Multi = 2.5;
+          }
           // If the user hasn't explicitly customized, ensure only higher/lower lines and shadows are shown
           if (parsed.indicators.mpro2ShowDottedLines === undefined) {
             parsed.indicators.mpro2ShowDottedLines = false;
@@ -1500,33 +1640,7 @@ function AppContent() {
   const activeSymbolInfo = symbols.find(s => s.symbol === selectedSymbol);
   const activeSymbolSpec = useMemo(() => getSymbolSpec(selectedSymbol, activeSymbolInfo), [selectedSymbol, activeSymbolInfo]);
 
-  if (isAuthLoading) {
-    return (
-      <div className="min-h-screen w-screen flex flex-col items-center justify-center bg-[#09090b] text-[#fafafa] font-sans">
-        <div className="w-10 h-10 border-3 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <span className="text-sm text-neutral-400 font-medium tracking-wide">Validating Secure Session...</span>
-      </div>
-    );
-  }
 
-  if (!isAuthenticated) {
-    return (
-      <>
-        {viewMode === 'landing' ? (
-          <LandingPage
-            onGetStarted={() => setViewMode('password')}
-            onOpenSupport={() => setIsSupportOpen(true)}
-          />
-        ) : (
-          <LoginPage onBackToHome={() => setViewMode('landing')} />
-        )}
-        <SupportModal
-          isOpen={isSupportOpen}
-          onClose={() => setIsSupportOpen(false)}
-        />
-      </>
-    );
-  }
 
   const isDark = isDarkTheme(settings.theme);
   const activeThemePreset = getThemePreset(settings.theme);
@@ -1553,6 +1667,10 @@ function AppContent() {
           onOpenSymbolModal={() => setIsSymbolModalOpen(true)}
           onOpenSettingsModal={() => handleOpenSettings('candles')}
           onOpenIndicators={handleOpenIndicators}
+          onOpenRiskRewardModal={handleOpenRiskRewardModal}
+          onStartRRPlacement={handleStartRRPlacement}
+          isPlacingRR={!!rrPlacementState}
+          onCancelRRPlacement={() => setRrPlacementState(null)}
           onCaptureChart={handleCaptureChart}
           isConnected={isConnected}
           onReconnect={reconnect}
@@ -1715,6 +1833,30 @@ function AppContent() {
             </button>
           )}
 
+          {/* Floating Risk/Reward Tap-to-Place Prompt Banner ("tap anywhere on chart" to draw immediately) */}
+          {rrPlacementState && (
+            <div 
+              id="rr-placement-guide-banner"
+              className="absolute top-9 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-slate-900/95 border-2 border-emerald-500 shadow-2xl backdrop-blur-md flex items-center gap-2.5 select-none transition-all animate-bounce [animation-duration:2.5s]"
+            >
+              <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+              <span className="font-mono font-black text-xs sm:text-sm text-emerald-300">
+                🎯 Tap anywhere on chart to draw Risk/Reward (1:{rrPlacementState.ratio})
+              </span>
+              <span className="text-[11px] text-neutral-300 font-sans hidden md:inline">
+                • በቻርቱ ላይ የፈለጉት ቦታ ይንኩ
+              </span>
+              <button
+                type="button"
+                onClick={() => setRrPlacementState(null)}
+                className="ml-1.5 px-2 py-0.5 text-[10px] font-bold rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white border border-neutral-600 cursor-pointer"
+                title="Cancel (Esc)"
+              >
+                Cancel (Esc)
+              </button>
+            </div>
+          )}
+
           {/* Chart View (Single or Multi-Chart Layout Grid: 2, 4, 6 charts) */}
           {layoutCount === 1 ? (
             <div className="flex-grow w-full h-full min-h-0 relative">
@@ -1741,6 +1883,8 @@ function AppContent() {
                 onUpdateIndicator={handleUpdateIndicator}
                 onOpenSettingsModal={handleOpenSettings}
                 onOpenRiskRewardModal={handleOpenRiskRewardModal}
+                rrPlacementMode={rrPlacementState}
+                onCompleteRRPlacement={handleCompleteRRPlacement}
                 onLoadMoreHistory={loadMoreHistory}
                 isLoadingMoreHistory={isLoadingMore}
                 hasMoreHistory={hasMoreHistory}
@@ -1839,6 +1983,8 @@ function AppContent() {
                     onToggleIndicator={handleToggleIndicator}
                     onUpdateIndicator={handleUpdateIndicator}
                     onOpenSettingsModal={handleOpenSettings}
+                    rrPlacementMode={rrPlacementState}
+                    onCompleteRRPlacement={handleCompleteRRPlacement}
                     onLoadMoreHistory={loadMoreHistory}
                     isLoadingMoreHistory={isLoadingMore}
                     hasMoreHistory={hasMoreHistory}

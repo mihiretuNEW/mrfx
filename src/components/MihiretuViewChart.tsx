@@ -97,6 +97,12 @@ interface MihiretuViewChartProps {
     lotSize: number;
     drawingId?: string;
   }) => void;
+  rrPlacementMode?: {
+    isLong: boolean;
+    slPips: number;
+    ratio: number;
+  } | null;
+  onCompleteRRPlacement?: (price: number, time: number) => void;
   onLoadMoreHistory?: () => void;
   isLoadingMoreHistory?: boolean;
   hasMoreHistory?: boolean;
@@ -124,6 +130,8 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
   onUpdateIndicator,
   onOpenSettingsModal,
   onOpenRiskRewardModal,
+  rrPlacementMode = null,
+  onCompleteRRPlacement,
   onLoadMoreHistory,
   isLoadingMoreHistory = false,
   hasMoreHistory = true,
@@ -772,7 +780,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       showTpSl: settings.indicators.msttShowTpSl ?? true,
       slMulti: settings.indicators.msttSlMulti ?? 1.0,
       tp1Multi: settings.indicators.msttTp1Multi ?? 1.5,
-      tp2Multi: settings.indicators.msttTp2Multi ?? 3.0,
+      tp2Multi: settings.indicators.msttTp2Multi ?? 2.5,
       tp3Multi: settings.indicators.msttTp3Multi ?? 5.0,
       atrLen: settings.indicators.msttAtrLen ?? 14,
       colEntry: settings.indicators.msttColEntry ?? 'rgb(100, 180, 255)',
@@ -789,7 +797,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       showTp2Shade: settings.indicators.msttShowTp2Shade,
       showTp3Shade: settings.indicators.msttShowTp3Shade,
       htfRes: settings.indicators.msttHtfRes ?? '240',
-      useHtfFilter: settings.indicators.msttUseHtfFilter ?? false,
+      useHtfFilter: settings.indicators.msttUseHtfFilter ?? true,
       htfRsiLen: settings.indicators.msttHtfRsiLen ?? 14,
       keepN: settings.indicators.msttKeepN ?? 10,
       targetFocus: settings.indicators.msttTargetFocus ?? 'TP1',
@@ -800,13 +808,13 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       pointsTp3: settings.indicators.msttPointsTp3 ?? 3090,
       preventLateEntry: settings.indicators.msttPreventLateEntry ?? true,
       maxBreakoutDelay: settings.indicators.msttMaxBreakoutDelay ?? 1,
-      // EMA, ADX, and Strong Breakout Candle Filters
+      // EMA, ADX Regime Engine, and Strong Breakout Candle Filters
       useEmaFilter: settings.indicators.msttUseEmaFilter ?? false,
       emaLen: settings.indicators.msttEmaLen ?? 200,
-      useAdxFilter: settings.indicators.msttUseAdxFilter ?? false,
+      useAdxFilter: settings.indicators.msttUseAdxFilter ?? true,
       diLen: settings.indicators.msttDiLen ?? 14,
       adxSmooth: settings.indicators.msttAdxSmooth ?? 14,
-      minAdx: settings.indicators.msttMinAdx ?? 18.0,
+      minAdx: settings.indicators.msttMinAdx ?? 20.0,
       useCandleFilter: settings.indicators.msttUseCandleFilter ?? false,
       minBodyAtr: settings.indicators.msttMinBodyAtr ?? 0.20,
       breakoutBufferAtr: settings.indicators.msttBreakoutBufferAtr ?? 0.00,
@@ -1425,9 +1433,13 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       if (!entries || entries.length === 0) return;
       const { width, height } = entries[0].contentRect;
       if (width > 0 && height > 0) {
-        setDimensions({
-          width: Math.max(width, 300),
-          height: Math.max(height, 200),
+        requestAnimationFrame(() => {
+          setDimensions((prev) => {
+            const nextW = Math.max(width, 300);
+            const nextH = Math.max(height, 200);
+            if (Math.abs(prev.width - nextW) < 1 && Math.abs(prev.height - nextH) < 1) return prev;
+            return { width: nextW, height: nextH };
+          });
         });
       }
     });
@@ -9822,6 +9834,12 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     const snap = calculateSnapping(x, y);
     const spaceCoord = snap || getSpaceCoords(x, y);
 
+    // 0. QUICK RISK/REWARD TAP-TO-PLACE MODE ("tap anywhere on chart" to draw immediately)
+    if (rrPlacementMode && onCompleteRRPlacement) {
+      onCompleteRRPlacement(spaceCoord.price, spaceCoord.time);
+      return;
+    }
+
     // 1. ACTIVE DRAWING MODE
     if (activeTool !== 'cursor') {
       if (activeTool === 'trend') {
@@ -10450,6 +10468,12 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
       const snap = calculateSnapping(x, y);
       const spaceCoord = snap || getSpaceCoords(x, y);
+
+      // 0. QUICK RISK/REWARD TAP-TO-PLACE MODE ("tap anywhere on chart" to draw immediately)
+      if (rrPlacementMode && onCompleteRRPlacement) {
+        onCompleteRRPlacement(spaceCoord.price, spaceCoord.time);
+        return;
+      }
 
       // 1. ACTIVE DRAWING MODE
       if (activeTool !== 'cursor') {

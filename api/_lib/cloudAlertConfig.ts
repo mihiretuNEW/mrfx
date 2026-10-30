@@ -14,18 +14,22 @@ export interface CloudAlertConfig {
 }
 
 const DEFAULT_CONFIG: CloudAlertConfig = {
-  botToken: '',
-  chatId: '',
-  enabled: false,
-  symbol: '1HZ75V',
-  timeframe: '1H',
+  botToken: '8864552579:AAGSXeU9Z-WslGPehNXCxENWKSl1xeEe3FA',
+  chatId: '-1004295328271',
+  enabled: true,
+  symbol: 'R_75',
+  timeframe: '30M',
   updatedAt: Date.now(),
   options: {
     targetMode: 'points',
     pointsSl: 220,
-    pointsTp1: 1030,
-    pointsTp2: 2060,
-    pointsTp3: 3090,
+    pointsTp1: 450,
+    pointsTp2: 650,
+    pointsTp3: 1000,
+    showTp1: true,
+    showTp2: false,
+    showTp3: false,
+    showSl: true,
     targetFocus: 'TP1',
     swingLen: 5,
     useStructureFilter: true,
@@ -91,9 +95,36 @@ export async function sendTelegramDirect(botToken: string, chatId: string, text:
       }),
     });
     const data = await res.json();
-    return data;
+    return {
+      ok: Boolean(data.ok),
+      messageId: data.result?.message_id,
+      description: data.description,
+      data,
+    };
   } catch (err: any) {
     console.error('Telegram direct send error:', err);
+    return { ok: false, error: err.message };
+  }
+}
+
+export async function deleteTelegramDirect(botToken: string, chatId: string, messageId: number) {
+  if (!botToken || !chatId || !messageId) {
+    return { ok: false };
+  }
+  const url = `https://api.telegram.org/bot${botToken.trim()}/deleteMessage`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId.trim(),
+        message_id: messageId,
+      }),
+    });
+    const data = await res.json();
+    return { ok: Boolean(data.ok) };
+  } catch (err: any) {
+    console.error('Telegram deleteMessage error:', err);
     return { ok: false, error: err.message };
   }
 }

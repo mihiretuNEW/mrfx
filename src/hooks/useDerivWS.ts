@@ -19,6 +19,18 @@ export function getHistorySpanDays(span: HistorySpanId = 'all'): number {
   }
 }
 
+/**
+ * Normalizes history span start boundary to 00:00 UTC of the anchor day.
+ * Prevents candle counts from oscillating or edge swings from disappearing across browser refreshes.
+ */
+export function getDeterministicTargetStartTime(span: HistorySpanId = 'all'): number {
+  const targetDays = getHistorySpanDays(span);
+  if (targetDays <= 0) return 0;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const startOfDaySec = Math.floor(nowSec / 86400) * 86400;
+  return startOfDaySec - (targetDays * 86400);
+}
+
 const SOCKET_URLS = [
   'wss://api.derivws.com/trading/v1/options/ws/public',
   'wss://api.derivws.com/trading/v1/options/ws/public?app_id=1089',
@@ -449,7 +461,7 @@ export function useDerivWS(
     ws.send(JSON.stringify({
       ticks_history: apiSymbol,
       adjust_start_time: 1,
-      count: 1000,
+      count: 5000,
       end: 'latest',
       start: 1,
       style: 'candles',
@@ -466,7 +478,7 @@ export function useDerivWS(
         activeWs.send(JSON.stringify({
           ticks_history: apiSymbol,
           adjust_start_time: 1,
-          count: 1000,
+          count: 5000,
           end: 'latest',
           start: 1,
           style: 'candles',
@@ -493,7 +505,7 @@ export function useDerivWS(
     if (historySpanRef.current && historySpanRef.current !== 'all') {
       const targetDays = getHistorySpanDays(historySpanRef.current);
       if (targetDays > 0) {
-        const targetStartTime = Math.floor(Date.now() / 1000) - (targetDays * 86400);
+        const targetStartTime = getDeterministicTargetStartTime(historySpanRef.current);
         if (oldestCandle.time <= targetStartTime) {
           // Strict boundary reached! Stop and do NOT fetch further.
           hasMoreHistoryRef.current = false;
@@ -534,7 +546,7 @@ export function useDerivWS(
       if (historySpan !== 'all') {
         const targetDays = getHistorySpanDays(historySpan);
         if (targetDays > 0) {
-          const targetStartTime = Math.floor(Date.now() / 1000) - (targetDays * 86400);
+          const targetStartTime = getDeterministicTargetStartTime(historySpan);
           
           // 1. If currently loaded candles already extend older than targetStartTime, TRIM strictly to the boundary!
           if (currentCandles[0].time < targetStartTime) {
@@ -654,7 +666,7 @@ export function useDerivWS(
               ws.send(JSON.stringify({
                 ticks_history: nextAlias,
                 adjust_start_time: 1,
-                count: 1000,
+                count: 5000,
                 end: 'latest',
                 start: 1,
                 style: 'candles',
@@ -677,7 +689,7 @@ export function useDerivWS(
             ws.send(JSON.stringify({
               ticks_history: currentApiSymbol,
               adjust_start_time: 1,
-              count: 1000,
+              count: 5000,
               end: 'latest',
               start: 1,
               style: 'candles',
@@ -771,7 +783,7 @@ export function useDerivWS(
                 let earliestTime = parsedOlder[0].time;
                 const targetDays = getHistorySpanDays(historySpanRef.current);
                 const isStrictSpan = historySpanRef.current !== 'all' && targetDays > 0;
-                const targetStartTime = isStrictSpan ? Math.floor(Date.now() / 1000) - (targetDays * 86400) : 0;
+                const targetStartTime = isStrictSpan ? getDeterministicTargetStartTime(historySpanRef.current) : 0;
 
                 setCandles((prev) => {
                   const map = new Map<number, Candle>();
@@ -871,7 +883,7 @@ export function useDerivWS(
 
           const targetDays = getHistorySpanDays(historySpanRef.current);
           const isStrictSpan = historySpanRef.current !== 'all' && targetDays > 0;
-          const targetStartTime = isStrictSpan ? Math.floor(Date.now() / 1000) - (targetDays * 86400) : 0;
+          const targetStartTime = isStrictSpan ? getDeterministicTargetStartTime(historySpanRef.current) : 0;
 
           if (isStrictSpan) {
             // Trim to strict boundary!

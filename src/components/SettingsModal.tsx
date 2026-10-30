@@ -150,18 +150,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTgAlertSyncing(true);
     setTgAlertMsg(null);
     try {
+      const defaultBot = '8864552579:AAGSXeU9Z-WslGPehNXCxENWKSl1xeEe3FA';
+      const defaultChat = '-1004295328271';
       const payload = {
-        botToken: (ind.msttTgBotToken || '').trim(),
-        chatId: (ind.msttTgChatId || '').trim(),
-        enabled: Boolean(ind.msttTgAlertsEnabled),
-        symbol: ind.msttTgSymbol || '1HZ75V',
-        timeframe: ind.msttTgTimeframe || '1H',
+        botToken: (ind.msttTgBotToken || '').trim() || defaultBot,
+        chatId: (ind.msttTgChatId || '').trim() || defaultChat,
+        enabled: ind.msttTgAlertsEnabled !== undefined ? Boolean(ind.msttTgAlertsEnabled) : true,
+        symbol: ind.msttTgSymbol || 'R_75',
+        timeframe: ind.msttTgTimeframe || '30M',
         options: {
           targetMode: ind.msttTargetMode ?? 'points',
           pointsSl: ind.msttPointsSl ?? 220,
-          pointsTp1: ind.msttPointsTp1 ?? 1030,
-          pointsTp2: ind.msttPointsTp2 ?? 2060,
-          pointsTp3: ind.msttPointsTp3 ?? 3090,
+          pointsTp1: ind.msttPointsTp1 ?? 450,
+          pointsTp2: ind.msttPointsTp2 ?? 650,
+          pointsTp3: ind.msttPointsTp3 ?? 1000,
+          showTp1: ind.msttShowTp1 !== false,
+          showTp2: Boolean(ind.msttShowTp2),
+          showTp3: Boolean(ind.msttShowTp3),
+          showSl: ind.msttShowSl !== false,
           targetFocus: ind.msttTargetFocus ?? 'TP1',
           swingLen: ind.msttSwingLen ?? 5,
           useStructureFilter: ind.msttUseStructureFilter ?? true,
@@ -7317,7 +7323,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <input
                             id="settings-mstt-adx-filter"
                             type="checkbox"
-                            checked={settings.indicators.msttUseAdxFilter ?? false}
+                            checked={settings.indicators.msttUseAdxFilter ?? true}
                             onChange={(e) => handleUpdateIndicators('msttUseAdxFilter', e.target.checked)}
                             className="sr-only peer"
                           />
@@ -7326,7 +7332,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
 
                       {/* ADX params */}
-                      {(settings.indicators.msttUseAdxFilter ?? false) && (
+                      {(settings.indicators.msttUseAdxFilter ?? true) && (
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850">
                             <span className="text-xs font-medium text-gray-300 block mb-1">DI Length</span>
@@ -7351,15 +7357,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             />
                           </div>
                           <div className="p-3 bg-neutral-900 rounded-lg border border-neutral-850">
-                            <span className="text-xs font-medium text-gray-300 block mb-1">Minimum ADX</span>
+                            <span className="text-xs font-medium text-gray-300 block mb-1">Minimum ADX (Chop Threshold)</span>
                             <input
                               type="number"
                               step={0.5}
                               min={5}
                               max={50}
-                              value={settings.indicators.msttMinAdx ?? 18.0}
-                              onChange={(e) => handleUpdateIndicators('msttMinAdx', Math.max(5, Math.min(50, parseFloat(e.target.value) || 18.0)))}
-                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white text-center font-mono"
+                              value={settings.indicators.msttMinAdx ?? 20.0}
+                              onChange={(e) => handleUpdateIndicators('msttMinAdx', Math.max(5, Math.min(50, parseFloat(e.target.value) || 20.0)))}
+                              className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-emerald-400 font-bold text-center font-mono"
                             />
                           </div>
                         </div>
@@ -8036,14 +8042,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                       <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
                         <div className="flex flex-col">
-                          <span className="text-sm font-medium text-gray-300">HTF Filter via RSI</span>
-                          <span className="text-xs text-gray-500">Only take Bull BOS when HTF RSI &gt; 50, Bear BOS when HTF RSI &lt; 50</span>
+                          <span className="text-sm font-medium text-gray-300">HTF Macro Regime &amp; Trend Filter</span>
+                          <span className="text-xs text-gray-500">Only takes Bull BOS when HTF (4H) trend is bullish, and Bear BOS when HTF trend is bearish (blocks range fakeouts)</span>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input
                             id="settings-mstt-htf-filter"
                             type="checkbox"
-                            checked={settings.indicators.msttUseHtfFilter ?? false}
+                            checked={settings.indicators.msttUseHtfFilter ?? true}
                             onChange={(e) => handleUpdateIndicators('msttUseHtfFilter', e.target.checked)}
                             className="sr-only peer"
                           />
@@ -8326,27 +8332,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div className="grid grid-cols-2 gap-2">
                           <div>
                             <label className="block text-[11px] font-medium text-gray-400 mb-1">Target Pair / Symbol</label>
-                            <input
-                              type="text"
-                              value={settings.indicators.msttTgSymbol || '1HZ75V'}
+                            <select
+                              value={settings.indicators.msttTgSymbol || 'R_75'}
                               onChange={(e) => handleUpdateIndicators('msttTgSymbol', e.target.value)}
-                              placeholder="1HZ75V"
                               className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-sky-300 font-bold focus:outline-none focus:border-sky-500"
-                            />
-                            <span className="text-[10px] text-gray-500">1HZ75V = Volatility 75 (1s)</span>
+                            >
+                              <option value="R_75">Volatility 75 Index (R_75)</option>
+                              <option value="1HZ75V">Volatility 75 (1s) (1HZ75V)</option>
+                              <option value="R_100">Volatility 100 Index</option>
+                              <option value="1HZ100V">Volatility 100 (1s)</option>
+                              <option value="R_50">Volatility 50 Index</option>
+                              <option value="R_25">Volatility 25 Index</option>
+                            </select>
+                            <span className="text-[10px] text-gray-500">Deriv Synthetic Index</span>
                           </div>
                           <div>
                             <label className="block text-[11px] font-medium text-gray-400 mb-1">Alert Timeframe</label>
                             <select
-                              value={settings.indicators.msttTgTimeframe || '1H'}
+                              value={settings.indicators.msttTgTimeframe || '30M'}
                               onChange={(e) => handleUpdateIndicators('msttTgTimeframe', e.target.value)}
                               className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-emerald-300 font-bold focus:outline-none focus:border-emerald-500"
                             >
-                              <option value="1M">1 Minute (1M)</option>
-                              <option value="5M">5 Minutes (5M)</option>
-                              <option value="15M">15 Minutes (15M)</option>
-                              <option value="30M">30 Minutes (30M)</option>
+                              <option value="30M">30 Minutes (30M) ★ 79% Win</option>
                               <option value="1H">1 Hour (1H)</option>
+                              <option value="15M">15 Minutes (15M)</option>
+                              <option value="5M">5 Minutes (5M)</option>
                               <option value="4H">4 Hours (4H)</option>
                             </select>
                             <span className="text-[10px] text-gray-500">Matches chart timeframe</span>
@@ -8396,18 +8406,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               type="button"
                               onClick={() => {
                                 const origin = typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.vercel.app';
-                                const token = (settings.indicators.msttTgBotToken || '').trim();
-                                const chat = (settings.indicators.msttTgChatId || '').trim();
-                                const sym = settings.indicators.msttTgSymbol || '1HZ75V';
-                                const tf = settings.indicators.msttTgTimeframe || '1H';
+                                const token = (settings.indicators.msttTgBotToken || '').trim() || '8864552579:AAGSXeU9Z-WslGPehNXCxENWKSl1xeEe3FA';
+                                const chat = (settings.indicators.msttTgChatId || '').trim() || '-1004295328271';
+                                const sym = settings.indicators.msttTgSymbol || 'R_75';
+                                const tf = settings.indicators.msttTgTimeframe || '30M';
                                 const sl = settings.indicators.msttPointsSl ?? 220;
-                                const tp1 = settings.indicators.msttPointsTp1 ?? 1030;
+                                const tp1 = settings.indicators.msttPointsTp1 ?? 450;
+                                const tp2 = settings.indicators.msttPointsTp2 ?? 650;
+                                const showTp1 = settings.indicators.msttShowTp1 !== false;
+                                const showTp2 = Boolean(settings.indicators.msttShowTp2);
                                 const tfocus = settings.indicators.msttTargetFocus || 'TP1';
 
-                                let cronUrl = `${origin}/api/cron-check`;
-                                if (token && chat) {
-                                  cronUrl += `?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&sl=${sl}&tp1=${tp1}&targetFocus=${encodeURIComponent(tfocus)}`;
-                                }
+                                let cronUrl = `${origin}/api/cron-check?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&sl=${sl}&tp1=${tp1}&tp2=${tp2}&showTp1=${showTp1}&showTp2=${showTp2}&targetFocus=${encodeURIComponent(tfocus)}`;
                                 navigator.clipboard.writeText(cronUrl);
                                 setCronUrlCopied(true);
                                 setTimeout(() => setCronUrlCopied(false), 3000);
@@ -8420,27 +8430,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <div className="p-2 bg-neutral-900 rounded border border-neutral-850 text-[11px] font-mono text-amber-300 break-all select-all">
                             {(() => {
                               const origin = typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.vercel.app';
-                              const token = (settings.indicators.msttTgBotToken || '').trim();
-                              const chat = (settings.indicators.msttTgChatId || '').trim();
-                              const sym = settings.indicators.msttTgSymbol || '1HZ75V';
-                              const tf = settings.indicators.msttTgTimeframe || '1H';
+                              const token = (settings.indicators.msttTgBotToken || '').trim() || '8864552579:AAGSXeU9Z-WslGPehNXCxENWKSl1xeEe3FA';
+                              const chat = (settings.indicators.msttTgChatId || '').trim() || '-1004295328271';
+                              const sym = settings.indicators.msttTgSymbol || 'R_75';
+                              const tf = settings.indicators.msttTgTimeframe || '30M';
                               const sl = settings.indicators.msttPointsSl ?? 220;
-                              const tp1 = settings.indicators.msttPointsTp1 ?? 1030;
+                              const tp1 = settings.indicators.msttPointsTp1 ?? 450;
+                              const tp2 = settings.indicators.msttPointsTp2 ?? 650;
+                              const showTp1 = settings.indicators.msttShowTp1 !== false;
+                              const showTp2 = Boolean(settings.indicators.msttShowTp2);
                               const tfocus = settings.indicators.msttTargetFocus || 'TP1';
 
-                              let url = `${origin}/api/cron-check`;
-                              if (token && chat) {
-                                url += `?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&sl=${sl}&tp1=${tp1}&targetFocus=${encodeURIComponent(tfocus)}`;
-                              }
-                              return url;
+                              return `${origin}/api/cron-check?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&sl=${sl}&tp1=${tp1}&tp2=${tp2}&showTp1=${showTp1}&showTp2=${showTp2}&targetFocus=${encodeURIComponent(tfocus)}`;
                             })()}
                           </div>
                           <div className="text-[11px] text-gray-400 space-y-1">
                             <p><b>1.</b> በ <b>cron-job.org</b> ላይ <b>"CREATE CRONJOB"</b> የሚለውን ይጫኑ።</p>
                             <p><b>2.</b> ከላይ ያለውን URL <b>URL</b> በሚለው ሳጥን ውስጥ paste ያድርጉ።</p>
-                            <p><b>3.</b> <b>Schedule</b> የሚለውን <b>"Every 1 minute"</b> ወይም <b>"Every 5 minutes"</b> ይምረጡ።</p>
+                            <p><b>3.</b> <b>Schedule</b> የሚለውን <b>"Every 1 minute"</b> ይምረጡ።</p>
                             <p><b>4.</b> <b>"CREATE"</b> ይበሉ። አበቃ! ከአሁን በኋላ ስልክ ቢዘጋም 24/7 signal ይላክልዎታል!</p>
                           </div>
+                        </div>
+
+                        {/* Phone Alarm Sound Guide */}
+                        <div className="p-3 bg-gradient-to-r from-sky-950/40 to-blue-950/40 rounded-lg border border-sky-500/30 space-y-1.5">
+                          <span className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
+                            <span>🔔</span> በስልክዎ ላይ እንደ ደወል (Alarm) እንዲጮህ ማድረግ፦
+                          </span>
+                          <p className="text-[11px] text-gray-300 leading-relaxed">
+                            ቴሌግራም ላይ የዚህን Bot ፕሮፋይል ከፍተው <b>Notifications</b> &gt; <b>Sound</b> የሚለውን <b>በጣም ጮክ ያለ Ringtone</b> ያድርጉት። እንዲሁም <b>Importance / Priority</b> የሚለውን <b>"High"</b> ያድርጉት። ስትተኙም እንኳ እንደ ጥሪ ጮክ ብሎ ይቀሰቅሳችኋል!
+                          </p>
                         </div>
                       </div>
                     </div>
