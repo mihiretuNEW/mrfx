@@ -2,8 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import WebSocketNode from 'ws';
 import { loadAlertConfig, sendTelegramDirect, deleteTelegramDirect } from './cloudAlertConfig';
-import { calculateMarketStructureTargetTracker } from '../../src/utils/marketStructureTargetTracker';
-import { Candle } from '../../src/types';
+import { calculateMarketStructureTargetTracker, Candle } from './msttEngine';
 
 const STATE_FILE = path.join('/tmp', 'mcharts_cron_state.json');
 
