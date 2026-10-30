@@ -41,6 +41,8 @@ export interface TradeRecord {
 
 export interface CronState {
   lastAlertTime: number;
+  lastAlertId?: string;
+  alertedIds?: string[];
   lastHeartbeatTime: number;
   heartbeatMessageIds: number[];
   activeTrade: ActiveTrade | null;
@@ -50,6 +52,8 @@ export interface CronState {
 
 const DEFAULT_STATE: CronState = {
   lastAlertTime: 0,
+  lastAlertId: '',
+  alertedIds: [],
   lastHeartbeatTime: 0,
   heartbeatMessageIds: [],
   activeTrade: null,
@@ -65,6 +69,7 @@ function loadCronState(): CronState {
       return {
         ...DEFAULT_STATE,
         ...parsed,
+        alertedIds: Array.isArray(parsed.alertedIds) ? parsed.alertedIds : [],
         heartbeatMessageIds: Array.isArray(parsed.heartbeatMessageIds) ? parsed.heartbeatMessageIds : [],
         tradeHistory: Array.isArray(parsed.tradeHistory) ? parsed.tradeHistory : [],
       };
@@ -80,6 +85,24 @@ function saveCronState(state: CronState) {
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), 'utf-8');
   } catch (e) {
     console.error('Failed to save cron state:', e);
+  }
+}
+
+// Atomic lock & claim mechanism across concurrent workers using POSIX O_EXCL / 'wx' flag
+function tryAcquireSignalLock(signalId: string): boolean {
+  const safeId = signalId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const lockPath = path.join('/tmp', `lock_${safeId}.lock`);
+  try {
+    const fd = fs.openSync(lockPath, 'wx');
+    fs.writeSync(fd, JSON.stringify({ signalId, time: Date.now() }));
+    fs.closeSync(fd);
+    return true;
+  } catch (err: any) {
+    if (err.code === 'EEXIST') {
+      // Already claimed and locked by another concurrent process
+      return false;
+    }
+    return true;
   }
 }
 
@@ -107,6 +130,55 @@ function getSymbolDisplayName(symbol: string): string {
   if (symbol === 'R_25') return 'Volatility 25 Index';
   if (symbol === 'R_10') return 'Volatility 10 Index';
   return symbol;
+}
+
+async function getTelegramChat(botToken: string, chatId: string) {
+  if (!botToken || !chatId) return null;
+  try {
+    const url = `https://api.telegram.org/bot${botToken.trim()}/getChat?chat_id=${encodeURIComponent(chatId.trim())}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return data?.ok ? data.result : null;
+  } catch (err) {
+    console.warn('Telegram getChat error:', err);
+    return null;
+  }
+}
+
+async function pinTelegramDirect(botToken: string, chatId: string, messageId: number) {
+  if (!botToken || !chatId || !messageId) return { ok: false };
+  try {
+    const url = `https://api.telegram.org/bot${botToken.trim()}/pinChatMessage`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId.trim(),
+        message_id: messageId,
+        disable_notification: true,
+      }),
+    });
+    const data = await res.json();
+    return { ok: Boolean(data.ok) };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function unpinTelegramDirect(botToken: string, chatId: string) {
+  if (!botToken || !chatId) return { ok: false };
+  try {
+    const url = `https://api.telegram.org/bot${botToken.trim()}/unpinAllChatMessages`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId.trim() }),
+    });
+    const data = await res.json();
+    return { ok: Boolean(data.ok) };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
 }
 
 async function sendTelegramDirect(botToken: string, chatId: string, text: string) {
@@ -283,6 +355,39 @@ export default async function handler(req: any, res: any) {
     const state = loadCronState();
     const now = Date.now();
 
+    // =========================================================================
+    // COLD-START RECOVERY: RECONSTRUCT ACTIVE TRADE FROM TELEGRAM PINNED MESSAGE
+    // =========================================================================
+    if (!state.activeTrade && botToken && chatId) {
+      const cloudChat = await getTelegramChat(botToken, chatId);
+      const pinned = cloudChat?.pinned_message?.text || '';
+      if (pinned.includes('URGENT MT5 TRADE SIGNAL') && pinned.includes('Signal ID: SIG_')) {
+        const sigMatch = pinned.match(/SIG_([A-Za-z0-9_]+)_([0-9A-Za-z]+)_(\d+)_(bull|bear)/);
+        const entryMatch = pinned.match(/Entry:<\/b>\s*<code>([\d.]+)<\/code>/);
+        const slMatch = pinned.match(/Stop Loss \(SL\):<\/b>\s*<code>([\d.]+)<\/code>\s*\((\d+)\s*pips\)/);
+        const tpMatch = pinned.match(/Take Profit \(TP1\):<\/b>\s*<code>([\d.]+)<\/code>\s*\((\d+)\s*pips\)/);
+        if (sigMatch && entryMatch && slMatch && tpMatch) {
+          state.activeTrade = {
+            id: sigMatch[0],
+            symbol: sigMatch[1],
+            tf: sigMatch[2],
+            type: sigMatch[4] as 'bull' | 'bear',
+            entryPrice: Number(entryMatch[1]),
+            slPrice: Number(slMatch[1]),
+            tp1Price: Number(tpMatch[1]),
+            slPips: Number(slMatch[2]),
+            tp1Pips: Number(tpMatch[2]),
+            showTp1: true,
+            showTp2: false,
+            startTime: Number(sigMatch[3]),
+            entryCandleTime: Number(sigMatch[3]),
+          };
+          state.lastAlertId = sigMatch[0];
+          state.lastAlertTime = Number(sigMatch[3]);
+        }
+      }
+    }
+
     const candles = await fetchDerivCandles(symbol, granularity, 350);
     if (!candles || candles.length < 20) {
       return res.status(200).json({
@@ -333,6 +438,7 @@ export default async function handler(req: any, res: any) {
             });
             state.activeTrade = null;
             await sendTelegramDirect(botToken, chatId, resolutionMessage);
+            await unpinTelegramDirect(botToken, chatId);
             break;
           } else if (candle.low <= active.slPrice) {
             tradeResolved = true;
@@ -361,6 +467,7 @@ export default async function handler(req: any, res: any) {
             });
             state.activeTrade = null;
             await sendTelegramDirect(botToken, chatId, resolutionMessage);
+            await unpinTelegramDirect(botToken, chatId);
             break;
           }
         } else if (active.type === 'bear') {
@@ -391,6 +498,7 @@ export default async function handler(req: any, res: any) {
             });
             state.activeTrade = null;
             await sendTelegramDirect(botToken, chatId, resolutionMessage);
+            await unpinTelegramDirect(botToken, chatId);
             break;
           } else if (candle.high >= active.slPrice) {
             tradeResolved = true;
@@ -419,6 +527,7 @@ export default async function handler(req: any, res: any) {
             });
             state.activeTrade = null;
             await sendTelegramDirect(botToken, chatId, resolutionMessage);
+            await unpinTelegramDirect(botToken, chatId);
             break;
           }
         }
@@ -426,7 +535,7 @@ export default async function handler(req: any, res: any) {
     }
 
     // =========================================================================
-    // 2. CHECK FOR NEW BREAKOUT SIGNAL
+    // 2. CHECK FOR NEW BREAKOUT SIGNAL WITH BULLETPROOF DUPLICATE PREVENTION
     // =========================================================================
     const msttResult = calculateMarketStructureTargetTracker(candles, mergedOptions, symbol);
     const markers = msttResult.signalMarkers || [];
@@ -436,76 +545,117 @@ export default async function handler(req: any, res: any) {
     let signalInfo: any = null;
 
     if (recentMarker && (recentMarker.barIndex === lastCandleIdx || recentMarker.barIndex === lastCandleIdx - 1)) {
-      if (recentMarker.time > state.lastAlertTime) {
-        // STEP A: DELETE ALL PREVIOUS HOURLY SCANNING HEARTBEATS
-        if (state.heartbeatMessageIds && state.heartbeatMessageIds.length > 0) {
-          for (const msgId of state.heartbeatMessageIds) {
-            try {
-              await deleteTelegramDirect(botToken, chatId, msgId);
-            } catch (e) {}
-          }
-          state.heartbeatMessageIds = [];
+      // 1. UNIQUE SIGNAL ID based on Symbol + Timeframe + Candle Timestamp + Direction
+      const uniqueSignalId = `SIG_${symbol}_${tf}_${recentMarker.time}_${recentMarker.type}`;
+
+      // 2. MULTI-TIER DUPLICATE CHECK
+      // Tier 1: Local memory & cache
+      const isLocallyAlerted =
+        state.lastAlertId === uniqueSignalId ||
+        (state.alertedIds && state.alertedIds.includes(uniqueSignalId));
+
+      let isCloudAlerted = false;
+      if (!isLocallyAlerted && botToken && chatId) {
+        // Tier 2: Persistent Cloud Storage (Telegram getChat pinned message - survives all cold starts & redeploys!)
+        const chatInfo = await getTelegramChat(botToken, chatId);
+        const pinnedText = chatInfo?.pinned_message?.text || '';
+        isCloudAlerted = pinnedText.includes(uniqueSignalId);
+        if (isCloudAlerted) {
+          // Sync local state to prevent redundant getChat queries
+          state.lastAlertId = uniqueSignalId;
+          if (!state.alertedIds) state.alertedIds = [];
+          if (!state.alertedIds.includes(uniqueSignalId)) state.alertedIds.push(uniqueSignalId);
+          saveCronState(state);
         }
+      }
 
-        // STEP B: COMPOSE EXACT MT5 ORDER SIGNAL MESSAGE
-        const isBull = recentMarker.type === 'bull';
-        const dirEmoji = isBull ? '🟢' : '🔴';
-        const actionText = isBull ? 'BUY NOW' : 'SELL NOW';
-        const entryPrice = recentMarker.entryPrice || msttResult.entryPrice || latestCandle.close;
+      // If NOT already alerted in local or cloud storage:
+      if (!isLocallyAlerted && !isCloudAlerted && recentMarker.time > state.lastAlertTime) {
+        // Tier 3: Atomic Lock / Claim Mechanism across concurrent workers
+        const acquiredLock = tryAcquireSignalLock(uniqueSignalId);
 
-        const slPrice = isBull ? (entryPrice - slPips) : (entryPrice + slPips);
-        const tp1Price = isBull ? (entryPrice + tp1Pips) : (entryPrice - tp1Pips);
-        const tp2Price = isBull ? (entryPrice + tp2Pips) : (entryPrice - tp2Pips);
-        const rrRatio = (tp1Pips / slPips).toFixed(2);
+        if (acquiredLock) {
+          // STEP A: DELETE ALL PREVIOUS HOURLY SCANNING HEARTBEATS
+          if (state.heartbeatMessageIds && state.heartbeatMessageIds.length > 0) {
+            for (const msgId of state.heartbeatMessageIds) {
+              try {
+                await deleteTelegramDirect(botToken, chatId, msgId);
+              } catch (e) {}
+            }
+            state.heartbeatMessageIds = [];
+          }
 
-        const alertMessage =
-          `🚨 <b>URGENT MT5 TRADE SIGNAL!</b> 🚨\n\n` +
-          `📊 <b>Pair:</b> <code>${symbolName}</code> (${symbol})\n` +
-          `⏱ <b>Timeframe:</b> <code>${tf}</code>\n` +
-          `${dirEmoji} <b>Action:</b> <b>${actionText}</b>\n\n` +
-          `📋 <b>MT5 ORDER DETAILS (TAP TO COPY):</b>\n` +
-          `• <b>Entry:</b> <code>${entryPrice.toFixed(2)}</code>\n` +
-          `• <b>Stop Loss (SL):</b> <code>${slPrice.toFixed(2)}</code> (${slPips} pips)\n` +
-          (showTp1 ? `• <b>Take Profit (TP1):</b> <code>${tp1Price.toFixed(2)}</code> (${tp1Pips} pips)\n` : '') +
-          (showTp2 ? `• <b>Take Profit (TP2):</b> <code>${tp2Price.toFixed(2)}</code> (${tp2Pips} pips)\n` : '') +
-          `• <b>Recommended Lot:</b> <code>0.001</code>\n\n` +
-          `🎯 <b>Target Ratio:</b> <b>1:${rrRatio}</b> (High Probability Setup)\n` +
-          `🛡️ <b>Strategy:</b> BOS Structure Breakout + Filters\n` +
-          `📅 <b>Signal Time:</b> ${new Date(recentMarker.time * 1000).toUTCString()}\n\n` +
-          `🔔 <i>ይህንን መልዕክት በሰማህ ጊዜ MT5ህን ከፍተህ ከላይ ያሉትን Entry፣ SL እና TP በ 10 ሰከንድ ውስጥ አስገባ።</i>`;
+          // STEP B: COMPOSE EXACT MT5 ORDER SIGNAL MESSAGE
+          const isBull = recentMarker.type === 'bull';
+          const dirEmoji = isBull ? '🟢' : '🔴';
+          const actionText = isBull ? 'BUY NOW' : 'SELL NOW';
+          const entryPrice = recentMarker.entryPrice || msttResult.entryPrice || latestCandle.close;
 
-        const tgRes = await sendTelegramDirect(botToken, chatId, alertMessage);
-        if (tgRes.ok) {
-          newSignalSent = true;
-          signalInfo = {
-            type: recentMarker.type,
-            time: recentMarker.time,
-            entryPrice,
-            slPrice,
-            tp1Price,
-            tp2Price,
-            slPips,
-            tp1Pips,
-            tp2Pips,
-          };
-          state.lastAlertTime = recentMarker.time;
-          state.activeTrade = {
-            id: `${symbol}_${recentMarker.time}`,
-            symbol,
-            tf,
-            type: isBull ? 'bull' : 'bear',
-            entryPrice,
-            slPrice,
-            tp1Price,
-            tp2Price,
-            slPips,
-            tp1Pips,
-            tp2Pips,
-            showTp1,
-            showTp2,
-            startTime: recentMarker.time,
-            entryCandleTime: latestCandle.time,
-          };
+          const slPrice = isBull ? (entryPrice - slPips) : (entryPrice + slPips);
+          const tp1Price = isBull ? (entryPrice + tp1Pips) : (entryPrice - tp1Pips);
+          const tp2Price = isBull ? (entryPrice + tp2Pips) : (entryPrice - tp2Pips);
+          const rrRatio = (tp1Pips / slPips).toFixed(2);
+
+          const alertMessage =
+            `🚨 <b>URGENT MT5 TRADE SIGNAL!</b> 🚨\n\n` +
+            `📊 <b>Pair:</b> <code>${symbolName}</code> (${symbol})\n` +
+            `⏱ <b>Timeframe:</b> <code>${tf}</code>\n` +
+            `${dirEmoji} <b>Action:</b> <b>${actionText}</b>\n\n` +
+            `📋 <b>MT5 ORDER DETAILS (TAP TO COPY):</b>\n` +
+            `• <b>Entry:</b> <code>${entryPrice.toFixed(2)}</code>\n` +
+            `• <b>Stop Loss (SL):</b> <code>${slPrice.toFixed(2)}</code> (${slPips} pips)\n` +
+            (showTp1 ? `• <b>Take Profit (TP1):</b> <code>${tp1Price.toFixed(2)}</code> (${tp1Pips} pips)\n` : '') +
+            (showTp2 ? `• <b>Take Profit (TP2):</b> <code>${tp2Price.toFixed(2)}</code> (${tp2Pips} pips)\n` : '') +
+            `• <b>Recommended Lot:</b> <code>0.001</code>\n\n` +
+            `🎯 <b>Target Ratio:</b> <b>1:${rrRatio}</b> (High Probability Setup)\n` +
+            `🛡️ <b>Strategy:</b> BOS Structure Breakout + Filters\n` +
+            `🔑 <b>Signal ID:</b> <code>${uniqueSignalId}</code>\n` +
+            `📅 <b>Signal Time:</b> ${new Date(recentMarker.time * 1000).toUTCString()}\n\n` +
+            `🔔 <i>ይህንን መልዕክት በሰማህ ጊዜ MT5ህን ከፍተህ ከላይ ያሉትን Entry፣ SL እና TP በ 10 ሰከንድ ውስጥ አስገባ።</i>`;
+
+          const tgRes = await sendTelegramDirect(botToken, chatId, alertMessage);
+          if (tgRes.ok && tgRes.messageId) {
+            newSignalSent = true;
+            signalInfo = {
+              type: recentMarker.type,
+              time: recentMarker.time,
+              signalId: uniqueSignalId,
+              entryPrice,
+              slPrice,
+              tp1Price,
+              tp2Price,
+              slPips,
+              tp1Pips,
+              tp2Pips,
+            };
+
+            // Pin to Telegram Persistent Cloud Storage so ANY cold start knows it's already sent
+            await pinTelegramDirect(botToken, chatId, tgRes.messageId);
+
+            state.lastAlertTime = recentMarker.time;
+            state.lastAlertId = uniqueSignalId;
+            if (!state.alertedIds) state.alertedIds = [];
+            state.alertedIds.push(uniqueSignalId);
+            if (state.alertedIds.length > 100) state.alertedIds = state.alertedIds.slice(-100);
+
+            state.activeTrade = {
+              id: uniqueSignalId,
+              symbol,
+              tf,
+              type: isBull ? 'bull' : 'bear',
+              entryPrice,
+              slPrice,
+              tp1Price,
+              tp2Price,
+              slPips,
+              tp1Pips,
+              tp2Pips,
+              showTp1,
+              showTp2,
+              startTime: recentMarker.time,
+              entryCandleTime: latestCandle.time,
+            };
+          }
         }
       }
     }
