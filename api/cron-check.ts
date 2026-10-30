@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import WebSocketNode from 'ws';
-import { calculateMarketStructureTargetTracker, Candle } from './_lib/msttEngine';
+import { calculateMarketStructureTargetTracker, Candle } from './_lib/msttEngine.js';
 
 export const config = {
   maxDuration: 30,
