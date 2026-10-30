@@ -568,9 +568,10 @@ export default async function cronCheckHandler(req: any, res: any) {
     });
   } catch (error: any) {
     console.error('Cron check error:', error);
-    return res.status(500).json({
+    return res.status(200).json({
       ok: false,
       error: error.message || 'Error occurred during market analysis',
+      status: 'error_caught',
     });
   }
 }
