@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import WebSocketNode from 'ws';
-import { calculateMarketStructureTargetTracker, Candle, isV75KillZone } from './msttEngine';
-import { queueNewSignalForEA, recordTradeResult, loadEAState } from './_lib/eaState';
-import { sendSmsDirect, formatTradeSignalSms, formatTradeResolutionSms } from './_lib/smsEthiopia';
-import { loadAlertConfig } from './_lib/cloudAlertConfig';
+import { calculateMarketStructureTargetTracker, Candle, isV75KillZone } from './msttEngine.js';
+import { queueNewSignalForEA, recordTradeResult, loadEAState } from './_lib/eaState.js';
+import { sendSmsDirect, formatTradeSignalSms, formatTradeResolutionSms } from './_lib/smsEthiopia.js';
+import { loadAlertConfig } from './_lib/cloudAlertConfig.js';
 
 export const config = {
   maxDuration: 30,
