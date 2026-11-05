@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { loadAlertConfig, sendTelegramDirect } from './cloudAlertConfig';
+import { loadAlertConfig, sendTelegramDirect } from './cloudAlertConfig.js';
 
 export const EA_STATE_FILE = path.join('/tmp', 'mcharts_ea_state.json');
 
