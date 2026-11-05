@@ -146,91 +146,106 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
   if (res.setHeader) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, KEY, Authorization');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
   }
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  let body = req.body || {};
-  if (typeof body === 'string') {
-    try {
-      body = JSON.parse(body);
-    } catch (e) {
-      body = {};
-    }
-  }
-
-  const action = req.query?.action || body?.action;
-
-  if (req.method === 'GET' && !action) {
-    const cfg = loadAlertConfig();
-    const masked = {
-      ...cfg,
-      botToken: cfg.botToken ? `${cfg.botToken.substring(0, 6)}...${cfg.botToken.slice(-4)}` : '',
-      hasToken: Boolean(cfg.botToken),
-    };
-    return res.status(200).json({ ok: true, config: masked });
-  }
-
-  if (req.method === 'POST') {
-    if (action === 'test_sms' || body.action === 'test_sms') {
-      const currentCfg = loadAlertConfig();
-      const apiKey = body.smsApiKey || currentCfg.smsApiKey;
-      const phone = body.smsPhone || currentCfg.smsPhone;
-      if (!apiKey || !phone) {
-        return res.status(400).json({ ok: false, error: 'SMS Ethiopia API Key and Phone Number are required.' });
+  try {
+    let body = req.body || {};
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (e) {
+        body = {};
       }
-      const testText = '🔔 Mcharts Signal Connected! Your SMS alerts are active. Mire stay disciplined!';
-      const smsRes = await sendSmsDirect(apiKey, phone, testText);
-      if (smsRes.ok) {
-        return res.status(200).json({ ok: true, message: `✅ የሙከራ SMS ወደ ${phone} በተሳካ ሁኔታ ተልኳል! ስልክዎን ይመልከቱ።` });
-      } else {
-        return res.status(400).json({ ok: false, error: smsRes.error || 'Failed to send SMS via smsethiopia.com' });
+    } else if (Buffer.isBuffer(body)) {
+      try {
+        body = JSON.parse(body.toString('utf-8'));
+      } catch (e) {
+        body = {};
       }
     }
 
-    if (action === 'test' || body.action === 'test') {
-      const token = body.botToken || loadAlertConfig().botToken;
-      const chat = body.chatId || loadAlertConfig().chatId;
-      if (!token || !chat) {
-        return res.status(400).json({ ok: false, error: 'Telegram Bot Token and Chat ID are required to send a test message.' });
-      }
-      const testMsg = `🟢 <b>Connected!</b>\n\n` +
-        `✅ Telegram Bot successfully connected.\n` +
-        `🪙 Pair: Volatility 75 index\n` +
-        `⏰ Timeframe: ${body.timeframe || '30M'}`;
+    const action = req.query?.action || body?.action;
 
-      const result = await sendTelegramDirect(token, chat, testMsg);
-      if (result.ok) {
-        return res.status(200).json({ ok: true, message: 'Test message sent successfully to your Telegram!' });
-      } else {
-        return res.status(400).json({ ok: false, error: result.description || result.error || 'Failed to send message via Telegram API' });
-      }
+    if (req.method === 'GET' && !action) {
+      const cfg = loadAlertConfig();
+      const masked = {
+        ...cfg,
+        botToken: cfg.botToken ? `${cfg.botToken.substring(0, 6)}...${cfg.botToken.slice(-4)}` : '',
+        hasToken: Boolean(cfg.botToken),
+      };
+      return res.status(200).json({ ok: true, config: masked });
     }
 
-    const saved = saveAlertConfig({
-      botToken: body.botToken !== undefined ? body.botToken : undefined,
-      chatId: body.chatId !== undefined ? body.chatId : undefined,
-      enabled: body.enabled !== undefined ? Boolean(body.enabled) : undefined,
-      symbol: body.symbol || '1HZ75V',
-      timeframe: body.timeframe || '1H',
-      smsApiKey: body.smsApiKey !== undefined ? body.smsApiKey : undefined,
-      smsPhone: body.smsPhone !== undefined ? body.smsPhone : undefined,
-      smsAlertsEnabled: body.smsAlertsEnabled !== undefined ? Boolean(body.smsAlertsEnabled) : undefined,
-      options: body.options || {},
+    if (req.method === 'POST') {
+      if (action === 'test_sms' || body.action === 'test_sms') {
+        const currentCfg = loadAlertConfig();
+        const apiKey = body.smsApiKey || currentCfg.smsApiKey;
+        const phone = body.smsPhone || currentCfg.smsPhone;
+        if (!apiKey || !phone) {
+          return res.status(400).json({ ok: false, error: 'SMS Ethiopia API Key and Phone Number are required.' });
+        }
+        const testText = '🔔 Mcharts Signal Connected! Your SMS alerts are active. Mire stay disciplined!';
+        const smsRes = await sendSmsDirect(apiKey, phone, testText);
+        if (smsRes.ok) {
+          return res.status(200).json({ ok: true, message: `✅ የሙከራ SMS ወደ ${phone} በተሳካ ሁኔታ ተልኳል! ስልክዎን ይመልከቱ።` });
+        } else {
+          return res.status(400).json({ ok: false, error: smsRes.error || 'Failed to send SMS via smsethiopia.com' });
+        }
+      }
+
+      if (action === 'test' || body.action === 'test') {
+        const token = body.botToken || loadAlertConfig().botToken;
+        const chat = body.chatId || loadAlertConfig().chatId;
+        if (!token || !chat) {
+          return res.status(400).json({ ok: false, error: 'Telegram Bot Token and Chat ID are required to send a test message.' });
+        }
+        const testMsg = `🟢 <b>Connected!</b>\n\n` +
+          `✅ Telegram Bot successfully connected.\n` +
+          `🪙 Pair: Volatility 75 index\n` +
+          `⏰ Timeframe: ${body.timeframe || '30M'}`;
+
+        const result = await sendTelegramDirect(token, chat, testMsg);
+        if (result.ok) {
+          return res.status(200).json({ ok: true, message: 'Test message sent successfully to your Telegram!' });
+        } else {
+          return res.status(400).json({ ok: false, error: result.description || result.error || 'Failed to send message via Telegram API' });
+        }
+      }
+
+      const saved = saveAlertConfig({
+        botToken: body.botToken !== undefined ? body.botToken : undefined,
+        chatId: body.chatId !== undefined ? body.chatId : undefined,
+        enabled: body.enabled !== undefined ? Boolean(body.enabled) : undefined,
+        symbol: body.symbol || '1HZ75V',
+        timeframe: body.timeframe || '1H',
+        smsApiKey: body.smsApiKey !== undefined ? body.smsApiKey : undefined,
+        smsPhone: body.smsPhone !== undefined ? body.smsPhone : undefined,
+        smsAlertsEnabled: body.smsAlertsEnabled !== undefined ? Boolean(body.smsAlertsEnabled) : undefined,
+        options: body.options || {},
+      });
+
+      return res.status(200).json({
+        ok: true,
+        message: 'Cloud Alert configuration saved successfully! Signals will now follow these exact settings.',
+        config: {
+          ...saved,
+          botToken: saved.botToken ? `${saved.botToken.substring(0, 6)}...${saved.botToken.slice(-4)}` : '',
+          hasToken: Boolean(saved.botToken),
+        },
+      });
+    }
+
+    return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
+  } catch (err: any) {
+    console.error('Error in cloudAlertConfigHandler:', err);
+    return res.status(500).json({
+      ok: false,
+      error: err?.message || 'Server error occurred in alert config handler',
     });
-
-    return res.status(200).json({
-      ok: true,
-      message: 'Cloud Alert configuration saved successfully! Signals will now follow these exact settings.',
-      config: {
-        ...saved,
-        botToken: saved.botToken ? `${saved.botToken.substring(0, 6)}...${saved.botToken.slice(-4)}` : '',
-        hasToken: Boolean(saved.botToken),
-      },
-    });
   }
-
-  return res.status(405).json({ error: 'Method Not Allowed' });
 }
