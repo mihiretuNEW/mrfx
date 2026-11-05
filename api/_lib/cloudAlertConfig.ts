@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { sendSmsDirect } from './smsEthiopia';
+import { sendSmsDirect } from './smsEthiopia.js';
 
 const CONFIG_FILE = path.join('/tmp', 'mcharts_cloud_alert_config.json');
 
