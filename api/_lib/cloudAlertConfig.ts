@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { sendSmsDirect } from './smsEthiopia';
 
 const CONFIG_FILE = path.join('/tmp', 'mcharts_cloud_alert_config.json');
 
@@ -10,6 +11,9 @@ export interface CloudAlertConfig {
   symbol: string;
   timeframe: string;
   updatedAt: number;
+  smsApiKey?: string;
+  smsPhone?: string;
+  smsAlertsEnabled?: boolean;
   options: Record<string, any>;
 }
 
@@ -19,6 +23,9 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
   enabled: true,
   symbol: 'R_75',
   timeframe: '30M',
+  smsApiKey: 'X5UZHVO1BTC9VTNGXPAR4BJQCDCLLOPYPEJ6U4H6',
+  smsPhone: '251968865885',
+  smsAlertsEnabled: true,
   updatedAt: Date.now(),
   options: {
     targetMode: 'points',
@@ -45,6 +52,12 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
     sweepLookback: 10,
     preventLateEntry: true,
     maxBreakoutDelay: 1,
+    usePremiumDiscountFilter: false,
+    useInducementFilter: false,
+    useKillZonesFilter: false,
+    useTurtleSoupFilter: false,
+    useRetestConfirmation: false,
+    useAntiWhipsawFilter: false,
   },
 };
 
@@ -161,18 +174,32 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
   }
 
   if (req.method === 'POST') {
+    if (action === 'test_sms' || body.action === 'test_sms') {
+      const currentCfg = loadAlertConfig();
+      const apiKey = body.smsApiKey || currentCfg.smsApiKey;
+      const phone = body.smsPhone || currentCfg.smsPhone;
+      if (!apiKey || !phone) {
+        return res.status(400).json({ ok: false, error: 'SMS Ethiopia API Key and Phone Number are required.' });
+      }
+      const testText = '🔔 Mcharts Signal Connected! Your SMS alerts are active. Mire stay disciplined!';
+      const smsRes = await sendSmsDirect(apiKey, phone, testText);
+      if (smsRes.ok) {
+        return res.status(200).json({ ok: true, message: `✅ የሙከራ SMS ወደ ${phone} በተሳካ ሁኔታ ተልኳል! ስልክዎን ይመልከቱ።` });
+      } else {
+        return res.status(400).json({ ok: false, error: smsRes.error || 'Failed to send SMS via smsethiopia.com' });
+      }
+    }
+
     if (action === 'test' || body.action === 'test') {
       const token = body.botToken || loadAlertConfig().botToken;
       const chat = body.chatId || loadAlertConfig().chatId;
       if (!token || !chat) {
         return res.status(400).json({ ok: false, error: 'Telegram Bot Token and Chat ID are required to send a test message.' });
       }
-      const testMsg = `🔔 <b>Telegram Alert Bot Connected!</b>\n\n` +
-        `✅ Your 24/7 Cloud Monitoring connection is active and ready.\n` +
-        `📊 <b>Pair:</b> ${body.symbol || 'Volatility 75'}\n` +
-        `⏱ <b>Timeframe:</b> ${body.timeframe || '1H'}\n` +
-        `🎯 <b>Rule:</b> BOS Signals with Written SL/TP & Anti-Lag Protection.\n\n` +
-        `<i>Whenever cron-job.org checks the market, any new signal will be sent to this chat automatically!</i>`;
+      const testMsg = `🟢 <b>Connected!</b>\n\n` +
+        `✅ Telegram Bot successfully connected.\n` +
+        `🪙 Pair: Volatility 75 index\n` +
+        `⏰ Timeframe: ${body.timeframe || '30M'}`;
 
       const result = await sendTelegramDirect(token, chat, testMsg);
       if (result.ok) {
@@ -188,6 +215,9 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
       enabled: body.enabled !== undefined ? Boolean(body.enabled) : undefined,
       symbol: body.symbol || '1HZ75V',
       timeframe: body.timeframe || '1H',
+      smsApiKey: body.smsApiKey !== undefined ? body.smsApiKey : undefined,
+      smsPhone: body.smsPhone !== undefined ? body.smsPhone : undefined,
+      smsAlertsEnabled: body.smsAlertsEnabled !== undefined ? Boolean(body.smsAlertsEnabled) : undefined,
       options: body.options || {},
     });
 

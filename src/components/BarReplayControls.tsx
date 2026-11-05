@@ -82,7 +82,7 @@ export const BarReplayControls: React.FC<BarReplayControlsProps> = ({
   return (
     <div 
       id="bar-replay-toolbar" 
-      className={`h-10 border-b border-amber-500/30 px-3 flex items-center justify-between gap-2 sm:gap-4 select-none z-30 shadow-md transition-colors ${
+      className={`h-10 border-b border-amber-500/30 px-3 flex items-center justify-between gap-2 sm:gap-4 select-none z-30 shadow-md transition-colors overflow-x-auto overflow-y-hidden scrollbar-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden touch-pan-x ${
         isDark ? 'bg-neutral-950 text-white' : 'bg-white text-slate-800'
       }`}
       style={{

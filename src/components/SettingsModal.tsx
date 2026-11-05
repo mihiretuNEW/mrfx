@@ -68,6 +68,105 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showTgTokenSecret, setShowTgTokenSecret] = useState(false);
   const [cronUrlCopied, setCronUrlCopied] = useState(false);
 
+  // MT5 Expert Advisor (Auto-Trading Engine) State & Handlers
+  const [eaStatus, setEaStatus] = useState<any>(null);
+  const [eaLoading, setEaLoading] = useState(false);
+  const [eaUrlCopied, setEaUrlCopied] = useState(false);
+  const [eaCodeCopied, setEaCodeCopied] = useState(false);
+
+  const fetchEaStatus = async () => {
+    try {
+      const res = await fetch('/api/ea-status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && data.state) {
+          setEaStatus(data.state);
+        }
+      }
+    } catch (e) {}
+  };
+
+  const handleToggleAutoBot = async (nextVal: boolean) => {
+    handleUpdateIndicators('msttAutoBotEnabled', nextVal);
+    setEaLoading(true);
+    try {
+      const res = await fetch('/api/ea-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoBotEnabled: nextVal }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) setEaStatus(data.state);
+      }
+    } catch (e) {} finally {
+      setEaLoading(false);
+    }
+  };
+
+  const handleUpdateConsecutiveLossLimit = async (limit: number) => {
+    handleUpdateIndicators('msttMaxConsecutiveLosses', limit);
+    try {
+      await fetch('/api/ea-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ maxConsecutiveLosses: limit }),
+      });
+      fetchEaStatus();
+    } catch (e) {}
+  };
+
+  const handleUpdateLotSize = async (lot: number) => {
+    handleUpdateIndicators('msttLotSize', lot);
+    try {
+      await fetch('/api/ea-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lotSize: lot }),
+      });
+      fetchEaStatus();
+    } catch (e) {}
+  };
+
+  React.useEffect(() => {
+    if (isOpen) {
+      fetchEaStatus();
+    }
+  }, [isOpen]);
+
+  // smsethiopia.com SMS Alert State & Handlers
+  const [smsTesting, setSmsTesting] = useState(false);
+  const [smsMsg, setSmsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showSmsKeySecret, setShowSmsKeySecret] = useState(false);
+
+  const handleTestSms = async () => {
+    const key = (settings.indicators.msttSmsApiKey || 'X5UZHVO1BTC9VTNGXPAR4BJQCDCLLOPYPEJ6U4H6').trim();
+    const phone = (settings.indicators.msttSmsPhone || '251968865885').trim();
+    setSmsTesting(true);
+    setSmsMsg(null);
+    try {
+      const res = await fetch('/api/cloud-alert-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'test_sms',
+          smsApiKey: key,
+          smsPhone: phone,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSmsMsg({ type: 'success', text: data.message || `✅ የሙከራ SMS ወደ ${phone} በተሳካ ሁኔታ ተልኳል!` });
+      } else {
+        setSmsMsg({ type: 'error', text: `❌ ስህተት: ${data.error || 'SMS መላክ አልተቻለም'}` });
+      }
+    } catch (err: any) {
+      setSmsMsg({ type: 'error', text: `❌ ስህተት: ${err?.message || 'Network error'}` });
+    } finally {
+      setSmsTesting(false);
+    }
+  };
+
   const handleTestTgCloudAlert = async () => {
     const token = (settings.indicators.msttTgBotToken || '').trim();
     const chat = (settings.indicators.msttTgChatId || '').trim();
@@ -78,12 +177,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTgAlertTesting(true);
     setTgAlertMsg(null);
 
-    const testMsg = `🔔 <b>Telegram Alert Bot Connected!</b>\n\n` +
-      `✅ Your 24/7 Cloud Monitoring connection is active and ready.\n` +
-      `📊 <b>Pair:</b> <code>${settings.indicators.msttTgSymbol || '1HZ75V'}</code>\n` +
-      `⏱ <b>Timeframe:</b> <code>${settings.indicators.msttTgTimeframe || '1H'}</code>\n` +
-      `🎯 <b>Rule:</b> BOS Signals with Written SL (${settings.indicators.msttPointsSl || 220} pts) / TP1 (${settings.indicators.msttPointsTp1 || 1030} pts).\n\n` +
-      `<i>Whenever cron-job.org checks the market, any new signal will be sent to this chat automatically!</i>`;
+    const testMsg = `🟢 <b>Connected!</b>\n\n` +
+      `✅ Telegram Bot successfully connected.\n` +
+      `🪙 Pair: Volatility 75 index\n` +
+      `⏰ Timeframe: ${settings.indicators.msttTgTimeframe || '30M'}`;
 
     let sentSuccess = false;
     let errorDetail = '';
@@ -158,6 +255,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         enabled: ind.msttTgAlertsEnabled !== undefined ? Boolean(ind.msttTgAlertsEnabled) : true,
         symbol: ind.msttTgSymbol || 'R_75',
         timeframe: ind.msttTgTimeframe || '30M',
+        smsApiKey: (ind.msttSmsApiKey || '').trim() || 'X5UZHVO1BTC9VTNGXPAR4BJQCDCLLOPYPEJ6U4H6',
+        smsPhone: (ind.msttSmsPhone || '').trim() || '251968865885',
+        smsAlertsEnabled: ind.msttSmsAlertsEnabled !== false,
         options: {
           targetMode: ind.msttTargetMode ?? 'points',
           pointsSl: ind.msttPointsSl ?? 220,
@@ -197,6 +297,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           atrLen: ind.msttAtrLen ?? 14,
           preventLateEntry: ind.msttPreventLateEntry ?? true,
           maxBreakoutDelay: ind.msttMaxBreakoutDelay ?? 1,
+          autoBotEnabled: ind.msttAutoBotEnabled !== false,
+          maxConsecutiveLosses: ind.msttMaxConsecutiveLosses ?? 2,
+          lotSize: ind.msttLotSize ?? 0.001,
         },
       };
 
@@ -6982,6 +7085,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               <option value="15">15M (15 Minutes - Default)</option>
                               <option value="30">30M (30 Minutes)</option>
                               <option value="60">1H (60 Minutes)</option>
+                              <option value="120">2H (120 Minutes - 2 Hours)</option>
                               <option value="240">4H (240 Minutes)</option>
                             </select>
                           </div>
@@ -7276,6 +7380,114 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Signal Filters (Pine Script v6 Improved v2)
                       </div>
 
+                      {/* Filter 1: Premium vs Discount Zones (Fibonacci 0.5) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-emerald-300">1. Premium vs. Discount Zones (Fibonacci 0.5)</span>
+                          <span className="text-xs text-gray-400">Buy only in Discount Zone (&lt; 0.5 level) &amp; Sell only in Premium Zone (&gt; 0.5 level) from HTF range</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-premium-discount-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUsePremiumDiscountFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUsePremiumDiscountFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Filter 2: The Inducement (IDM) Filter */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-amber-300">2. The Inducement (IDM) Filter (Anti-Trap)</span>
+                          <span className="text-xs text-gray-400">Eliminates fake breakouts! Requires market to run/sweep minor internal pullback liquidity first</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-inducement-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseInducementFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseInducementFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Filter 3: V75 Kill Zones (Ethiopian Hours) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-cyan-300">3. V75 Kill Zones (Ethiopian Hours)</span>
+                          <span className="text-xs text-gray-400">Morning ~3:00 (08:30–11:00 EAT) &amp; Afternoon-Night 7:00–4:00 (13:00–22:00 EAT). Tags High Confidence signals</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-killzones-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseKillZonesFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseKillZonesFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Filter 4: Internal Liquidity Sweep (Turtle Soup) */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-purple-300">4. Internal Liquidity Sweep (Turtle Soup)</span>
+                          <span className="text-xs text-gray-400">ማርኬቱ BOS ከማድረጉ ከ 2 እስከ 3 ሻማዎች በፊት የቅርብ ጊዜውን Internal High/Low በዊክ (Sweep) መምታቱን እና Stop Loss አድኖ በኃይል መውጣቱን ያረጋግጣል</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-turtle-soup-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseTurtleSoupFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseTurtleSoupFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-purple-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Filter 5: Auto-Retest Confirmation Engine */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-emerald-400">5. Auto-Retest Confirmation (Never Enter on First Candle)</span>
+                          <span className="text-xs text-gray-400">ስብራት ሲፈጠር ወዲያው አይገባም፤ ዋጋው ተመልሶ የተሰበረውን ነጥብ (Level) ነክቶ ሲያረጋግጥ ብቻ ሲግናል ይሰጣል። የውሸት ስብራት ከሆነ በራሱ ይሰረዛል (0 Fakeout Loss)</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-retest-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseRetestConfirmation ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseRetestConfirmation', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+
+                      {/* Filter 6: Anti-Whipsaw / Chop Guard */}
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-rose-300">6. Anti-Whipsaw (Chop Guard)</span>
+                          <span className="text-xs text-gray-400">Buy ከተመታ በኋላ በሚቀጥሉት ጥቂት ሻማዎች ውስጥ የሚመጣ ፈጣን ተቃራኒ Sell (ወይም በተቃራኒው) ወጥመድ መሆኑን አውቆ ያግዳል፤ ተከታታይ lossን ይከላከላል</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            id="settings-mstt-anti-whipsaw-filter"
+                            type="checkbox"
+                            checked={settings.indicators.msttUseAntiWhipsawFilter ?? false}
+                            onChange={(e) => handleUpdateIndicators('msttUseAntiWhipsawFilter', e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-rose-500"></div>
+                        </label>
+                      </div>
+
                       {/* EMA Trend Filter */}
                       <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
                         <div className="flex flex-col">
@@ -7544,6 +7756,145 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {/* GROUP: SL / TP */}
                       <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-neutral-800 pb-1 pt-2">
                         SL &amp; TP Settings
+                      </div>
+
+                      {/* PAST SIGNALS & RISK / REWARD VISIBILITY CONTROL */}
+                      <div className="space-y-3 p-3.5 bg-gradient-to-br from-neutral-900 to-neutral-950 rounded-xl border border-sky-500/30 shadow-lg">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-2 w-2 rounded-full bg-sky-400 animate-pulse"></span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-sky-300">
+                              🎯 Past Signals Risk / Reward on Chart
+                            </span>
+                          </div>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 font-mono font-bold">
+                            {Math.round((settings.indicators.msttRiskRewardOpacity ?? 0.35) * 100)}% Visibility
+                          </span>
+                        </div>
+
+                        <div className="text-[11px] text-gray-300 leading-relaxed">
+                          ያለፉ ሲግናሎች (Past Signals) በቻርት ላይ የገቡበትን እና የወጡበትን ዞን ከነ Take Profit (TP), Stop Loss (SL) እና የ 1:R ሬሾ ሳጥን ያሳያል/ይደብቃል፣ የታይነት ጥንካሬውንም መጨመር ወይም መቀነስ ይችላሉ።
+                        </div>
+
+                        {/* Master Toggles Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {/* Toggle: Show Past Signals R:R */}
+                          <div className="flex items-center justify-between p-2.5 bg-neutral-950/80 rounded-lg border border-neutral-800">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-semibold text-gray-200">Show Past Signals</span>
+                              <span className="text-[10px] text-gray-400">ያለፉ ሲግናሎች R:R በቻርት ላይ ማሳያ</span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                id="settings-mstt-show-historical-trades"
+                                type="checkbox"
+                                checked={settings.indicators.msttShowHistoricalTrades ?? true}
+                                onChange={(e) => handleUpdateIndicators('msttShowHistoricalTrades', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-sky-500"></div>
+                            </label>
+                          </div>
+
+                          {/* Toggle: Show R:R Ratio & Outcome Badges */}
+                          <div className="flex items-center justify-between p-2.5 bg-neutral-950/80 rounded-lg border border-neutral-800">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-semibold text-gray-200">Show R:R Badges</span>
+                              <span className="text-[10px] text-gray-400">የ 1:R ሬሾ ባጅ (+3.0R / -1.0R)</span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                id="settings-mstt-show-rr-badge"
+                                type="checkbox"
+                                checked={settings.indicators.msttShowRrBadge ?? true}
+                                onChange={(e) => handleUpdateIndicators('msttShowRrBadge', e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* VISIBILITY / OPACITY SLIDER & CONTROLS */}
+                        <div className="p-3 bg-neutral-950/90 rounded-lg border border-neutral-800 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-amber-400">
+                              👁️ Visibility (የታይነት ጥንካሬ መጨመሪያ / መቀነሻ)
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                title="Visibility ቀንሶ (Decrease)"
+                                onClick={() => {
+                                  const cur = Math.round((settings.indicators.msttRiskRewardOpacity ?? 0.35) * 100);
+                                  const next = Math.max(5, cur - 10);
+                                  handleUpdateIndicators('msttRiskRewardOpacity', next / 100);
+                                }}
+                                className="w-6 h-6 flex items-center justify-center bg-neutral-800 hover:bg-neutral-700 text-gray-200 text-xs font-bold rounded transition-colors"
+                              >
+                                -
+                              </button>
+                              <span className="px-2 py-0.5 bg-neutral-900 border border-neutral-800 rounded text-xs font-mono font-bold text-amber-300 min-w-[44px] text-center">
+                                {Math.round((settings.indicators.msttRiskRewardOpacity ?? 0.35) * 100)}%
+                              </span>
+                              <button
+                                type="button"
+                                title="Visibility ጨምር (Increase)"
+                                onClick={() => {
+                                  const cur = Math.round((settings.indicators.msttRiskRewardOpacity ?? 0.35) * 100);
+                                  const next = Math.min(100, cur + 10);
+                                  handleUpdateIndicators('msttRiskRewardOpacity', next / 100);
+                                }}
+                                className="w-6 h-6 flex items-center justify-center bg-neutral-800 hover:bg-neutral-700 text-gray-200 text-xs font-bold rounded transition-colors"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Range Slider */}
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] text-gray-500">ደብዛዛ (5%)</span>
+                            <input
+                              id="settings-mstt-rr-opacity-range"
+                              type="range"
+                              min={5}
+                              max={100}
+                              step={5}
+                              value={Math.round((settings.indicators.msttRiskRewardOpacity ?? 0.35) * 100)}
+                              onChange={(e) => handleUpdateIndicators('msttRiskRewardOpacity', parseInt(e.target.value) / 100)}
+                              className="w-full h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                            />
+                            <span className="text-[10px] text-gray-500">ደማቅ (100%)</span>
+                          </div>
+
+                          {/* Preset Buttons */}
+                          <div className="grid grid-cols-5 gap-1.5 pt-1">
+                            {[
+                              { label: '15% ቀላል', val: 0.15 },
+                              { label: '35% መደበኛ', val: 0.35 },
+                              { label: '60% ደማቅ', val: 0.60 },
+                              { label: '85% በጣም ደማቅ', val: 0.85 },
+                              { label: '100% ሙሉ', val: 1.00 },
+                            ].map((preset) => {
+                              const isSelected = Math.abs((settings.indicators.msttRiskRewardOpacity ?? 0.35) - preset.val) < 0.05;
+                              return (
+                                <button
+                                  key={preset.label}
+                                  type="button"
+                                  onClick={() => handleUpdateIndicators('msttRiskRewardOpacity', preset.val)}
+                                  className={`px-1 py-1 text-[10px] rounded font-medium transition-all ${
+                                    isSelected
+                                      ? 'bg-amber-500 text-neutral-950 font-bold shadow'
+                                      : 'bg-neutral-900 text-gray-400 hover:text-white hover:bg-neutral-850 border border-neutral-800'
+                                  }`}
+                                >
+                                  {preset.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
 
                       {/* Show Entry/SL/TP */}
@@ -8117,6 +8468,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </label>
                       </div>
 
+                      {/* HUD Size Mode (Normal vs Small/Compact) */}
+                      {(settings.indicators.msttShowDashboard ?? true) && (
+                        <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-cyan-300">HUD Size Mode</span>
+                            <span className="text-xs text-gray-500">
+                              Choose between Full Dashboard or Compact Mini Mode (only Total Trades, Win Rate %, Wins, Losses, and Consec W/L)
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateIndicators('msttHudSize', 'Normal')}
+                              className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
+                                (settings.indicators.msttHudSize ?? 'Normal') === 'Normal'
+                                  ? 'bg-cyan-600 text-white shadow-md'
+                                  : 'bg-neutral-950 text-gray-400 hover:text-white border border-neutral-800'
+                              }`}
+                            >
+                              Normal (Full)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateIndicators('msttHudSize', 'Small')}
+                              className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
+                                (settings.indicators.msttHudSize ?? 'Normal') === 'Small'
+                                  ? 'bg-emerald-600 text-white shadow-md'
+                                  : 'bg-neutral-950 text-gray-400 hover:text-white border border-neutral-800'
+                              }`}
+                            >
+                              Small (Mini)
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {/* GROUP: PERFORMANCE TRACKING & KEEPN */}
                       <div className="text-xs font-bold uppercase tracking-wider text-emerald-400 border-b border-neutral-800 pb-1 pt-2">
                         Performance Tracking &amp; KeepN Audit Log
@@ -8405,7 +8792,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                const origin = typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.vercel.app';
+                                const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
+                                const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
                                 const token = (settings.indicators.msttTgBotToken || '').trim() || '8864552579:AAGSXeU9Z-WslGPehNXCxENWKSl1xeEe3FA';
                                 const chat = (settings.indicators.msttTgChatId || '').trim() || '-1004295328271';
                                 const sym = settings.indicators.msttTgSymbol || 'R_75';
@@ -8429,7 +8817,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </div>
                           <div className="p-2 bg-neutral-900 rounded border border-neutral-850 text-[11px] font-mono text-amber-300 break-all select-all">
                             {(() => {
-                              const origin = typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.vercel.app';
+                              const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
+                              const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
                               const token = (settings.indicators.msttTgBotToken || '').trim() || '8864552579:AAGSXeU9Z-WslGPehNXCxENWKSl1xeEe3FA';
                               const chat = (settings.indicators.msttTgChatId || '').trim() || '-1004295328271';
                               const sym = settings.indicators.msttTgSymbol || 'R_75';
@@ -8460,6 +8849,319 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <p className="text-[11px] text-gray-300 leading-relaxed">
                             ቴሌግራም ላይ የዚህን Bot ፕሮፋይል ከፍተው <b>Notifications</b> &gt; <b>Sound</b> የሚለውን <b>በጣም ጮክ ያለ Ringtone</b> ያድርጉት። እንዲሁም <b>Importance / Priority</b> የሚለውን <b>"High"</b> ያድርጉት። ስትተኙም እንኳ እንደ ጥሪ ጮክ ብሎ ይቀሰቅሳችኋል!
                           </p>
+                        </div>
+
+                        {/* ======================================================== */}
+                        {/* 📱 SMSETHIOPIA.COM SMS ALERTS INTEGRATION PANEL          */}
+                        {/* ======================================================== */}
+                        <div className="p-3.5 bg-gradient-to-br from-amber-950/30 via-neutral-900 to-neutral-950 rounded-xl border border-amber-500/40 space-y-3">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                                <span>📱</span> smsethiopia.com SMS የማንቂያ ደወል
+                              </span>
+                              <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                100 FREE SMS GIFT
+                              </span>
+                            </div>
+
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.indicators.msttSmsAlertsEnabled ?? true}
+                                onChange={(e) => {
+                                  const nextVal = e.target.checked;
+                                  handleUpdateIndicators('msttSmsAlertsEnabled', nextVal);
+                                  handleSyncCloudSettings({ ...settings.indicators, msttSmsAlertsEnabled: nextVal });
+                                }}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                            </label>
+                          </div>
+
+                          <p className="text-xs text-gray-300 leading-relaxed">
+                            ኢንተርኔት (Data/Wi-Fi) ጠፍቶ ወይም ስልክዎ ተኝቶ ቢሆንም እንኳን፣ አዲስ የ 30M BOS Breakout ሲግናል ሲወጣ <b>በቀጥታ በ SMS መልእክት ወደ ስልክዎ ይላካል</b>!
+                          </p>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                            {/* Phone Number Input */}
+                            <div className="space-y-1">
+                              <label className="block text-xs font-medium text-gray-300">የእርስዎ ስልክ ቁጥር (Recipient Phone)</label>
+                              <input
+                                type="text"
+                                value={settings.indicators.msttSmsPhone || '251968865885'}
+                                onChange={(e) => handleUpdateIndicators('msttSmsPhone', e.target.value)}
+                                placeholder="251968865885"
+                                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-amber-300 focus:outline-none focus:border-amber-500"
+                              />
+                              <span className="text-[10px] text-gray-500">ኢንተርናሽናል ፎርማት (251968865885)</span>
+                            </div>
+
+                            {/* smsethiopia API Key Input */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <label className="font-medium text-gray-300">smsethiopia.com API Key</label>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowSmsKeySecret(!showSmsKeySecret)}
+                                  className="text-[11px] text-amber-400 hover:text-amber-300 transition-colors"
+                                >
+                                  {showSmsKeySecret ? 'ደብቅ (Hide)' : 'አሳይ (Show)'}
+                                </button>
+                              </div>
+                              <input
+                                type={showSmsKeySecret ? 'text' : 'password'}
+                                value={settings.indicators.msttSmsApiKey || 'X5UZHVO1BTC9VTNGXPAR4BJQCDCLLOPYPEJ6U4H6'}
+                                onChange={(e) => handleUpdateIndicators('msttSmsApiKey', e.target.value)}
+                                placeholder="X5UZHVO..."
+                                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-amber-500"
+                              />
+                              <span className="text-[10px] text-gray-500">ከ Console &gt; API KEY የተገኘ</span>
+                            </div>
+                          </div>
+
+                          {/* Test SMS Button */}
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              disabled={smsTesting}
+                              onClick={handleTestSms}
+                              className="w-full py-2 px-3 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
+                            >
+                              <span>{smsTesting ? '⏳ SMS እየተላከ ነው...' : '📨 የሙከራ SMS ወደ ስልክህ ላክ (Test Live SMS)'}</span>
+                            </button>
+                          </div>
+
+                          {/* SMS Feedback Message */}
+                          {smsMsg && (
+                            <div
+                              className={`p-2.5 rounded-lg text-xs font-medium border ${
+                                smsMsg.type === 'success'
+                                  ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300'
+                                  : 'bg-rose-950/70 border-rose-500/50 text-rose-300'
+                              }`}
+                            >
+                              {smsMsg.text}
+                            </div>
+                          )}
+
+                          <div className="p-2.5 bg-neutral-950/80 rounded-lg border border-neutral-850 text-[11px] text-gray-400 space-y-1">
+                            <p>💡 <b>የድምፅ ምክር፦</b> በስልክዎ <b>Messages Settings &gt; Notifications</b> ውስጥ ገብተው ለሚመጣው SMS <b>በጣም ጮክ ያለ የደወል ድምፅ (Ringtone)</b> ይምረጡለት። ስትተኙም እንኳን ቀስቅሶ ትሬዱን እንድትከፍቱ ያደርጋል!</p>
+                          </div>
+                        </div>
+
+                        {/* ======================================================== */}
+                        {/* 🤖 MT5 VPS AUTO-TRADING & CIRCUIT BREAKER ENGINE PANEL */}
+                        {/* ======================================================== */}
+                        <div className="mt-4 pt-4 border-t border-emerald-500/40 space-y-3.5 bg-neutral-950/80 p-3.5 rounded-xl border border-neutral-800">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                                <span>🤖</span> MT5 VPS Auto-Trading &amp; Circuit Breaker
+                              </span>
+                              <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                                MT5 MQL5 EA
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={fetchEaStatus}
+                              className="text-[10px] font-mono text-gray-400 hover:text-emerald-300 flex items-center gap-1 px-1.5 py-0.5 rounded bg-neutral-900 border border-neutral-800 transition-colors"
+                            >
+                              <span>🔄 ሁኔታውን ፈትሽ (Refresh)</span>
+                            </button>
+                          </div>
+
+                          <p className="text-xs text-gray-300 leading-relaxed">
+                            በዚህ WebApp ላይ የሚወጣውን የ 30M BOS Breakout Signal በሰከንዶች ውስጥ በ VPS MetaTrader 5 ላይ በቀጥታ ያለ ምንም የሰው ጣልቃገብነት auto-trade ያደርጋል!
+                          </p>
+
+                          {/* MASTER START / STOP BUTTON */}
+                          <div className="p-3 rounded-lg border border-neutral-800 bg-neutral-900/90 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-gray-200">
+                                🕹️ Auto-Trading ዋና መቆጣጠሪያ (Master Switch):
+                              </span>
+                              <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded ${
+                                (settings.indicators.msttAutoBotEnabled !== false && !eaStatus?.circuitBreakerTripped)
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                  : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                              }`}>
+                                {(settings.indicators.msttAutoBotEnabled !== false && !eaStatus?.circuitBreakerTripped)
+                                  ? '🟢 ACTIVE (እየሰራ ነው)'
+                                  : (eaStatus?.circuitBreakerTripped ? '🛑 CIRCUIT BREAKER STOPPED' : '🔴 PAUSED (ቆሟል)')}
+                              </span>
+                            </div>
+
+                            <div className="pt-1">
+                              {settings.indicators.msttAutoBotEnabled !== false ? (
+                                <button
+                                  type="button"
+                                  disabled={eaLoading}
+                                  onClick={() => handleToggleAutoBot(false)}
+                                  className="w-full py-2.5 px-4 bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white rounded-lg font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+                                >
+                                  <span>🛑</span>
+                                  <span>AUTO-BOT አቁም (Click to PAUSE Auto-Trading)</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={eaLoading}
+                                  onClick={() => handleToggleAutoBot(true)}
+                                  className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-lg font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+                                >
+                                  <span>▶️</span>
+                                  <span>AUTO-BOT አስጀምር (Click to START Auto-Trading)</span>
+                                </button>
+                              )}
+                            </div>
+                            <span className="block text-[10px] text-gray-400">
+                              * ሲቆም (PAUSED) ወደ Telegram Botም ሆነ ወደ EA ምንም አይነት አዲስ የትሬድ ሲግናል አይተላለፍም።
+                            </span>
+                          </div>
+
+                          {/* CIRCUIT BREAKER NOTIFICATION IF TRIPPED */}
+                          {eaStatus?.circuitBreakerTripped && (
+                            <div className="p-2.5 rounded-lg bg-rose-950/80 border border-rose-500 text-rose-200 text-xs space-y-1">
+                              <span className="font-bold flex items-center gap-1.5 text-rose-300">
+                                <span>🚨</span> የቀን የኪሳራ ገደብ ደርሷል (Daily Circuit Breaker Tripped)!
+                              </span>
+                              <p className="text-[11px] text-rose-200 leading-relaxed">
+                                ዛሬ በተከታታይ {eaStatus.consecutiveLossesToday} ኪሳራ ስላጋጠመ ካፒታልዎን ለመጠበቅ ቦቱ ለቀኑ ቆሟል። ነገ በ 00:00 UTC በራሱ ዳግም ይጀምራል፤ ወይም ከላይ <b>"አስጀምር"</b> የሚለውን ተጭነው ማንሳት ይችላሉ።
+                              </p>
+                            </div>
+                          )}
+
+                          {/* RISK SAFEGUARD: CONSECUTIVE LOSSES & LOT SIZE SETTINGS */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                            {/* Consecutive Loss Input */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <label className="font-medium text-gray-300 flex items-center gap-1">
+                                  <span>⚠️</span> የቀን ተከታታይ ኪሳራ ገደብ
+                                </label>
+                                <span className="text-[10px] text-amber-400 font-mono">
+                                  ዛሬ የደረሰው: {eaStatus?.consecutiveLossesToday ?? 0}
+                                </span>
+                              </div>
+                              <input
+                                type="number"
+                                min={1}
+                                max={10}
+                                value={settings.indicators.msttMaxConsecutiveLosses ?? 2}
+                                onChange={(e) => {
+                                  const val = Math.max(1, Math.min(10, parseInt(e.target.value) || 2));
+                                  handleUpdateConsecutiveLossLimit(val);
+                                }}
+                                className="w-full px-3 py-2 bg-neutral-900 border border-neutral-750 rounded-lg text-xs font-mono text-amber-300 focus:outline-none focus:border-emerald-500"
+                              />
+                              <span className="text-[10px] text-gray-500">
+                                በተከታታይ ይሄ ያህል Loss ሲመጣ ቦቱ ለቀኑ Auto-Stop ያደርጋል (Default: 2)
+                              </span>
+                            </div>
+
+                            {/* Auto-Trade Lot Size Input */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <label className="font-medium text-gray-300 flex items-center gap-1">
+                                  <span>⚖️</span> MT5 Auto-Trade Lot Size
+                                </label>
+                                <span className="text-[10px] text-emerald-400 font-mono">
+                                  V75 Min: 0.001
+                                </span>
+                              </div>
+                              <input
+                                type="number"
+                                step="0.001"
+                                min="0.001"
+                                max="1.0"
+                                value={settings.indicators.msttLotSize ?? 0.001}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 0.001;
+                                  handleUpdateLotSize(val);
+                                }}
+                                className="w-full px-3 py-2 bg-neutral-900 border border-neutral-750 rounded-lg text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
+                              />
+                              <span className="text-[10px] text-gray-500">
+                                ለእያንዳንዱ ትሬድ የሚከፈተው የሎት መጠን (0.001 Lot = $2.20 SL Risk)
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* MT5 EA API ENDPOINTS FOR VPS */}
+                          <div className="p-3 bg-neutral-900/90 rounded-lg border border-neutral-800 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-gray-200 flex items-center gap-1.5">
+                                <span>🔗</span> የ MT5 EA Polling URL (ለ EA የሚሰጠው):
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
+                                  const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
+                                  navigator.clipboard.writeText(origin);
+                                  setEaUrlCopied(true);
+                                  setTimeout(() => setEaUrlCopied(false), 3000);
+                                }}
+                                className="px-2 py-0.5 text-[10px] font-semibold bg-neutral-800 hover:bg-neutral-700 text-emerald-400 rounded border border-neutral-700 transition-colors"
+                              >
+                                {eaUrlCopied ? '✅ ተገልብጧል (Copied)!' : 'Base URL ኮፒ (Copy)'}
+                              </button>
+                            </div>
+
+                            <div className="p-2 bg-neutral-950 rounded border border-neutral-850 text-[11px] font-mono text-emerald-400 break-all select-all">
+                              {(() => {
+                                const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
+                                const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
+                                return `${origin}/api/ea-signal`;
+                              })()}
+                            </div>
+                          </div>
+
+                          {/* DOWNLOAD & COPY MQL5 EXPERT ADVISOR SCRIPT */}
+                          <div className="p-3 bg-emerald-950/20 border border-emerald-500/30 rounded-lg space-y-2.5">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                                <span>📥</span> የ MT5 Expert Advisor (EA) ፋይል፦
+                              </span>
+
+                              <div className="flex items-center gap-2">
+                                <a
+                                  href="/Mcharts_V75_AutoTrader.mq5"
+                                  download="Mcharts_V75_AutoTrader.mq5"
+                                  className="px-2.5 py-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md shadow transition-colors flex items-center gap-1"
+                                >
+                                  <span>⬇️</span> .mq5 ፋይል አውርድ
+                                </a>
+
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    try {
+                                      const res = await fetch('/Mcharts_V75_AutoTrader.mq5');
+                                      const code = await res.text();
+                                      navigator.clipboard.writeText(code);
+                                      setEaCodeCopied(true);
+                                      setTimeout(() => setEaCodeCopied(false), 3000);
+                                    } catch (e) {}
+                                  }}
+                                  className="px-2.5 py-1 text-xs font-semibold bg-neutral-800 hover:bg-neutral-750 text-sky-300 rounded-md border border-neutral-700 transition-colors flex items-center gap-1"
+                                >
+                                  <span>{eaCodeCopied ? '✅ ኮፒ ሆኗል!' : '📋 ሙሉ ኮድ ኮፒ አድርግ'}</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="text-[11px] text-gray-300 space-y-1">
+                              <p><b>1.</b> በ VPS ኮምፒውተርዎ ላይ MT5 ን ይክፈቱ ➔ <b>Tools &gt; Options &gt; Expert Advisors</b> ውስጥ ይግቡ።</p>
+                              <p><b>2.</b> <b>"Allow WebRequest for listed URL"</b> የሚለውን አብርተው የ WebAppዎን URL (<code>https://mrvol75.vercel.app</code>) ያስገቡ።</p>
+                              <p><b>3.</b> የወረደውን <b>Mcharts_V75_AutoTrader.mq5</b> ፋይል MT5 ላይ <b>MQL5/Experts</b> ውስጥ አስቀምጠው <b>Compile</b> ይበሉ።</p>
+                              <p><b>4.</b> EAውን ወደ <b>Volatility 75 Index (30M)</b> ቻርት ላይ ጎትተው ይጫኑትና <b>Algo Trading</b> የሚለውን ያብሩት! አበቃ!</p>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>

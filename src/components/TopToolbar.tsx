@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { TimeframeId, SymbolInfo, ChartThemeId } from '../types';
 import { isDarkTheme, getThemePreset } from '../utils/themePresets';
 import { TIMEFRAMES } from '../hooks/useDerivWS';
@@ -102,6 +103,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
 
   const [isTfDropdownOpen, setIsTfDropdownOpen] = useState(false);
   const tfDropdownRef = useRef<HTMLDivElement>(null);
+  const [tfCoords, setTfCoords] = useState<{ top: number; left: number } | null>(null);
 
   const [isLayoutDropdownOpen, setIsLayoutDropdownOpen] = useState(false);
   const layoutDropdownRef = useRef<HTMLDivElement>(null);
@@ -109,6 +111,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   // Quick Risk/Reward Horizontal Bar State
   const [isQuickRrOpen, setIsQuickRrOpen] = useState(false);
   const quickRrRef = useRef<HTMLDivElement>(null);
+  const [quickRrCoords, setQuickRrCoords] = useState<{ top: number; right: number } | null>(null);
 
   const [isLong, setIsLong] = useState<boolean>(() => {
     try {
@@ -128,16 +131,77 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
     }
   });
 
-  // Close dropdowns on outside click
+  const updateTfCoords = useCallback(() => {
+    if (tfDropdownRef.current) {
+      const rect = tfDropdownRef.current.getBoundingClientRect();
+      const dropdownWidth = 208; // 52 * 4 = 208px
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - dropdownWidth - 8));
+      const top = rect.bottom + 4;
+      setTfCoords({ top, left });
+    }
+  }, []);
+
+  const updateQuickRrCoords = useCallback(() => {
+    if (quickRrRef.current) {
+      const rect = quickRrRef.current.getBoundingClientRect();
+      const top = rect.bottom + 4;
+      const right = Math.max(8, window.innerWidth - rect.right);
+      setQuickRrCoords({ top, right });
+    }
+  }, []);
+
+  const handleToggleTf = () => {
+    if (!isTfDropdownOpen) {
+      updateTfCoords();
+      setIsTfDropdownOpen(true);
+    } else {
+      setIsTfDropdownOpen(false);
+    }
+  };
+
+  const handleToggleQuickRr = () => {
+    if (!isQuickRrOpen) {
+      updateQuickRrCoords();
+      setIsQuickRrOpen(true);
+    } else {
+      setIsQuickRrOpen(false);
+    }
+  };
+
+  // Keep dropdowns aligned on scroll/resize
+  useEffect(() => {
+    if (!isTfDropdownOpen && !isQuickRrOpen) return;
+    const handleReposition = () => {
+      if (isTfDropdownOpen) updateTfCoords();
+      if (isQuickRrOpen) updateQuickRrCoords();
+    };
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+  }, [isTfDropdownOpen, isQuickRrOpen, updateTfCoords, updateQuickRrCoords]);
+
+  // Close dropdowns on outside click (taking portaled menus into account)
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (tfDropdownRef.current && !tfDropdownRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        tfDropdownRef.current && 
+        !tfDropdownRef.current.contains(target) &&
+        !document.getElementById('dropdown-timeframes-vertical')?.contains(target)
+      ) {
         setIsTfDropdownOpen(false);
       }
-      if (layoutDropdownRef.current && !layoutDropdownRef.current.contains(event.target as Node)) {
+      if (layoutDropdownRef.current && !layoutDropdownRef.current.contains(target)) {
         setIsLayoutDropdownOpen(false);
       }
-      if (quickRrRef.current && !quickRrRef.current.contains(event.target as Node)) {
+      if (
+        quickRrRef.current && 
+        !quickRrRef.current.contains(target) &&
+        !document.getElementById('quick-rr-horizontal-bar')?.contains(target)
+      ) {
         setIsQuickRrOpen(false);
       }
     };
@@ -173,7 +237,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   return (
     <div 
       id="top-toolbar" 
-      className={`relative z-50 h-11 border-b flex items-center justify-between px-2.5 sm:px-3 select-none gap-2 shrink-0 transition-colors ${
+      className={`relative z-40 h-11 border-b select-none shrink-0 transition-colors overflow-x-auto overflow-y-hidden scrollbar-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden touch-pan-x ${
         isDark 
           ? 'bg-black border-neutral-850 text-white' 
           : 'bg-white border-neutral-200 text-slate-800 shadow-xs'
@@ -181,83 +245,93 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       style={{
         backgroundColor: isDark ? preset.surfaceColor || '#000000' : '#ffffff',
         borderColor: isDark ? preset.borderColor : '#e2e8f0',
+        WebkitOverflowScrolling: 'touch',
       }}
     >
-      {/* Left section: Brand, Pair Selector, Timeframe Dropdown (Vertical only), Indicators */}
-      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-        {/* Mcharts Brand */}
-        <div className="flex items-center gap-1 select-none pr-1">
-          <span className={`font-sans font-black text-sm tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            M<span className="text-blue-500 font-semibold">charts</span>
-          </span>
-        </div>
-
-        {/* Separator */}
-        <div className={`w-px h-5 hidden sm:block ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
-
-        {/* Dynamic symbol selector dropdown button */}
-        <div className="flex items-center gap-1">
-          <button
-            id="btn-trigger-symbol-modal"
-            onClick={onOpenSymbolModal}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-bold font-mono transition-all border ${
-              isDark
-                ? 'bg-neutral-900 hover:bg-neutral-800 text-white border-neutral-800 hover:border-neutral-700'
-                : 'bg-neutral-100 hover:bg-neutral-200 text-slate-900 border-neutral-300 hover:border-neutral-400'
-            }`}
-          >
-            <TrendingUp className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-            <span>{selectedSymbol}</span>
-            <span className={`text-[10px] font-normal truncate max-w-[90px] hidden md:inline ${isDark ? 'text-gray-400' : 'text-neutral-500'}`}>
-              {symbolInfo ? `(${symbolInfo.display_name})` : ''}
+      <div className="flex items-center justify-between min-w-max w-full h-full px-2 sm:px-3 gap-2">
+        {/* Left section: Brand, Pair Selector, Timeframe Dropdown (Vertical only), Indicators */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 whitespace-nowrap">
+          {/* Mcharts Brand */}
+          <div className="flex items-center gap-1 select-none pr-1">
+            <span className={`font-sans font-black text-sm tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              M<span className="text-blue-500 font-semibold">charts</span>
             </span>
-          </button>
+          </div>
 
-          {/* Quick star button for active symbol */}
-          {onToggleFavorite && (
+          {/* Separator */}
+          <div className={`w-px h-5 hidden sm:block ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
+
+          {/* Dynamic symbol selector dropdown button */}
+          <div className="flex items-center gap-1">
             <button
-              type="button"
-              onClick={() => onToggleFavorite(selectedSymbol)}
-              className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-neutral-800 text-neutral-400' : 'hover:bg-neutral-100 text-neutral-500'}`}
-              title={isCurrentFavorite ? "Remove active symbol from favorites" : "Add active symbol to favorites"}
+              id="btn-trigger-symbol-modal"
+              onClick={onOpenSymbolModal}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-bold font-mono transition-all border ${
+                isDark
+                  ? 'bg-neutral-900 hover:bg-neutral-800 text-white border-neutral-800 hover:border-neutral-700'
+                  : 'bg-neutral-100 hover:bg-neutral-200 text-slate-900 border-neutral-300 hover:border-neutral-400'
+              }`}
             >
-              <Star className={`w-3.5 h-3.5 ${isCurrentFavorite ? 'text-amber-400 fill-amber-400' : isDark ? 'text-neutral-500 hover:text-amber-300' : 'text-neutral-400 hover:text-amber-500'}`} />
+              <TrendingUp className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+              <span>{selectedSymbol}</span>
+              <span className={`text-[10px] font-normal truncate max-w-[90px] hidden md:inline ${isDark ? 'text-gray-400' : 'text-neutral-500'}`}>
+                {symbolInfo ? `(${symbolInfo.display_name})` : ''}
+              </span>
             </button>
-          )}
-        </div>
 
-        {/* Timeframe Dropdown (Directly next to Pair on the left) */}
-        <div className="relative" ref={tfDropdownRef}>
-          <button
-            id="btn-trigger-timeframe-dropdown"
-            onClick={() => setIsTfDropdownOpen(!isTfDropdownOpen)}
-            title="Timeframe Interval (Click to view vertical options)"
-            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-bold font-mono transition-all border ${
-              isTfDropdownOpen
-                ? isDark
-                  ? 'bg-blue-600/20 text-blue-400 border-blue-500/50'
-                  : 'bg-blue-50 text-blue-600 border-blue-400'
-                : isDark
-                  ? 'bg-neutral-900 hover:bg-neutral-850 text-neutral-200 border-neutral-800 hover:border-neutral-700'
-                  : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300 hover:border-neutral-400'
-            }`}
-          >
-            <span>{activeTfOption.label}</span>
-            <ChevronDown 
-              className={`w-3 h-3 transition-transform duration-150 ${
-                isTfDropdownOpen ? 'rotate-180 text-blue-500' : isDark ? 'text-neutral-400' : 'text-neutral-500'
-              }`} 
-            />
-          </button>
+            {/* Quick star button for active symbol */}
+            {onToggleFavorite && (
+              <button
+                type="button"
+                onClick={() => onToggleFavorite(selectedSymbol)}
+                className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-neutral-800 text-neutral-400' : 'hover:bg-neutral-100 text-neutral-500'}`}
+                title={isCurrentFavorite ? "Remove active symbol from favorites" : "Add active symbol to favorites"}
+              >
+                <Star className={`w-3.5 h-3.5 ${isCurrentFavorite ? 'text-amber-400 fill-amber-400' : isDark ? 'text-neutral-500 hover:text-amber-300' : 'text-neutral-400 hover:text-amber-500'}`} />
+              </button>
+            )}
+          </div>
 
-          {/* TradingView-Style Vertical Dropdown */}
-          {isTfDropdownOpen && (
+          {/* Timeframe Dropdown (Directly next to Pair on the left) */}
+          <div className="relative" ref={tfDropdownRef}>
+            <button
+              id="btn-trigger-timeframe-dropdown"
+              type="button"
+              onClick={handleToggleTf}
+              title="Timeframe Interval (Click to view vertical options)"
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-bold font-mono transition-all border cursor-pointer ${
+                isTfDropdownOpen
+                  ? isDark
+                    ? 'bg-blue-600/20 text-blue-400 border-blue-500/50'
+                    : 'bg-blue-50 text-blue-600 border-blue-400'
+                  : isDark
+                    ? 'bg-neutral-900 hover:bg-neutral-850 text-neutral-200 border-neutral-800 hover:border-neutral-700'
+                    : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300 hover:border-neutral-400'
+              }`}
+            >
+              <span>{activeTfOption.label}</span>
+              <ChevronDown 
+                className={`w-3 h-3 transition-transform duration-150 ${
+                  isTfDropdownOpen ? 'rotate-180 text-blue-500' : isDark ? 'text-neutral-400' : 'text-neutral-500'
+                }`} 
+              />
+            </button>
+          </div>
+
+          {/* TradingView-Style Vertical Dropdown via Portal (immune to overflow-x:auto clipping & dashboard occlusion) */}
+          {isTfDropdownOpen && tfCoords && createPortal(
             <div 
               id="dropdown-timeframes-vertical"
-              className={`absolute left-0 top-full mt-1.5 w-52 rounded-lg shadow-2xl py-1 z-[100] border ${
+              style={{
+                position: 'fixed',
+                top: `${tfCoords.top}px`,
+                left: `${tfCoords.left}px`,
+                zIndex: 99999,
+              }}
+              className={`w-52 rounded-lg shadow-2xl py-1 border animate-in fade-in zoom-in-95 duration-100 max-h-[85vh] overflow-y-auto select-none ${
                 isDark 
-                  ? 'bg-neutral-900/98 backdrop-blur-md border-neutral-800 divide-y divide-neutral-800/60' 
-                  : 'bg-white border-neutral-200 divide-y divide-neutral-100'
+                  ? 'bg-neutral-900/98 backdrop-blur-md border-neutral-700 divide-y divide-neutral-800/60 shadow-black/90' 
+                  : 'bg-white border-neutral-200 divide-y divide-neutral-100 shadow-xl'
               }`}
             >
               {TIMEFRAME_GROUPS.map((group) => (
@@ -271,11 +345,12 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
                       <button
                         key={item.id}
                         id={`tf-option-${item.id}`}
+                        type="button"
                         onClick={() => {
                           onSelectTimeframe(item.id);
                           setIsTfDropdownOpen(false);
                         }}
-                        className={`w-full px-3 py-1.5 flex items-center justify-between text-xs transition-colors text-left ${
+                        className={`w-full px-3 py-1.5 flex items-center justify-between text-xs transition-colors text-left cursor-pointer ${
                           isSelected 
                             ? isDark
                               ? 'bg-blue-600/20 text-blue-400 font-bold'
@@ -295,9 +370,9 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
                   })}
                 </div>
               ))}
-            </div>
+            </div>,
+            document.body
           )}
-        </div>
 
         {/* Separator */}
         <div className={`w-px h-5 hidden sm:block ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
@@ -348,21 +423,22 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       </div>
 
       {/* Right utilities & configuration controls */}
-      <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+      <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
         {/* Risk / Reward Interactive Tool: Horizontal Quick Selector (1:2, 1:3, 1:4) + Full Modal */}
         {(onStartRRPlacement || onOpenRiskRewardModal) && (
           <div className="relative" ref={quickRrRef}>
             <button
               id="btn-top-toolbar-risk-reward"
+              type="button"
               onClick={() => {
                 if (isPlacingRR && onCancelRRPlacement) {
                   onCancelRRPlacement();
                 } else {
-                  setIsQuickRrOpen(!isQuickRrOpen);
+                  handleToggleQuickRr();
                 }
               }}
               title={isPlacingRR ? "Click to cancel placement" : "Risk / Reward Tool: Choose 1:2, 1:3, 1:4 and tap anywhere on chart to draw"}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-bold font-mono transition-all border ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-bold font-mono transition-all border cursor-pointer ${
                 isPlacingRR
                   ? 'bg-amber-500 text-black border-amber-400 animate-pulse shadow-md'
                   : isQuickRrOpen
@@ -378,189 +454,196 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
               <span>{isPlacingRR ? '🎯 Tap Chart...' : 'R:R Tool'}</span>
               <ChevronDown className={`w-3 h-3 transition-transform ${isQuickRrOpen ? 'rotate-180' : ''}`} />
             </button>
+          </div>
+        )}
 
-            {/* TradingView / MT5 Horizontal Quick Selector Bar */}
-            {isQuickRrOpen && (
-              <div
-                id="quick-rr-horizontal-bar"
-                className={`absolute right-0 top-full mt-1.5 py-1 px-2 rounded-lg shadow-2xl border flex items-center gap-2 z-[150] text-xs font-mono select-none backdrop-blur-md whitespace-nowrap ${
-                  isDark
-                    ? 'bg-neutral-900/98 border-neutral-700 text-white shadow-black/80'
-                    : 'bg-white/98 border-neutral-300 text-slate-900 shadow-lg'
+        {/* TradingView / MT5 Horizontal Quick Selector Bar via Portal */}
+        {isQuickRrOpen && quickRrCoords && createPortal(
+          <div
+            id="quick-rr-horizontal-bar"
+            style={{
+              position: 'fixed',
+              top: `${quickRrCoords.top}px`,
+              right: `${quickRrCoords.right}px`,
+              zIndex: 99999,
+            }}
+            className={`py-1 px-2 rounded-lg shadow-2xl border flex items-center gap-2 text-xs font-mono select-none backdrop-blur-md whitespace-nowrap animate-in fade-in zoom-in-95 duration-100 ${
+              isDark
+                ? 'bg-neutral-900/98 border-neutral-700 text-white shadow-black/90'
+                : 'bg-white/98 border-neutral-300 text-slate-900 shadow-xl'
+            }`}
+          >
+            {/* 1. Long / Short Direction Toggle */}
+            <div className="flex items-center rounded p-0.5 bg-black/20 border border-neutral-700/40">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLong(true);
+                  try { localStorage.setItem('mihiretu_rr_is_long', 'true'); } catch (e) {}
+                }}
+                className={`px-2 py-0.5 rounded text-[11px] font-black transition-all cursor-pointer ${
+                  isLong
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-neutral-400 hover:text-white'
                 }`}
               >
-                {/* 1. Long / Short Direction Toggle */}
-                <div className="flex items-center rounded p-0.5 bg-black/20 border border-neutral-700/40">
+                BUY
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLong(false);
+                  try { localStorage.setItem('mihiretu_rr_is_long', 'false'); } catch (e) {}
+                }}
+                className={`px-2 py-0.5 rounded text-[11px] font-black transition-all cursor-pointer ${
+                  !isLong
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                SELL
+              </button>
+            </div>
+
+            {/* Separator */}
+            <div className={`w-px h-5 ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
+
+            {/* 2. Stop Loss (SL) in Pips/Points */}
+            <div className="flex items-center gap-1">
+              <span className={`text-[10px] font-sans uppercase font-bold ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>SL:</span>
+              <input
+                type="number"
+                value={slPips}
+                onChange={(e) => {
+                  const val = Math.max(1, Number(e.target.value) || 1);
+                  setSlPips(val);
+                  try { localStorage.setItem('mihiretu_rr_sl_pips', String(val)); } catch (err) {}
+                }}
+                className={`w-14 px-1 py-0.5 rounded text-[11px] font-bold text-center border focus:outline-none ${
+                  isDark
+                    ? 'bg-neutral-950 border-neutral-700 text-amber-300 focus:border-amber-400'
+                    : 'bg-neutral-50 border-neutral-300 text-amber-700 focus:border-amber-500'
+                }`}
+                title="Stop Loss distance in pips/points"
+              />
+              <span className="text-[10px] text-neutral-400">pips</span>
+
+              {/* Quick presets for Volatility 75 / all pairs */}
+              <div className="flex items-center gap-0.5 ml-0.5">
+                {[200, 220].map((p) => (
                   <button
+                    key={p}
                     type="button"
                     onClick={() => {
-                      setIsLong(true);
-                      try { localStorage.setItem('mihiretu_rr_is_long', 'true'); } catch (e) {}
+                      setSlPips(p);
+                      try { localStorage.setItem('mihiretu_rr_sl_pips', String(p)); } catch (err) {}
                     }}
-                    className={`px-2 py-0.5 rounded text-[11px] font-black transition-all ${
-                      isLong
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'text-neutral-400 hover:text-white'
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                      slPips === p
+                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/60'
+                        : isDark
+                          ? 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white'
+                          : 'bg-neutral-100 text-neutral-600 border-neutral-300 hover:text-slate-900'
                     }`}
                   >
-                    BUY
+                    {p}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsLong(false);
-                      try { localStorage.setItem('mihiretu_rr_is_long', 'false'); } catch (e) {}
-                    }}
-                    className={`px-2 py-0.5 rounded text-[11px] font-black transition-all ${
-                      !isLong
-                        ? 'bg-rose-600 text-white shadow-xs'
-                        : 'text-neutral-400 hover:text-white'
-                    }`}
-                  >
-                    SELL
-                  </button>
-                </div>
-
-                {/* Separator */}
-                <div className={`w-px h-5 ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
-
-                {/* 2. Stop Loss (SL) in Pips/Points */}
-                <div className="flex items-center gap-1">
-                  <span className={`text-[10px] font-sans uppercase font-bold ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>SL:</span>
-                  <input
-                    type="number"
-                    value={slPips}
-                    onChange={(e) => {
-                      const val = Math.max(1, Number(e.target.value) || 1);
-                      setSlPips(val);
-                      try { localStorage.setItem('mihiretu_rr_sl_pips', String(val)); } catch (err) {}
-                    }}
-                    className={`w-14 px-1 py-0.5 rounded text-[11px] font-bold text-center border focus:outline-none ${
-                      isDark
-                        ? 'bg-neutral-950 border-neutral-700 text-amber-300 focus:border-amber-400'
-                        : 'bg-neutral-50 border-neutral-300 text-amber-700 focus:border-amber-500'
-                    }`}
-                    title="Stop Loss distance in pips/points"
-                  />
-                  <span className="text-[10px] text-neutral-400">pips</span>
-
-                  {/* Quick presets for Volatility 75 / all pairs */}
-                  <div className="flex items-center gap-0.5 ml-0.5">
-                    {[200, 220].map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => {
-                          setSlPips(p);
-                          try { localStorage.setItem('mihiretu_rr_sl_pips', String(p)); } catch (err) {}
-                        }}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors ${
-                          slPips === p
-                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/60'
-                            : isDark
-                              ? 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white'
-                              : 'bg-neutral-100 text-neutral-600 border-neutral-300 hover:text-slate-900'
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Separator */}
-                <div className={`w-px h-5 ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
-
-                {/* 3. Horizontal Ratio Selector (በአጭሩ አግድም 1:2, 1:3, 1:4, 1:5) */}
-                <div className="flex items-center gap-1">
-                  <span className={`text-[10px] font-sans uppercase font-bold mr-0.5 ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Ratio:</span>
-                  
-                  {/* 1:2 - Winner preset (79% Win Rate) */}
-                  <button
-                    type="button"
-                    id="btn-rr-ratio-1-2"
-                    onClick={() => handleSelectRatio(2)}
-                    title="Select 1:2 Ratio (79% Win Rate Formula on 30M) - Tap anywhere on chart to draw"
-                    className={`px-2 py-0.5 rounded text-[11px] font-black border transition-all flex items-center gap-1 cursor-pointer ${
-                      isDark
-                        ? 'bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border-emerald-500/70 shadow-xs'
-                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-400 shadow-xs'
-                    }`}
-                  >
-                    <span>1:2</span>
-                    <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500 text-black font-extrabold uppercase tracking-tight">
-                      79% Win
-                    </span>
-                  </button>
-
-                  {/* 1:3 */}
-                  <button
-                    type="button"
-                    id="btn-rr-ratio-1-3"
-                    onClick={() => handleSelectRatio(3)}
-                    title="Select 1:3 Ratio - Tap anywhere on chart to draw"
-                    className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer ${
-                      isDark
-                        ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border-neutral-700 hover:border-neutral-600'
-                        : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300'
-                    }`}
-                  >
-                    1:3
-                  </button>
-
-                  {/* 1:4 */}
-                  <button
-                    type="button"
-                    id="btn-rr-ratio-1-4"
-                    onClick={() => handleSelectRatio(4)}
-                    title="Select 1:4 Ratio - Tap anywhere on chart to draw"
-                    className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer ${
-                      isDark
-                        ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border-neutral-700 hover:border-neutral-600'
-                        : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300'
-                    }`}
-                  >
-                    1:4
-                  </button>
-
-                  {/* 1:5 */}
-                  <button
-                    type="button"
-                    id="btn-rr-ratio-1-5"
-                    onClick={() => handleSelectRatio(5)}
-                    title="Select 1:5 Ratio - Tap anywhere on chart to draw"
-                    className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer ${
-                      isDark
-                        ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border-neutral-700 hover:border-neutral-600'
-                        : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300'
-                    }`}
-                  >
-                    1:5
-                  </button>
-                </div>
-
-                {/* Separator */}
-                <div className={`w-px h-5 ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
-
-                {/* 4. Advanced Full Modal Trigger */}
-                {onOpenRiskRewardModal && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsQuickRrOpen(false);
-                      onOpenRiskRewardModal();
-                    }}
-                    title="Open Full Deriv MT5 Lot & Dollar Calculator Modal"
-                    className={`p-1 rounded transition-colors ${
-                      isDark ? 'hover:bg-neutral-800 text-neutral-400 hover:text-white' : 'hover:bg-neutral-100 text-neutral-500 hover:text-slate-900'
-                    }`}
-                  >
-                    <SlidersHorizontal className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                ))}
               </div>
+            </div>
+
+            {/* Separator */}
+            <div className={`w-px h-5 ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
+
+            {/* 3. Horizontal Ratio Selector (በአጭሩ አግድም 1:2, 1:3, 1:4, 1:5) */}
+            <div className="flex items-center gap-1">
+              <span className={`text-[10px] font-sans uppercase font-bold mr-0.5 ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Ratio:</span>
+              
+              {/* 1:2 - Winner preset (79% Win Rate) */}
+              <button
+                type="button"
+                id="btn-rr-ratio-1-2"
+                onClick={() => handleSelectRatio(2)}
+                title="Select 1:2 Ratio (79% Win Rate Formula on 30M) - Tap anywhere on chart to draw"
+                className={`px-2 py-0.5 rounded text-[11px] font-black border transition-all flex items-center gap-1 cursor-pointer ${
+                  isDark
+                    ? 'bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border-emerald-500/70 shadow-xs'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-400 shadow-xs'
+                }`}
+              >
+                <span>1:2</span>
+                <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500 text-black font-extrabold uppercase tracking-tight">
+                  79% Win
+                </span>
+              </button>
+
+              {/* 1:3 */}
+              <button
+                type="button"
+                id="btn-rr-ratio-1-3"
+                onClick={() => handleSelectRatio(3)}
+                title="Select 1:3 Ratio - Tap anywhere on chart to draw"
+                className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer ${
+                  isDark
+                    ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border-neutral-700 hover:border-neutral-600'
+                    : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300'
+                }`}
+              >
+                1:3
+              </button>
+
+              {/* 1:4 */}
+              <button
+                type="button"
+                id="btn-rr-ratio-1-4"
+                onClick={() => handleSelectRatio(4)}
+                title="Select 1:4 Ratio - Tap anywhere on chart to draw"
+                className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer ${
+                  isDark
+                    ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border-neutral-700 hover:border-neutral-600'
+                    : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300'
+                }`}
+              >
+                1:4
+              </button>
+
+              {/* 1:5 */}
+              <button
+                type="button"
+                id="btn-rr-ratio-1-5"
+                onClick={() => handleSelectRatio(5)}
+                title="Select 1:5 Ratio - Tap anywhere on chart to draw"
+                className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer ${
+                  isDark
+                    ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border-neutral-700 hover:border-neutral-600'
+                    : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300'
+                }`}
+              >
+                1:5
+              </button>
+            </div>
+
+            {/* Separator */}
+            <div className={`w-px h-5 ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
+
+            {/* 4. Advanced Full Modal Trigger */}
+            {onOpenRiskRewardModal && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsQuickRrOpen(false);
+                  onOpenRiskRewardModal();
+                }}
+                title="Open Full Deriv MT5 Lot & Dollar Calculator Modal"
+                className={`p-1 rounded transition-colors cursor-pointer ${
+                  isDark ? 'hover:bg-neutral-800 text-neutral-400 hover:text-white' : 'hover:bg-neutral-100 text-neutral-500 hover:text-slate-900'
+                }`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
             )}
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* TradingView-style Fullscreen / Chart-Only Mode [] icon */}
@@ -649,5 +732,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         </button>
       </div>
     </div>
-  );
+  </div>
+);
 };

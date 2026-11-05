@@ -1731,89 +1731,92 @@ function AppContent() {
           {!isChartOnlyMode && (
             <div 
               id="symbol-info-banner" 
-              className={`h-6 sm:h-6.5 border-b px-2.5 sm:px-3 flex items-center justify-between text-[11px] font-medium select-none shrink-0 transition-colors ${
+              className={`h-6 sm:h-6.5 border-b select-none shrink-0 transition-colors overflow-x-auto overflow-y-hidden scrollbar-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden touch-pan-x ${
                 isDark ? 'bg-black border-neutral-850 text-white' : 'bg-white border-neutral-200 text-slate-800'
               }`}
               style={{
                 backgroundColor: isDark ? activeThemePreset.surfaceColor || '#0c0c0e' : '#ffffff',
                 borderColor: isDark ? activeThemePreset.borderColor : '#e2e8f0',
                 color: activeThemePreset.textColor,
+                WebkitOverflowScrolling: 'touch',
               }}
             >
-              <div className="flex items-center gap-2 sm:gap-2.5 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => favs.toggleFavorite(selectedSymbol)}
-                  className={`p-0.5 rounded transition-colors ${isDark ? 'hover:bg-neutral-850 text-neutral-400' : 'hover:bg-neutral-100 text-neutral-500'}`}
-                  title={favs.isFavorite(selectedSymbol) ? "Remove from favorites" : "Add to favorites"}
-                >
-                  <Star className={`w-3.5 h-3.5 ${favs.isFavorite(selectedSymbol) ? 'text-amber-400 fill-amber-400' : isDark ? 'text-neutral-600 hover:text-amber-300' : 'text-neutral-400 hover:text-amber-500'}`} />
-                </button>
-                <span className={`font-mono text-xs font-bold shrink-0 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>{selectedSymbol}</span>
-                <span className={`truncate max-w-[160px] sm:max-w-xs text-[11px] ${isDark ? 'text-neutral-400' : 'text-slate-600'}`}>
-                  {activeSymbolInfo?.display_name || 'Volatility Index'}
-                </span>
-                <span className={`text-[10px] font-normal uppercase hidden md:inline shrink-0 ${isDark ? 'text-neutral-500' : 'text-slate-500'}`}>
-                  {activeSymbolInfo?.market_display_name || 'Derived Indices'}
-                </span>
-              </div>
+              <div className="flex items-center justify-between min-w-max w-full h-full px-2.5 sm:px-3 text-[11px] font-medium gap-2">
+                <div className="flex items-center gap-2 sm:gap-2.5 shrink-0 whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => favs.toggleFavorite(selectedSymbol)}
+                    className={`p-0.5 rounded transition-colors ${isDark ? 'hover:bg-neutral-850 text-neutral-400' : 'hover:bg-neutral-100 text-neutral-500'}`}
+                    title={favs.isFavorite(selectedSymbol) ? "Remove from favorites" : "Add to favorites"}
+                  >
+                    <Star className={`w-3.5 h-3.5 ${favs.isFavorite(selectedSymbol) ? 'text-amber-400 fill-amber-400' : isDark ? 'text-neutral-600 hover:text-amber-300' : 'text-neutral-400 hover:text-amber-500'}`} />
+                  </button>
+                  <span className={`font-mono text-xs font-bold shrink-0 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>{selectedSymbol}</span>
+                  <span className={`truncate max-w-[160px] sm:max-w-xs text-[11px] ${isDark ? 'text-neutral-400' : 'text-slate-600'}`}>
+                    {activeSymbolInfo?.display_name || 'Volatility Index'}
+                  </span>
+                  <span className={`text-[10px] font-normal uppercase hidden md:inline shrink-0 ${isDark ? 'text-neutral-500' : 'text-slate-500'}`}>
+                    {activeSymbolInfo?.market_display_name || 'Derived Indices'}
+                  </span>
+                </div>
 
-              <div className="flex items-center gap-1.5 shrink-0">
-                {isReplayMode ? (
-                  <span
-                    id="badge-mode-replay"
-                    className="px-1.5 py-0.5 text-[9px] font-bold uppercase rounded bg-amber-500/20 text-amber-500 border border-amber-500/40 flex items-center gap-1"
-                  >
-                    <span className="w-1 h-1 rounded-full bg-amber-400 animate-ping" />
-                    Replay Backtest
-                  </span>
-                ) : isMarketClosed || activeSymbolInfo?.is_closed ? (
-                  <span 
-                    id="badge-market-closed"
-                    className={`px-1.5 py-0.5 text-[9px] font-bold uppercase rounded border flex items-center gap-1 ${
-                      isDark ? 'bg-neutral-900 text-neutral-400 border-neutral-800' : 'bg-neutral-100 text-neutral-600 border-neutral-300'
-                    }`}
-                    title="Market is currently closed. Historical charts and indicator analysis remain fully accessible."
-                  >
-                    <span className="w-1 h-1 rounded-full bg-neutral-500" />
-                    Closed
-                  </span>
-                ) : (isLoading || !isConnected) ? (
-                  <span 
-                    id="badge-market-loading"
-                    className={`px-2 py-0.5 text-[9px] font-bold rounded border flex items-center gap-1.5 ${
-                      isDark ? 'bg-sky-950/40 text-sky-400 border-sky-800/40' : 'bg-sky-50 text-sky-700 border-sky-300'
-                    }`}
-                  >
-                    <div className="w-2.5 h-2.5 rounded-full border border-sky-400 border-t-transparent animate-spin shrink-0" />
-                    <span>Loading Live Market</span>
-                  </span>
-                ) : (
-                  <span 
-                    id="badge-market-live"
-                    className={`px-1.5 py-0.5 text-[9px] font-bold uppercase rounded border flex items-center gap-1 ${
-                      isDark ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/40' : 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                    }`}
-                  >
-                    <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
-                    LIVE
-                  </span>
-                )}
+                <div className="flex items-center gap-1.5 shrink-0 pr-2 sm:pr-0">
+                  {isReplayMode ? (
+                    <span
+                      id="badge-mode-replay"
+                      className="px-1.5 py-0.5 text-[9px] font-bold uppercase rounded bg-amber-500/20 text-amber-500 border border-amber-500/40 flex items-center gap-1"
+                    >
+                      <span className="w-1 h-1 rounded-full bg-amber-400 animate-ping" />
+                      Replay Backtest
+                    </span>
+                  ) : isMarketClosed || activeSymbolInfo?.is_closed ? (
+                    <span 
+                      id="badge-market-closed"
+                      className={`px-1.5 py-0.5 text-[9px] font-bold uppercase rounded border flex items-center gap-1 ${
+                        isDark ? 'bg-neutral-900 text-neutral-400 border-neutral-800' : 'bg-neutral-100 text-neutral-600 border-neutral-300'
+                      }`}
+                      title="Market is currently closed. Historical charts and indicator analysis remain fully accessible."
+                    >
+                      <span className="w-1 h-1 rounded-full bg-neutral-500" />
+                      Closed
+                    </span>
+                  ) : (isLoading || !isConnected) ? (
+                    <span 
+                      id="badge-market-loading"
+                      className={`px-2 py-0.5 text-[9px] font-bold rounded border flex items-center gap-1.5 ${
+                        isDark ? 'bg-sky-950/40 text-sky-400 border-sky-800/40' : 'bg-sky-50 text-sky-700 border-sky-300'
+                      }`}
+                    >
+                      <div className="w-2.5 h-2.5 rounded-full border border-sky-400 border-t-transparent animate-spin shrink-0" />
+                      <span>Loading Live Market</span>
+                    </span>
+                  ) : (
+                    <span 
+                      id="badge-market-live"
+                      className={`px-1.5 py-0.5 text-[9px] font-bold uppercase rounded border flex items-center gap-1 ${
+                        isDark ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/40' : 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                      }`}
+                    >
+                      <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
+                      LIVE
+                    </span>
+                  )}
 
-                {/* TradingView-style [] Fullscreen / Chart-Only Button */}
-                <button
-                  id="btn-symbol-banner-chart-only"
-                  onClick={toggleChartOnlyMode}
-                  title="Fullscreen / Chart Only Mode [ ] (TradingView style)"
-                  aria-label="Toggle Chart Only Mode"
-                  className={`p-1 rounded transition-colors flex items-center justify-center border border-transparent ${
-                    isDark ? 'hover:bg-neutral-800 text-neutral-400 hover:text-white' : 'hover:bg-neutral-100 text-neutral-500 hover:text-slate-900'
-                  }`}
-                >
-                  <svg viewBox="0 0 18 18" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 6V3h3M15 6V3h-3M3 12v3h3M15 12v3h-3" />
-                  </svg>
-                </button>
+                  {/* TradingView-style [] Fullscreen / Chart-Only Button */}
+                  <button
+                    id="btn-symbol-banner-chart-only"
+                    onClick={toggleChartOnlyMode}
+                    title="Fullscreen / Chart Only Mode [ ] (TradingView style)"
+                    aria-label="Toggle Chart Only Mode"
+                    className={`p-1 rounded transition-colors flex items-center justify-center border border-transparent cursor-pointer ${
+                      isDark ? 'hover:bg-neutral-800 text-neutral-400 hover:text-white' : 'hover:bg-neutral-100 text-neutral-500 hover:text-slate-900'
+                    }`}
+                  >
+                    <svg viewBox="0 0 18 18" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 6V3h3M15 6V3h-3M3 12v3h3M15 12v3h-3" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           )}

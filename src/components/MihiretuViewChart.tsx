@@ -32,6 +32,7 @@ import { calculateEma50100CandleTrend, Ema50100Result } from '../utils/ema50100C
 import { VipMarketScannerHUD } from './VipMarketScannerHUD';
 import { DynamicTpSlTableHUD } from './DynamicTpSlTableHUD';
 import { TradePlannerHUD } from './TradePlannerHUD';
+import { MsttHUD } from './MsttHUD';
 import { getSymbolSpec, calculateProfitLoss, calculateStopPriceFromRisk, calculateTargetPriceFromReward, createDefaultRiskReward } from '../utils/symbolSpecs';
 import { MasterGatekeeperHUD } from './MasterGatekeeperHUD';
 import { MasterTradeLoggerModal } from './MasterTradeLoggerModal';
@@ -818,6 +819,15 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       useCandleFilter: settings.indicators.msttUseCandleFilter ?? false,
       minBodyAtr: settings.indicators.msttMinBodyAtr ?? 0.20,
       breakoutBufferAtr: settings.indicators.msttBreakoutBufferAtr ?? 0.00,
+      usePremiumDiscountFilter: settings.indicators.msttUsePremiumDiscountFilter ?? false,
+      useInducementFilter: settings.indicators.msttUseInducementFilter ?? false,
+      useKillZonesFilter: settings.indicators.msttUseKillZonesFilter ?? false,
+      useTurtleSoupFilter: settings.indicators.msttUseTurtleSoupFilter ?? false,
+      useRetestConfirmation: settings.indicators.msttUseRetestConfirmation ?? false,
+      retestMaxBars: settings.indicators.msttRetestMaxBars ?? 3,
+      useAntiWhipsawFilter: settings.indicators.msttUseAntiWhipsawFilter ?? false,
+      whipsawCooldownBars: settings.indicators.msttWhipsawCooldownBars ?? 4,
+      hudSize: settings.indicators.msttHudSize ?? 'Normal',
     }, (symbolName || 'MARKET').replace(/^(FRX|CRY|OTC|DERIV)_?/i, ''));
   }, [
     candles,
@@ -889,6 +899,15 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.msttUseCandleFilter,
     settings.indicators.msttMinBodyAtr,
     settings.indicators.msttBreakoutBufferAtr,
+    settings.indicators.msttUsePremiumDiscountFilter,
+    settings.indicators.msttUseInducementFilter,
+    settings.indicators.msttUseKillZonesFilter,
+    settings.indicators.msttUseTurtleSoupFilter,
+    settings.indicators.msttUseRetestConfirmation,
+    settings.indicators.msttRetestMaxBars,
+    settings.indicators.msttUseAntiWhipsawFilter,
+    settings.indicators.msttWhipsawCooldownBars,
+    settings.indicators.msttHudSize,
   ]);
 
   // Compute VIP Market Scanner™ (Single Pair Matrix Engine)
@@ -1266,18 +1285,27 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     isMasterDashboardVisible,
   ]);
 
-  // Refs for tracking broadcasted signals, timeframe, & stats timer
+  // Refs for tracking broadcasted signals, timeframe, & active trade outcome
   const lastBroadcastedSignalRef = useRef<string | null>(null);
   const isBroadcastingActiveRef = useRef<boolean>(false);
   const lastTimeframeRef = useRef<string | null>(null);
   const lastSymbolRef = useRef<string | null>(null);
-  const last24hReportTimeRef = useRef<number>(Date.now());
+  const activeTgTradeRef = useRef<{
+    signalKey: string;
+    direction: string;
+    entryPrice: number;
+    tp1Price: number;
+    tp2Price?: number;
+    slPrice: number;
+    pairName: string;
+    activeTf: string;
+  } | null>(null);
 
-  // Clean symbol display name helper (e.g. BTC/USD, EUR/USD, XAU/USD)
+  // Clean symbol display name helper (e.g. BTC/USD, EUR/USD, Volatility 75 index)
   const formatSymbolDisplayName = (rawSymbol: string) => {
-    if (!rawSymbol) return 'BTC/USD';
+    if (!rawSymbol) return 'Volatility 75 index';
     let s = rawSymbol.toUpperCase().trim();
-    // Strip prefixes like frx, cry, otc, deriv
+    if (s.includes('75')) return 'Volatility 75 index';
     s = s.replace(/^(FRX|CRY|OTC|DERIV)_/i, '');
     s = s.replace(/^(FRX|CRY|OTC|DERIV)/i, '');
     if (s.includes('USD') && !s.includes('/')) {
@@ -1288,7 +1316,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     return s || rawSymbol;
   };
 
-  // Telegram Automated Signal Broadcasting Effect
+  // Telegram Automated Signal Broadcasting & Instant TP/SL Hit Effect
   useEffect(() => {
     const isTgEnabled = settings.indicators.mssSendTelegramSignals ?? false;
     const isVerifiedDevice = localStorage.getItem('tg_signals_device_verified') === 'true';
@@ -1299,57 +1327,88 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     const displayPair = formatSymbolDisplayName(symbolName);
     const activeTf = timeframe.toUpperCase();
 
-    // 1. Send Activation Notice or Timeframe/Symbol Update Notice
-    if (!isBroadcastingActiveRef.current) {
+    // Initialize state silently on start or timeframe change without sending noisy messages
+    if (!isBroadcastingActiveRef.current || lastTimeframeRef.current !== activeTf || lastSymbolRef.current !== displayPair) {
       isBroadcastingActiveRef.current = true;
       lastTimeframeRef.current = activeTf;
       lastSymbolRef.current = displayPair;
 
-      // Seed lastBroadcastedSignalRef with existing latest trade so past historical signals are not sent
       if (mssResults.tradeSetups.length > 0) {
         const existingLatest = mssResults.tradeSetups[mssResults.tradeSetups.length - 1];
         lastBroadcastedSignalRef.current = `${activeTf}_${existingLatest.direction}_${existingLatest.entryBarIndex}_${existingLatest.entryPrice}_${existingLatest.tp1Price}_${existingLatest.slPrice}`;
       }
-
-      const activationMsg = `🟢 <b>SMC SIGNALS ACTIVE & ANALYZING</b>\n\n` +
-        `<b>Pair:</b> ${displayPair}\n` +
-        `<b>Timeframe:</b> ${activeTf}\n` +
-        `<b>Status:</b> Actively monitoring live market structure breakouts on ${activeTf}.\n` +
-        `<b>ADR10 Targets:</b> TP1: ${settings.indicators.mssTp1Percent}% | TP2: ${settings.indicators.mssTp2Percent}% | SL: ${settings.indicators.mssSlPercent}%\n\n` +
-        `<i>Signals for ${activeTf} will be automatically broadcasted as breakouts trigger.</i>`;
-
-      fetch('/api/telegram', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send_message', text: activationMsg }),
-      }).catch(console.error);
-    } else if (lastTimeframeRef.current !== activeTf || lastSymbolRef.current !== displayPair) {
-      lastTimeframeRef.current = activeTf;
-      lastSymbolRef.current = displayPair;
-
-      // Seed lastBroadcastedSignalRef with existing latest trade of the new symbol/timeframe
-      if (mssResults.tradeSetups.length > 0) {
-        const existingLatest = mssResults.tradeSetups[mssResults.tradeSetups.length - 1];
-        lastBroadcastedSignalRef.current = `${activeTf}_${existingLatest.direction}_${existingLatest.entryBarIndex}_${existingLatest.entryPrice}_${existingLatest.tp1Price}_${existingLatest.slPrice}`;
-      }
-
-      const stats = mssResults.stats;
-      const updateMsg = `🔄 <b>CHART TIMEFRAME / PAIR UPDATED</b>\n\n` +
-        `<b>Pair:</b> ${displayPair}\n` +
-        `<b>New Timeframe:</b> ${activeTf}\n` +
-        `<b>${activeTf} Win Rate (TP1):</b> ${stats.tp1WinRate.toFixed(1)}%\n` +
-        `<b>${activeTf} Win Rate (TP2):</b> ${stats.tp2WinRate.toFixed(1)}%\n` +
-        `<b>Total Signals on ${activeTf}:</b> ${stats.totalSignals}\n\n` +
-        `<i>Now broadcasting live signals matching ${activeTf} chart analysis.</i>`;
-
-      fetch('/api/telegram', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send_message', text: updateMsg }),
-      }).catch(console.error);
     }
 
-    // 2. Check for NEW live trade setup signals on the active timeframe
+    // Check if active trade touched TP or SL in real time without waiting for next signal
+    if (activeTgTradeRef.current && candles.length > 0) {
+      const latestCandle = candles[candles.length - 1];
+      const active = activeTgTradeRef.current;
+      const isBull = active.direction === 'LONG';
+
+      if (isBull) {
+        if (latestCandle.high >= active.tp1Price) {
+          const hitTp = (active.tp2Price && latestCandle.high >= active.tp2Price) ? 'TP2' : 'TP1';
+          const exitPrice = hitTp === 'TP2' && active.tp2Price ? active.tp2Price : active.tp1Price;
+          const msg = `🎯 <b>TAKE PROFIT HIT!</b> ✅\n\n` +
+            `🪙 Pair: ${active.pairName}\n` +
+            `📈 Target: ${hitTp} Hit\n` +
+            `💰 Exit Price: ${exitPrice.toFixed(2)}\n` +
+            `⏰ Timeframe: ${active.activeTf}\n\n` +
+            `🏆 Mire, profit locked in! Never give back profits!`;
+          fetch('/api/telegram', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'send_message', text: msg }),
+          }).catch(console.error);
+          activeTgTradeRef.current = null;
+        } else if (latestCandle.low <= active.slPrice) {
+          const msg = `🛑 <b>STOP LOSS HIT</b> ❌\n\n` +
+            `🪙 Pair: ${active.pairName}\n` +
+            `📉 Exit Price: ${active.slPrice.toFixed(2)}\n` +
+            `⚠️ Result: SL Touched\n` +
+            `⏰ Timeframe: ${active.activeTf}\n\n` +
+            `🚨 Mire, stay disciplined and wait for next clean setup. Never revenge trade!`;
+          fetch('/api/telegram', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'send_message', text: msg }),
+          }).catch(console.error);
+          activeTgTradeRef.current = null;
+        }
+      } else {
+        if (latestCandle.low <= active.tp1Price) {
+          const hitTp = (active.tp2Price && latestCandle.low <= active.tp2Price) ? 'TP2' : 'TP1';
+          const exitPrice = hitTp === 'TP2' && active.tp2Price ? active.tp2Price : active.tp1Price;
+          const msg = `🎯 <b>TAKE PROFIT HIT!</b> ✅\n\n` +
+            `🪙 Pair: ${active.pairName}\n` +
+            `📉 Target: ${hitTp} Hit\n` +
+            `💰 Exit Price: ${exitPrice.toFixed(2)}\n` +
+            `⏰ Timeframe: ${active.activeTf}\n\n` +
+            `🏆 Mire, profit locked in! Never give back profits!`;
+          fetch('/api/telegram', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'send_message', text: msg }),
+          }).catch(console.error);
+          activeTgTradeRef.current = null;
+        } else if (latestCandle.high >= active.slPrice) {
+          const msg = `🛑 <b>STOP LOSS HIT</b> ❌\n\n` +
+            `🪙 Pair: ${active.pairName}\n` +
+            `📈 Exit Price: ${active.slPrice.toFixed(2)}\n` +
+            `⚠️ Result: SL Touched\n` +
+            `⏰ Timeframe: ${active.activeTf}\n\n` +
+            `🚨 Mire, stay disciplined and wait for next clean setup. Never revenge trade!`;
+          fetch('/api/telegram', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'send_message', text: msg }),
+          }).catch(console.error);
+          activeTgTradeRef.current = null;
+        }
+      }
+    }
+
+    // Check for NEW live trade setup signals on the active timeframe
     if (mssResults.tradeSetups.length > 0) {
       const latestTrade = mssResults.tradeSetups[mssResults.tradeSetups.length - 1];
       const signalKey = `${activeTf}_${latestTrade.direction}_${latestTrade.entryBarIndex}_${latestTrade.entryPrice}_${latestTrade.tp1Price}_${latestTrade.slPrice}`;
@@ -1357,52 +1416,55 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       if (lastBroadcastedSignalRef.current !== signalKey) {
         lastBroadcastedSignalRef.current = signalKey;
 
-        const dirEmoji = latestTrade.direction === 'LONG' ? '🚀 <b>BUY SIGNAL</b>' : '🔻 <b>SELL SIGNAL</b>';
-        const signalMsg = `${dirEmoji}\n\n` +
-          `<b>Pair:</b> ${displayPair}\n` +
-          `<b>Timeframe:</b> ${activeTf}\n` +
-          `<b>Entry Price:</b> ${latestTrade.entryPrice.toFixed(4)}\n\n` +
-          `🎯 <b>TP1 Target:</b> ${latestTrade.tp1Price.toFixed(4)}\n` +
-          `🎯 <b>TP2 Target:</b> ${latestTrade.tp2Price.toFixed(4)}\n` +
-          `🛑 <b>Stop Loss (SL):</b> ${latestTrade.slPrice.toFixed(4)}\n\n` +
-          `<b>Risk Parameters:</b> TP1 (${settings.indicators.mssTp1Percent}%) | TP2 (${settings.indicators.mssTp2Percent}%) | SL (${settings.indicators.mssSlPercent}%)\n\n` +
-          `<i>Smart Market Structure System | ProjectSyndicate</i>`;
+        const isBull = latestTrade.direction === 'LONG';
+        const headerTitle = isBull ? '📊 BUY SIGNAL' : '📊 SELL SIGNAL';
+        const directionText = isBull ? '📈 Direction: BUY (Long)' : '📉 Direction: SELL (Short)';
+
+        const lines: string[] = [
+          headerTitle,
+          '',
+          `🪙 Pair: ${displayPair}`,
+          directionText,
+          `⏰ Timeframe: ${activeTf}`,
+          '',
+          `🎯 Entry: ${latestTrade.entryPrice.toFixed(2)}`,
+          `✅ TP1: ${latestTrade.tp1Price.toFixed(2)}`,
+        ];
+
+        if (latestTrade.tp2Price && settings.indicators.mssTp2Percent) {
+          lines.push(`✅ TP2: ${latestTrade.tp2Price.toFixed(2)}`);
+        }
+
+        lines.push(`🛑 Stop Loss: ${latestTrade.slPrice.toFixed(2)}`);
+        lines.push('');
+        lines.push('⚖️ Risk: 1–2% only');
+        lines.push('');
+        lines.push('🚨Mire this time must be comeback! Never revenge');
+
+        const signalMsg = lines.join('\n');
 
         fetch('/api/telegram', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'send_message', text: signalMsg }),
         }).catch(console.error);
+
+        // Store active trade to detect instant TP or SL hit
+        activeTgTradeRef.current = {
+          signalKey,
+          direction: latestTrade.direction,
+          entryPrice: latestTrade.entryPrice,
+          tp1Price: latestTrade.tp1Price,
+          tp2Price: latestTrade.tp2Price,
+          slPrice: latestTrade.slPrice,
+          pairName: displayPair,
+          activeTf,
+        };
       }
-    }
-
-    // 3. Automated 24-Hour Win/Loss Statistics Report Timer for active timeframe
-    const now = Date.now();
-    const twentyFourHours = 24 * 60 * 60 * 1000;
-    if (now - last24hReportTimeRef.current >= twentyFourHours) {
-      last24hReportTimeRef.current = now;
-      const stats = mssResults.stats;
-      const reportMsg = `📊 <b>24-HOUR SMC SIGNALS PERFORMANCE REPORT</b>\n\n` +
-        `<b>Pair:</b> ${displayPair}\n` +
-        `<b>Timeframe:</b> ${activeTf}\n` +
-        `<b>Total Signals (${activeTf}):</b> ${stats.totalSignals}\n` +
-        `<b>Total Closed Trades:</b> ${stats.totalClosedTrades}\n` +
-        `✅ <b>TP1 Wins:</b> ${stats.tp1Wins}\n` +
-        `🎯 <b>TP2 Wins:</b> ${stats.tp2Wins}\n` +
-        `❌ <b>SL Losses:</b> ${stats.slLosses}\n\n` +
-        `🔥 <b>TP1 Win Rate (${activeTf}):</b> ${stats.tp1WinRate.toFixed(1)}%\n` +
-        `🔥 <b>TP2 Win Rate (${activeTf}):</b> ${stats.tp2WinRate.toFixed(1)}%\n` +
-        `⚡ <b>Overall Win Rate:</b> ${stats.overallWinRate.toFixed(1)}%\n\n` +
-        `<i>24-Hour Automated Performance Summary</i>`;
-
-      fetch('/api/telegram', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send_message', text: reportMsg }),
-      }).catch(console.error);
     }
   }, [
     mssResults,
+    candles,
     symbolName,
     timeframe,
     settings.indicators.mssSendTelegramSignals,
@@ -6384,7 +6446,16 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           const stopColor = config.stopColor || '#f23645';
           const entryColor = config.entryColor || '#2962ff';
 
-          // 1. Render Crisp Boundary Borders (TradingView style)
+          // 1. Shaded Zones with user-controlled Visibility & Opacity
+          const rrOpacity = settings.indicators.msttRiskRewardOpacity ?? 0.35;
+          const fillAlpha = config.fillOpacity ?? rrOpacity;
+          ctx.fillStyle = hexToRgba(targetColor, fillAlpha);
+          ctx.fillRect(leftX, targetTop, boxWidth, targetHeight);
+
+          ctx.fillStyle = hexToRgba(stopColor, fillAlpha);
+          ctx.fillRect(leftX, stopTop, boxWidth, stopHeight);
+
+          // 2. Render Crisp Boundary Borders (TradingView style)
           // Target boundary line
           ctx.lineWidth = isTargetTouched ? 2 : 1.5;
           ctx.strokeStyle = isTargetTouched ? hexToRgba(targetColor, 1) : targetColor;
@@ -6432,8 +6503,9 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           const stopPips = Math.abs(config.entryPrice - config.stopPrice);
           const rrRatio = stopPips > 0 ? (targetPips / stopPips).toFixed(2) : '0.00';
 
-          // 6. Centered TradingView Risk/Reward Ratio Pill on Entry Line (Only visible when selected)
-          if (isSelected) {
+          // 6. Centered TradingView Risk/Reward Ratio Pill on Entry Line (Always visible when msttShowRrBadge is on, or when selected)
+          const showRrBadge = settings.indicators.msttShowRrBadge ?? true;
+          if (isSelected || showRrBadge) {
             ctx.save();
             const rrText = `Risk/Reward Ratio: ${rrRatio}`;
             ctx.font = 'bold 10px JetBrains Mono, monospace';
@@ -6445,9 +6517,9 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
             ctx.shadowBlur = 6;
             ctx.shadowOffsetY = 1;
-            ctx.fillStyle = '#131722';
-            ctx.strokeStyle = entryColor;
-            ctx.lineWidth = 1;
+            ctx.fillStyle = isSelected ? '#131722' : 'rgba(19, 23, 34, 0.88)';
+            ctx.strokeStyle = isSelected ? entryColor : hexToRgba(entryColor, 0.7);
+            ctx.lineWidth = isSelected ? 1.5 : 1;
             ctx.beginPath();
             if (typeof ctx.roundRect === 'function') {
               ctx.roundRect(rrX, rrY, rrW, rrH, 4);
@@ -7120,7 +7192,11 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       }
 
       // 1. Draw Shaded Linefills (slFill, tp1Fill, tp2Fill, tp3Fill)
-      if (settings.indicators.msttShowTpSl ?? true) {
+      const showRiskReward = settings.indicators.msttShowRiskReward ?? true;
+      const rrOpacity = settings.indicators.msttRiskRewardOpacity ?? 0.35;
+      const showRrBadge = settings.indicators.msttShowRrBadge ?? true;
+
+      if ((settings.indicators.msttShowTpSl ?? true) && showRiskReward) {
         const drawFill = (fill: typeof msttResults.slFill, alpha: number) => {
           if (!fill) return;
           const startX = getXFromIndex(fill.x1);
@@ -7138,11 +7214,11 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           ctx.fillRect(renderX1, topY, renderX2 - renderX1, h);
         };
 
-        // Transparency matching Pine Script color.new or user custom opacity
-        const slAlpha = settings.indicators.msttSlShadeAlpha ?? 0.30;
-        const tp1Alpha = settings.indicators.msttTp1ShadeAlpha ?? 0.30;
-        const tp2Alpha = settings.indicators.msttTp2ShadeAlpha ?? 0.15;
-        const tp3Alpha = settings.indicators.msttTp3ShadeAlpha ?? 0.05;
+        // Transparency matching Pine Script color.new or user custom opacity scaled by master visibility
+        const slAlpha = Math.min(1.0, (settings.indicators.msttSlShadeAlpha ?? 0.30) * (rrOpacity / 0.35));
+        const tp1Alpha = Math.min(1.0, (settings.indicators.msttTp1ShadeAlpha ?? 0.30) * (rrOpacity / 0.35));
+        const tp2Alpha = Math.min(1.0, (settings.indicators.msttTp2ShadeAlpha ?? 0.15) * (rrOpacity / 0.35));
+        const tp3Alpha = Math.min(1.0, (settings.indicators.msttTp3ShadeAlpha ?? 0.05) * (rrOpacity / 0.35));
 
         const effectiveShowSl = msttResults.dashboard.showSl;
         const effectiveShowTp1 = msttResults.dashboard.showTp1;
@@ -7233,7 +7309,6 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           if (lbl && endX >= 0 && endX <= chartWidth + 120) {
             ctx.font = 'bold 10px JetBrains Mono, monospace';
             const padX = 5;
-            const padY = 3;
             const textMetrics = ctx.measureText(lbl.text);
             const textW = textMetrics.width;
             const badgeW = textW + padX * 2;
@@ -7261,15 +7336,58 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             ctx.fillText(lbl.text, badgeX + padX, y);
           }
         });
+
+        // 4a. Centered R:R Ratio Badge on Active Setup Entry Line
+        if (showRiskReward && showRrBadge && msttResults.entryLine) {
+          const startX = getXFromIndex(msttResults.entryLine.x1);
+          const endX = getXFromIndex(msttResults.entryLine.x2);
+          const renderX1 = Math.max(0, startX);
+          const renderX2 = Math.min(chartWidth, endX);
+          if (renderX2 > renderX1 + 45) {
+            const midX = (renderX1 + renderX2) / 2;
+            const entryY = getYFromPrice(msttResults.entryLine.y1);
+            const rrText = `⚖️ R:R ${msttResults.dashboard.rrStr}`;
+            ctx.save();
+            ctx.font = 'bold 9.5px JetBrains Mono, monospace';
+            const tw = ctx.measureText(rrText).width;
+            const bW = tw + 14;
+            const bH = 18;
+            const bX = midX - bW / 2;
+            const bY = entryY - bH / 2;
+
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 6;
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+            ctx.strokeStyle = msttResults.dashboard.rrCol || '#38bdf8';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            if (typeof ctx.roundRect === 'function') {
+              ctx.roundRect(bX, bY, bW, bH, 4);
+            } else {
+              ctx.rect(bX, bY, bW, bH);
+            }
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.shadowColor = 'transparent';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(rrText, midX, entryY);
+            ctx.restore();
+          }
+        }
       }
 
-      // 4b. Draw Historical Trade Brackets on Chart (for last keepN trades)
-      if ((settings.indicators.msttShowHistoricalTrades ?? true) && msttResults.stats && msttResults.stats.recentTrades.length > 0) {
+      // 4b. Draw Historical Trade Brackets & Risk/Reward on Chart (for last keepN trades)
+      if (showRiskReward && (settings.indicators.msttShowHistoricalTrades ?? true) && msttResults.stats && msttResults.stats.recentTrades.length > 0) {
         const showTp1 = msttResults.dashboard.showTp1;
         const showTp2 = msttResults.dashboard.showTp2;
         const showTp3 = msttResults.dashboard.showTp3;
+        const maxTradesCount = settings.indicators.msttKeepN ?? 15;
+        const tradesToRender = maxTradesCount > 0 ? msttResults.stats.recentTrades.slice(0, maxTradesCount) : msttResults.stats.recentTrades;
 
-        msttResults.stats.recentTrades.forEach((tr) => {
+        tradesToRender.forEach((tr) => {
           const startX = getXFromIndex(tr.entryBar);
           const endX = getXFromIndex(tr.endBar);
           const renderX1 = Math.max(0, startX);
@@ -7279,18 +7397,30 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           const yEntry = getYFromPrice(tr.entryPrice);
           const ySl = getYFromPrice(tr.slPrice);
 
-          // Subtle shaded risk area
+          // Shaded risk area with user-controlled opacity
           const slTop = Math.min(yEntry, ySl);
           const slH = Math.abs(ySl - yEntry);
-          ctx.fillStyle = 'rgba(239, 68, 68, 0.08)';
+          ctx.fillStyle = hexToRgba('#ef4444', Math.min(1.0, rrOpacity * 0.75));
           ctx.fillRect(renderX1, slTop, renderX2 - renderX1, slH);
+
+          // SL boundary line
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(renderX1, ySl);
+          ctx.lineTo(renderX2, ySl);
+          ctx.stroke();
+          ctx.setLineDash([]);
 
           // TP1 Bracket & Fill if showTp1 is active
           if (showTp1) {
             const yTp1 = getYFromPrice(tr.tp1Price);
             const tp1Top = Math.min(yEntry, yTp1);
             const tp1H = Math.abs(yTp1 - yEntry);
-            ctx.fillStyle = tr.isWin ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.04)';
+            ctx.fillStyle = tr.isWin
+              ? hexToRgba('#10b981', Math.min(1.0, rrOpacity * 0.85))
+              : hexToRgba('#10b981', Math.min(1.0, rrOpacity * 0.25));
             ctx.fillRect(renderX1, tp1Top, renderX2 - renderX1, tp1H);
 
             ctx.strokeStyle = '#00dc82';
@@ -7309,7 +7439,9 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             const yBase = showTp1 ? getYFromPrice(tr.tp1Price) : yEntry;
             const tp2Top = Math.min(yBase, yTp2);
             const tp2H = Math.abs(yTp2 - yBase);
-            ctx.fillStyle = tr.isWin ? 'rgba(0, 255, 180, 0.10)' : 'rgba(0, 255, 180, 0.03)';
+            ctx.fillStyle = tr.isWin
+              ? hexToRgba('#00ffb4', Math.min(1.0, rrOpacity * 0.75))
+              : hexToRgba('#00ffb4', Math.min(1.0, rrOpacity * 0.20));
             ctx.fillRect(renderX1, tp2Top, renderX2 - renderX1, tp2H);
 
             ctx.strokeStyle = '#00ffb4';
@@ -7328,7 +7460,9 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             const yBase = showTp2 ? getYFromPrice(tr.tp2Price) : showTp1 ? getYFromPrice(tr.tp1Price) : yEntry;
             const tp3Top = Math.min(yBase, yTp3);
             const tp3H = Math.abs(yTp3 - yBase);
-            ctx.fillStyle = tr.isWin ? 'rgba(0, 255, 255, 0.08)' : 'rgba(0, 255, 255, 0.02)';
+            ctx.fillStyle = tr.isWin
+              ? hexToRgba('#00ffff', Math.min(1.0, rrOpacity * 0.65))
+              : hexToRgba('#00ffff', Math.min(1.0, rrOpacity * 0.15));
             ctx.fillRect(renderX1, tp3Top, renderX2 - renderX1, tp3H);
 
             ctx.strokeStyle = '#00ffff';
@@ -7343,18 +7477,55 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
           // Entry ray
           ctx.strokeStyle = tr.isWin ? '#22c55e' : '#ef4444';
-          ctx.lineWidth = 1;
+          ctx.lineWidth = 1.2;
           ctx.setLineDash([2, 2]);
           ctx.beginPath();
           ctx.moveTo(renderX1, yEntry);
           ctx.lineTo(renderX2, yEntry);
           ctx.stroke();
           ctx.setLineDash([]);
+
+          // 4c. R:R Outcome Badge on Historical Trade Box
+          if (showRrBadge && renderX2 - renderX1 >= 24) {
+            const riskPts = Math.abs(tr.entryPrice - tr.slPrice);
+            const rewardPts = Math.abs(tr.tp1Price - tr.entryPrice);
+            const tradeRr = riskPts > 0 ? (rewardPts / riskPts).toFixed(1) : '1.5';
+            const dirIcon = tr.dir === 'BULL' ? '▲ BUY' : '▼ SELL';
+            const badgeText = tr.isWin ? `${dirIcon} +${tradeRr}R WIN` : `${dirIcon} -1.0R LOSS`;
+            ctx.save();
+            ctx.font = 'bold 8.5px JetBrains Mono, monospace';
+            const tw = ctx.measureText(badgeText).width;
+            const bW = tw + 8;
+            const bH = 15;
+            const bX = Math.min(chartWidth - bW - 2, Math.max(renderX1 + 2, (renderX1 + renderX2) / 2 - bW / 2));
+            const bY = yEntry - bH / 2;
+
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+            ctx.shadowBlur = 4;
+            ctx.fillStyle = tr.isWin ? 'rgba(5, 150, 105, 0.95)' : 'rgba(225, 29, 72, 0.95)';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            if (typeof ctx.roundRect === 'function') {
+              ctx.roundRect(bX, bY, bW, bH, 3);
+            } else {
+              ctx.rect(bX, bY, bW, bH);
+            }
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.shadowColor = 'transparent';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(badgeText, bX + bW / 2, yEntry);
+            ctx.restore();
+          }
         });
       }
 
-      // 5. Draw Dashboard Table (table.new(position.top_right, 2, 15))
-      if (settings.indicators.msttShowDashboard ?? true) {
+      // 5. Draw Dashboard Table (Interactive, scrollable table rendered via <MsttHUD />)
+      if (false) {
         const d = msttResults.dashboard;
         const colW0 = 95;
         const colW1 = Math.max(135, Math.min(240, Math.round(d.filterStr.length * 6.2 + 16)));
@@ -11256,6 +11427,26 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           onClose={() => {
             if (onUpdateIndicator) {
               onUpdateIndicator('tpShowHud', false);
+            }
+          }}
+        />
+      )}
+
+      {/* MARKET STRUCTURE TARGET TRACKER (MSTT) [MarkitTick] PERFORMANCE & TRADE LOG HUD */}
+      {msttResults && !isIndicatorDeleted('mstt') && ((settings.indicators.showMarketTickTwo ?? settings.indicators.showMarketStructureTargetTracker) ?? true) && (settings.indicators.msttShowDashboard ?? true) && (
+        <MsttHUD
+          dashboard={msttResults.dashboard}
+          stats={msttResults.stats}
+          settings={settings}
+          onUpdateSetting={(key, val) => {
+            if (onUpdateIndicator) {
+              onUpdateIndicator(key as any, val);
+            }
+          }}
+          visible={settings.indicators.msttShowDashboard ?? true}
+          onClose={() => {
+            if (onUpdateIndicator) {
+              onUpdateIndicator('msttShowDashboard', false);
             }
           }}
         />

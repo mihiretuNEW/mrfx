@@ -582,6 +582,15 @@ export interface ChartSettings {
     msttAlertBos?: boolean; // BOS Alert (default: true)
     msttAlertTarget?: boolean; // Target Alert (default: true)
     msttShowDashboard?: boolean; // Show Dashboard (default: true)
+    msttHudSize?: 'Normal' | 'Small'; // HUD Mode: Normal (Full Table) vs Small (Compact Mini HUD)
+    msttUsePremiumDiscountFilter?: boolean; // Premium vs Discount Zones (Fibonacci 0.5) Filter (default: false)
+    msttUseInducementFilter?: boolean; // Inducement (IDM) Liquidity Sweep Filter (default: false)
+    msttUseKillZonesFilter?: boolean; // V75 Ethiopian Hours Kill Zones Session Filter (default: false)
+    msttUseTurtleSoupFilter?: boolean; // Internal Liquidity Sweep (Turtle Soup) Filter (default: false)
+    msttUseRetestConfirmation?: boolean; // Auto-Retest Confirmation (Wait for Level Retest) (default: false)
+    msttRetestMaxBars?: number; // Maximum Bars for Retest (default: 3, min: 1, max: 6)
+    msttUseAntiWhipsawFilter?: boolean; // Anti-Whipsaw / Chop Guard (Block immediate opposite breakouts) (default: false)
+    msttWhipsawCooldownBars?: number; // Whipsaw Cooldown Bars (default: 4, min: 2, max: 10)
     msttDashBgColor?: string; // Dashboard BG (default: 'rgb(10,10,18)')
     msttDashTxtColor?: string; // Dashboard Text (default: 'rgb(220,220,235)')
     msttKeepN?: number; // Number of trades to keep & evaluate in HUD (default: 10, min: 1, max: 100)
@@ -592,6 +601,9 @@ export interface ChartSettings {
     msttPointsTp2?: number; // TP2 Size in Points/Pips (default: 2060)
     msttPointsTp3?: number; // TP3 Size in Points/Pips (default: 3090)
     msttShowHistoricalTrades?: boolean; // Show last keepN historical trade brackets on chart (default: true)
+    msttShowRiskReward?: boolean; // Show Risk/Reward visual zones & ratio on chart (default: true)
+    msttRiskRewardOpacity?: number; // Risk/Reward Area Opacity / Visibility multiplier (0.05 to 1.0, default: 0.35)
+    msttShowRrBadge?: boolean; // Show R:R Ratio Badge on chart (default: true)
     msttPreventLateEntry?: boolean; // Prevent late & overextended breakout signals (default: true)
     msttMaxBreakoutDelay?: number; // Max delay candles between breakout and signal confirmation (default: 1, min: 0, max: 3)
     msttTgBotToken?: string; // Telegram Bot Token for 24/7 Cloud Alerts
@@ -599,6 +611,15 @@ export interface ChartSettings {
     msttTgAlertsEnabled?: boolean; // Enable 24/7 Cloud Telegram Alerts (default: false)
     msttTgSymbol?: string; // Symbol to monitor (default: '1HZ75V')
     msttTgTimeframe?: string; // Timeframe to monitor (default: '1H')
+    // 📱 smsethiopia.com SMS Alerts Integration
+    msttSmsApiKey?: string; // smsethiopia.com API Key
+    msttSmsPhone?: string; // Recipient phone number (e.g. 251968865885)
+    msttSmsAlertsEnabled?: boolean; // Enable instant SMS alerts on trade signals (default: true)
+    // 🤖 MT5 VPS Auto-Trading & Circuit Breaker Engine
+    msttAutoBotEnabled?: boolean; // Master Start/Stop toggle for auto-trading (default: true)
+    msttMaxConsecutiveLosses?: number; // Max consecutive losses before stopping for the day (default: 2)
+    msttLotSize?: number; // Auto-trading lot size (default: 0.001)
+    msttMagicNumber?: number; // MT5 Expert Advisor Magic Number (default: 757575)
     // VIP Market Scanner™ (VIP Algos) - Single Pair Matrix
     showVipMarketScanner?: boolean;
     vipScannerShowHud?: boolean;

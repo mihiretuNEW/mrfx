@@ -7,6 +7,9 @@ import telegramHandler from './_lib/telegram';
 import mproAccessHandler from './_lib/mproAccess';
 import cloudAlertConfigHandler from './_lib/cloudAlertConfig';
 import cronCheckHandler from './_lib/cronCheck';
+import eaSignalHandler from './ea-signal';
+import eaAckHandler from './ea-ack';
+import eaStatusHandler from './ea-status';
 
 const app = express();
 
@@ -38,6 +41,19 @@ app.all(['/api/cloud-alert-config', '/api/cloudAlertConfig'], (req, res) => {
 
 app.all(['/api/cron-check', '/api/cronCheck'], (req, res) => {
   cronCheckHandler(req, res);
+});
+
+// Dedicated MT5 EA High-Speed Endpoints
+app.all(['/api/ea-signal', '/api/ea/signal'], (req, res) => {
+  eaSignalHandler(req, res);
+});
+
+app.all(['/api/ea-ack', '/api/ea/ack'], (req, res) => {
+  eaAckHandler(req, res);
+});
+
+app.all(['/api/ea-status', '/api/ea/status'], (req, res) => {
+  eaStatusHandler(req, res);
 });
 
 app.get('/api/health', (req, res) => {
