@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import WebSocketNode from 'ws';
-import { calculateMarketStructureTargetTracker, Candle, isV75KillZone } from './msttEngine.js';
+import { calculateMarketStructureTargetTracker, Candle, isV75KillZone } from './_lib/msttEngine.js';
 import { queueNewSignalForEA, recordTradeResult, loadEAState } from './_lib/eaState.js';
 import { sendSmsDirect, formatTradeSignalSms, formatTradeResolutionSms } from './_lib/smsEthiopia.js';
 import { loadAlertConfig } from './_lib/cloudAlertConfig.js';
