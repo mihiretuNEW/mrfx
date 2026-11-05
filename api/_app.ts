@@ -10,6 +10,7 @@ import cronCheckHandler from './_lib/cronCheck';
 import eaSignalHandler from './ea-signal';
 import eaAckHandler from './ea-ack';
 import eaStatusHandler from './ea-status';
+import sendSmsHandler from './send-sms';
 
 const app = express();
 
@@ -37,6 +38,10 @@ app.post('/api/telegram', (req, res) => telegramHandler(req, res));
 
 app.all(['/api/cloud-alert-config', '/api/cloudAlertConfig'], (req, res) => {
   cloudAlertConfigHandler(req, res);
+});
+
+app.all(['/api/send-sms', '/api/test-sms', '/api/sendSms'], (req, res) => {
+  sendSmsHandler(req, res);
 });
 
 app.all(['/api/cron-check', '/api/cronCheck'], (req, res) => {
