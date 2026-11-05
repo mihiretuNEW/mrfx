@@ -145,20 +145,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setSmsTesting(true);
     setSmsMsg(null);
     try {
-      const res = await fetch('/api/cloud-alert-config', {
+      let res = await fetch('/api/send-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'test_sms',
-          smsApiKey: key,
-          smsPhone: phone,
+          apiKey: key,
+          phone,
+          text: '🔔 Mcharts Signal Connected! Your SMS alerts are active. Mire stay disciplined!',
         }),
       });
-      const data = await res.json();
-      if (data.ok) {
+
+      if (res.status === 404) {
+        res = await fetch('/api/cloud-alert-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'test_sms',
+            smsApiKey: key,
+            smsPhone: phone,
+          }),
+        });
+      }
+
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Safe fallback for non-JSON server text
+      }
+
+      if (data && data.ok) {
         setSmsMsg({ type: 'success', text: data.message || `✅ የሙከራ SMS ወደ ${phone} በተሳካ ሁኔታ ተልኳል!` });
+      } else if (data && data.error) {
+        setSmsMsg({ type: 'error', text: `❌ ስህተት: ${data.error}` });
+      } else if (!res.ok) {
+        setSmsMsg({ type: 'error', text: `❌ Server Error (HTTP ${res.status}): ${text.slice(0, 150)}` });
       } else {
-        setSmsMsg({ type: 'error', text: `❌ ስህተት: ${data.error || 'SMS መላክ አልተቻለም'}` });
+        setSmsMsg({ type: 'success', text: `✅ የሙከራ SMS ወደ ${phone} በተሳካ ሁኔታ ተልኳል!` });
       }
     } catch (err: any) {
       setSmsMsg({ type: 'error', text: `❌ ስህተት: ${err?.message || 'Network error'}` });
