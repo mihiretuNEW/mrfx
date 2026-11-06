@@ -1,8 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { sendSmsDirect } from './smsEthiopia.js';
+import { sendGitHubDispatch } from './githubDispatch.js';
 
-const CONFIG_FILE = path.join('/tmp', 'mcharts_cloud_alert_config.json');
+const PRIMARY_CONFIG_FILE = path.join(process.cwd(), '.cloud_alert_config.json');
+const FALLBACK_CONFIG_FILE = path.join('/tmp', 'mcharts_cloud_alert_config.json');
 
 export interface CloudAlertConfig {
   botToken: string;
@@ -14,18 +16,26 @@ export interface CloudAlertConfig {
   smsApiKey?: string;
   smsPhone?: string;
   smsAlertsEnabled?: boolean;
+  githubOwner?: string;
+  githubRepo?: string;
+  githubToken?: string;
+  githubDispatchEnabled?: boolean;
   options: Record<string, any>;
 }
 
 const DEFAULT_CONFIG: CloudAlertConfig = {
-  botToken: '8864552579:AAGSXeU9Z-WslGPehNXCxENWKSl1xeEe3FA',
-  chatId: '-1004295328271',
+  botToken: '',
+  chatId: '',
   enabled: true,
   symbol: 'R_75',
   timeframe: '30M',
   smsApiKey: 'X5UZHVO1BTC9VTNGXPAR4BJQCDCLLOPYPEJ6U4H6',
   smsPhone: '251968865885',
   smsAlertsEnabled: true,
+  githubOwner: 'mihiretuNEW',
+  githubRepo: 'my-vps',
+  githubToken: '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',
+  githubDispatchEnabled: true,
   updatedAt: Date.now(),
   options: {
     targetMode: 'points',
@@ -63,8 +73,12 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
 
 export function loadAlertConfig(): CloudAlertConfig {
   try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
+    if (fs.existsSync(PRIMARY_CONFIG_FILE)) {
+      const data = fs.readFileSync(PRIMARY_CONFIG_FILE, 'utf-8');
+      return { ...DEFAULT_CONFIG, ...JSON.parse(data) };
+    }
+    if (fs.existsSync(FALLBACK_CONFIG_FILE)) {
+      const data = fs.readFileSync(FALLBACK_CONFIG_FILE, 'utf-8');
       return { ...DEFAULT_CONFIG, ...JSON.parse(data) };
     }
   } catch (err) {
@@ -85,9 +99,14 @@ export function saveAlertConfig(config: Partial<CloudAlertConfig>): CloudAlertCo
     },
   };
   try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf-8');
+    fs.writeFileSync(PRIMARY_CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Failed to save alert config to disk:', err);
+    // Primary might be read-only in some serverless runtimes
+  }
+  try {
+    fs.writeFileSync(FALLBACK_CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save alert config to fallback disk:', err);
   }
   return merged;
 }
@@ -217,6 +236,39 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
         }
       }
 
+      if (action === 'test_github' || body.action === 'test_github') {
+        const currentCfg = loadAlertConfig();
+        const owner = body.githubOwner || currentCfg.githubOwner || 'mihiretuNEW';
+        const repo = body.githubRepo || currentCfg.githubRepo || 'my-vps';
+        const token = body.githubToken || currentCfg.githubToken || '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';
+
+        const ghRes = await sendGitHubDispatch(owner, repo, token, {
+          id: `TEST_${Date.now()}`,
+          symbol: 'R_75',
+          action: 'BUY',
+          lot: 0.001,
+          entryPrice: 35500.0,
+          sl: 35280.0,
+          tp: 35950.0,
+          slPips: 220,
+          tpPips: 450,
+          isDemo: true,
+          timestamp: Date.now(),
+        });
+
+        if (ghRes.ok) {
+          return res.status(200).json({
+            ok: true,
+            message: `✅ GitHub Dispatch successfully delivered to https://api.github.com/repos/${owner}/${repo}/dispatches!`,
+          });
+        } else {
+          return res.status(400).json({
+            ok: false,
+            error: ghRes.error || `GitHub returned error HTTP ${ghRes.status}`,
+          });
+        }
+      }
+
       const saved = saveAlertConfig({
         botToken: body.botToken !== undefined ? body.botToken : undefined,
         chatId: body.chatId !== undefined ? body.chatId : undefined,
@@ -226,6 +278,10 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
         smsApiKey: body.smsApiKey !== undefined ? body.smsApiKey : undefined,
         smsPhone: body.smsPhone !== undefined ? body.smsPhone : undefined,
         smsAlertsEnabled: body.smsAlertsEnabled !== undefined ? Boolean(body.smsAlertsEnabled) : undefined,
+        githubOwner: body.githubOwner !== undefined ? body.githubOwner : undefined,
+        githubRepo: body.githubRepo !== undefined ? body.githubRepo : undefined,
+        githubToken: body.githubToken !== undefined ? body.githubToken : undefined,
+        githubDispatchEnabled: body.githubDispatchEnabled !== undefined ? Boolean(body.githubDispatchEnabled) : undefined,
         options: body.options || {},
       });
 
@@ -236,6 +292,7 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
           ...saved,
           botToken: saved.botToken ? `${saved.botToken.substring(0, 6)}...${saved.botToken.slice(-4)}` : '',
           hasToken: Boolean(saved.botToken),
+          githubToken: saved.githubToken ? `${saved.githubToken.substring(0, 7)}...` : '',
         },
       });
     }
