@@ -68,127 +68,188 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showTgTokenSecret, setShowTgTokenSecret] = useState(false);
   const [cronUrlCopied, setCronUrlCopied] = useState(false);
 
-  // MT5 Expert Advisor (Auto-Trading Engine) State & Handlers
-  const [eaStatus, setEaStatus] = useState<any>(null);
-  const [eaLoading, setEaLoading] = useState(false);
-  const [eaUrlCopied, setEaUrlCopied] = useState(false);
-  const [eaCodeCopied, setEaCodeCopied] = useState(false);
+  // ⚡ Deriv Multipliers Auto-Trading State & Handlers
+  const [derivVerifying, setDerivVerifying] = useState(false);
+  const [derivAccounts, setDerivAccounts] = useState<any[]>([]);
+  const [derivVerifyMsg, setDerivVerifyMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [derivTestingTrade, setDerivTestingTrade] = useState(false);
+  const [derivTradeMsg, setDerivTradeMsg] = useState<{ type: 'success' | 'error'; text: string; details?: any } | null>(null);
+  const [showDerivTokenSecret, setShowDerivTokenSecret] = useState(false);
+  const [circuitBreakerStatus, setCircuitBreakerStatus] = useState<any>(null);
 
-  const fetchEaStatus = async () => {
+  const fetchDerivStatus = async () => {
     try {
-      const res = await fetch('/api/ea-status');
+      const res = await fetch('/api/deriv-trade');
       if (res.ok) {
         const data = await res.json();
-        if (data.ok && data.state) {
-          setEaStatus(data.state);
+        if (data.ok && data.circuitBreaker) {
+          setCircuitBreakerStatus(data.circuitBreaker);
         }
       }
-    } catch (e) {}
-  };
-
-  const handleToggleAutoBot = async (nextVal: boolean) => {
-    handleUpdateIndicators('msttAutoBotEnabled', nextVal);
-    setEaLoading(true);
-    try {
-      const res = await fetch('/api/ea-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ autoBotEnabled: nextVal }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ok) setEaStatus(data.state);
-      }
-    } catch (e) {} finally {
-      setEaLoading(false);
-    }
-  };
-
-  const handleUpdateConsecutiveLossLimit = async (limit: number) => {
-    handleUpdateIndicators('msttMaxConsecutiveLosses', limit);
-    try {
-      await fetch('/api/ea-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ maxConsecutiveLosses: limit }),
-      });
-      fetchEaStatus();
-    } catch (e) {}
-  };
-
-  const handleUpdateLotSize = async (lot: number) => {
-    handleUpdateIndicators('msttLotSize', lot);
-    try {
-      await fetch('/api/ea-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lotSize: lot }),
-      });
-      fetchEaStatus();
-    } catch (e) {}
+    } catch {}
   };
 
   React.useEffect(() => {
     if (isOpen) {
-      fetchEaStatus();
+      fetchDerivStatus();
     }
   }, [isOpen]);
 
-  // smsethiopia.com SMS Alert State & Handlers
-  const [smsTesting, setSmsTesting] = useState(false);
-  const [smsMsg, setSmsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [showSmsKeySecret, setShowSmsKeySecret] = useState(false);
+  const handleVerifyDerivToken = async () => {
+    const token = (settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim();
+    const appId = (settings.indicators.derivAppId || '').trim();
 
-  const handleTestSms = async () => {
-    const key = (settings.indicators.msttSmsApiKey || 'X5UZHVO1BTC9VTNGXPAR4BJQCDCLLOPYPEJ6U4H6').trim();
-    const phone = (settings.indicators.msttSmsPhone || '251968865885').trim();
-    setSmsTesting(true);
-    setSmsMsg(null);
+    if (!token) {
+      setDerivVerifyMsg({ type: 'error', text: 'እባክዎ መጀመሪያ Deriv Personal Access Token (PAT) ያስገቡ!' });
+      return;
+    }
+    if (!appId) {
+      setDerivVerifyMsg({ type: 'error', text: 'እባክዎ Deriv App ID ያስገቡ (ከ developers.deriv.com/dashboard/ የተገኘ)!' });
+      return;
+    }
+
+    setDerivVerifying(true);
+    setDerivVerifyMsg(null);
     try {
-      let res = await fetch('/api/send-sms', {
+      const res = await fetch('/api/deriv-trade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'test_sms',
-          apiKey: key,
-          phone,
-          text: '🔔 Mcharts Signal Connected! Your SMS alerts are active. Mire stay disciplined!',
+          action: 'verify_token',
+          token,
+          appId,
+          saveConfig: true,
         }),
       });
-
-      if (res.status === 404) {
-        res = await fetch('/api/cloud-alert-config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'test_sms',
-            smsApiKey: key,
-            smsPhone: phone,
-          }),
-        });
-      }
-
-      const text = await res.text();
-      let data: any = null;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        // Safe fallback for non-JSON server text
-      }
-
+      const data = await res.json().catch(() => null);
       if (data && data.ok) {
-        setSmsMsg({ type: 'success', text: data.message || `✅ የሙከራ SMS ወደ ${phone} በተሳካ ሁኔታ ተልኳል!` });
-      } else if (data && data.error) {
-        setSmsMsg({ type: 'error', text: `❌ ስህተት: ${data.error}` });
-      } else if (!res.ok) {
-        setSmsMsg({ type: 'error', text: `❌ Server Error (HTTP ${res.status}): ${text.slice(0, 150)}` });
+        setDerivAccounts(data.accounts || []);
+        setDerivVerifyMsg({
+          type: 'success',
+          text: `✅ ግንኙነቱ ተረጋግጧል! ${data.accounts?.length || 0} አካውንቶች (Demo/Real) ተገኝተዋል!`,
+        });
+        handleSyncCloudSettings({
+          ...settings.indicators,
+          derivApiToken: token,
+          derivAppId: appId,
+        });
       } else {
-        setSmsMsg({ type: 'success', text: `✅ የሙከራ SMS ወደ ${phone} በተሳካ ሁኔታ ተልኳል!` });
+        setDerivVerifyMsg({ type: 'error', text: `❌ ስህተት: ${data?.error || 'Verification failed'}` });
+      }
+    } catch (e: any) {
+      setDerivVerifyMsg({ type: 'error', text: `❌ ስህተት: ${e?.message || 'Network error'}` });
+    } finally {
+      setDerivVerifying(false);
+    }
+  };
+
+  const handleExecuteLiveDerivTrade = async (dir: 'BUY' | 'SELL') => {
+    const token = (settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim();
+    const appId = (settings.indicators.derivAppId || '').trim();
+    const mode = settings.indicators.derivMode || 'demo';
+
+    if (!token || !appId) {
+      setDerivTradeMsg({ type: 'error', text: 'እባክዎ Token እና App ID ሳያስገቡ ትሬድ መክፈት አይቻልም!' });
+      return;
+    }
+
+    setDerivTestingTrade(true);
+    setDerivTradeMsg(null);
+    try {
+      const res = await fetch('/api/deriv-trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'execute',
+          token,
+          appId,
+          mode,
+          direction: dir,
+          symbol: 'R_75',
+          stake: settings.indicators.derivStake ?? 2.0,
+          multiplier: settings.indicators.derivMultiplier ?? 200,
+          takeProfitUsd: settings.indicators.derivTakeProfitUsd ?? 6.68,
+          stopLossUsd: settings.indicators.derivStopLossUsd ?? 2.0,
+          maxConsecutiveLosses: settings.indicators.derivMaxConsecutiveLosses ?? 2,
+          botToken: settings.indicators.msttTgBotToken,
+          chatId: settings.indicators.msttTgChatId,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (data && data.ok) {
+        const trade = data.trade;
+        setDerivTradeMsg({
+          type: 'success',
+          text: `🚀 Deriv ${mode.toUpperCase()} ${dir} Multiplier #${trade?.contractId} ተከፍቷል! ($${trade?.stake} @ ${trade?.multiplier}x | Balance: $${trade?.balanceAfter?.toFixed(2) ?? '---'})`,
+          details: trade,
+        });
+        handleVerifyDerivToken();
+      } else {
+        setDerivTradeMsg({ type: 'error', text: `❌ ስህተት: ${data?.error || 'Execution failed'}` });
+      }
+    } catch (e: any) {
+      setDerivTradeMsg({ type: 'error', text: `❌ ስህተት: ${e?.message || 'Network error'}` });
+    } finally {
+      setDerivTestingTrade(false);
+    }
+  };
+
+  // 🧪 Demo Signal Simulation State & Handlers
+  const [demoTesting, setDemoTesting] = useState(false);
+  const [demoMsg, setDemoMsg] = useState<{ type: 'success' | 'error'; text: string; details?: any } | null>(null);
+  const [demoDirection, setDemoDirection] = useState<'BUY' | 'SELL'>('BUY');
+
+  const handleSendDemoSignal = async (dir: 'BUY' | 'SELL') => {
+    const userBotToken = (settings.indicators.msttTgBotToken || '').trim();
+    const userChatId = (settings.indicators.msttTgChatId || '').trim();
+
+    if (!userBotToken || !userChatId) {
+      setDemoMsg({
+        type: 'error',
+        text: '⚠️ እባክዎ መጀመሪያ ከታች "Telegram Bot Token" እና "Your Telegram Chat ID" ሳጥን ውስጥ የእርስዎን ትክክለኛ Bot Token እና Chat ID ያስገቡ!',
+      });
+      return;
+    }
+
+    setDemoTesting(true);
+    setDemoMsg(null);
+    try {
+      const res = await fetch('/api/demo-signal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: dir,
+          symbol: 'R_75',
+          tf: '30M',
+          botToken: userBotToken,
+          chatId: userChatId,
+          slPips: settings.indicators.pointsSl || 220,
+          tp1Pips: settings.indicators.pointsTp1 || 450,
+          derivApiToken: (settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim(),
+          derivAppId: (settings.indicators.derivAppId || '').trim(),
+          stake: settings.indicators.derivStake ?? 2.0,
+          multiplier: settings.indicators.derivMultiplier ?? 200,
+          takeProfitUsd: settings.indicators.derivTakeProfitUsd ?? 6.68,
+          stopLossUsd: settings.indicators.derivStopLossUsd ?? 2.0,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (data && data.ok) {
+        const derivTxt = data.deriv?.ok
+          ? ` | ⚡ Deriv Demo #${data.deriv.contractId} ተከፍቷል ($${data.deriv.stake} @ ${data.deriv.multiplier}x)`
+          : '';
+        setDemoMsg({
+          type: 'success',
+          text: `🚀 የ ${dir} Demo Signal ወደ Telegram Bot በተሳካ ሁኔታ ተልኳል!${derivTxt}`,
+          details: data,
+        });
+      } else {
+        setDemoMsg({ type: 'error', text: `❌ ስህተት: ${data?.error || 'Failed to dispatch demo signal'}` });
       }
     } catch (err: any) {
-      setSmsMsg({ type: 'error', text: `❌ ስህተት: ${err?.message || 'Network error'}` });
+      setDemoMsg({ type: 'error', text: `❌ ስህተት: ${err?.message || 'Network error'}` });
     } finally {
-      setSmsTesting(false);
+      setDemoTesting(false);
     }
   };
 
@@ -272,17 +333,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTgAlertSyncing(true);
     setTgAlertMsg(null);
     try {
-      const defaultBot = '8864552579:AAGSXeU9Z-WslGPehNXCxENWKSl1xeEe3FA';
-      const defaultChat = '-1004295328271';
       const payload = {
-        botToken: (ind.msttTgBotToken || '').trim() || defaultBot,
-        chatId: (ind.msttTgChatId || '').trim() || defaultChat,
+        botToken: (ind.msttTgBotToken || '').trim(),
+        chatId: (ind.msttTgChatId || '').trim(),
         enabled: ind.msttTgAlertsEnabled !== undefined ? Boolean(ind.msttTgAlertsEnabled) : true,
         symbol: ind.msttTgSymbol || 'R_75',
         timeframe: ind.msttTgTimeframe || '30M',
-        smsApiKey: (ind.msttSmsApiKey || '').trim() || 'X5UZHVO1BTC9VTNGXPAR4BJQCDCLLOPYPEJ6U4H6',
-        smsPhone: (ind.msttSmsPhone || '').trim() || '251968865885',
-        smsAlertsEnabled: ind.msttSmsAlertsEnabled !== false,
         options: {
           targetMode: ind.msttTargetMode ?? 'points',
           pointsSl: ind.msttPointsSl ?? 220,
@@ -322,9 +378,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           atrLen: ind.msttAtrLen ?? 14,
           preventLateEntry: ind.msttPreventLateEntry ?? true,
           maxBreakoutDelay: ind.msttMaxBreakoutDelay ?? 1,
-          autoBotEnabled: ind.msttAutoBotEnabled !== false,
-          maxConsecutiveLosses: ind.msttMaxConsecutiveLosses ?? 2,
-          lotSize: ind.msttLotSize ?? 0.001,
+          derivApiToken: (ind.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim(),
+          derivAppId: (ind.derivAppId || '').trim(),
+          derivMode: ind.derivMode || 'demo',
+          derivAutoTradeEnabled: Boolean(ind.derivAutoTradeEnabled),
+          derivStake: ind.derivStake ?? 2.0,
+          derivMultiplier: ind.derivMultiplier ?? 200,
+          derivTakeProfitUsd: ind.derivTakeProfitUsd ?? 6.68,
+          derivStopLossUsd: ind.derivStopLossUsd ?? 2.0,
+          derivMaxConsecutiveLosses: ind.derivMaxConsecutiveLosses ?? 2,
         },
       };
 
@@ -3677,7 +3739,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <Send className="w-3.5 h-3.5" /> Send Signals to Telegram Channel
                         </span>
                         <span className="text-[10px] text-gray-400">
-                          Automatically broadcasts buy/sell signals with exact SL & TP1/TP2 targets to your Telegram channel (-1004295328271)
+                          Automatically broadcasts buy/sell signals with exact SL & TP1/TP2 targets to your configured Telegram bot & channel/chat
                         </span>
                       </div>
                       <input
@@ -8723,6 +8785,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             type={showTgTokenSecret ? 'text' : 'password'}
                             value={settings.indicators.msttTgBotToken || ''}
                             onChange={(e) => handleUpdateIndicators('msttTgBotToken', e.target.value)}
+                            onBlur={() => {
+                              const tok = (settings.indicators.msttTgBotToken || '').trim();
+                              const ch = (settings.indicators.msttTgChatId || '').trim();
+                              if (tok && ch) handleSyncCloudSettings();
+                            }}
                             placeholder="7123456789:AAHxxxxx..."
                             className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-sky-500 placeholder-neutral-600"
                           />
@@ -8730,12 +8797,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                         {/* Telegram Chat ID Input */}
                         <div className="space-y-1">
-                          <label className="block text-xs font-medium text-gray-300">Your Telegram Chat ID</label>
+                          <label className="block text-xs font-medium text-gray-300">Your Telegram Chat ID (User ID ወይም Channel ID)</label>
                           <input
                             type="text"
                             value={settings.indicators.msttTgChatId || ''}
                             onChange={(e) => handleUpdateIndicators('msttTgChatId', e.target.value)}
-                            placeholder="e.g. 583920194 or @channel_username"
+                            onBlur={() => {
+                              const tok = (settings.indicators.msttTgBotToken || '').trim();
+                              const ch = (settings.indicators.msttTgChatId || '').trim();
+                              if (tok && ch) handleSyncCloudSettings();
+                            }}
+                            placeholder="e.g. 583920194 or -100xxxxxxxxxx or @your_channel"
                             className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-sky-500 placeholder-neutral-600"
                           />
                         </div>
@@ -8819,8 +8891,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               onClick={() => {
                                 const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
                                 const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
-                                const token = (settings.indicators.msttTgBotToken || '').trim() || '8864552579:AAGSXeU9Z-WslGPehNXCxENWKSl1xeEe3FA';
-                                const chat = (settings.indicators.msttTgChatId || '').trim() || '-1004295328271';
+                                const token = (settings.indicators.msttTgBotToken || '').trim() || 'YOUR_BOT_TOKEN';
+                                const chat = (settings.indicators.msttTgChatId || '').trim() || 'YOUR_CHAT_ID';
                                 const sym = settings.indicators.msttTgSymbol || 'R_75';
                                 const tf = settings.indicators.msttTgTimeframe || '30M';
                                 const sl = settings.indicators.msttPointsSl ?? 220;
@@ -8844,8 +8916,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             {(() => {
                               const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
                               const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
-                              const token = (settings.indicators.msttTgBotToken || '').trim() || '8864552579:AAGSXeU9Z-WslGPehNXCxENWKSl1xeEe3FA';
-                              const chat = (settings.indicators.msttTgChatId || '').trim() || '-1004295328271';
+                              const token = (settings.indicators.msttTgBotToken || '').trim() || 'YOUR_BOT_TOKEN';
+                              const chat = (settings.indicators.msttTgChatId || '').trim() || 'YOUR_CHAT_ID';
                               const sym = settings.indicators.msttTgSymbol || 'R_75';
                               const tf = settings.indicators.msttTgTimeframe || '30M';
                               const sl = settings.indicators.msttPointsSl ?? 220;
@@ -8877,316 +8949,412 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
 
                         {/* ======================================================== */}
-                        {/* 📱 SMSETHIOPIA.COM SMS ALERTS INTEGRATION PANEL          */}
+                        {/* ⚡ DERIV MULTIPLIERS AUTO-TRADING ENGINE (NO VPS)       */}
                         {/* ======================================================== */}
-                        <div className="p-3.5 bg-gradient-to-br from-amber-950/30 via-neutral-900 to-neutral-950 rounded-xl border border-amber-500/40 space-y-3">
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                                <span>📱</span> smsethiopia.com SMS የማንቂያ ደወል
-                              </span>
-                              <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                                100 FREE SMS GIFT
-                              </span>
-                            </div>
-
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={settings.indicators.msttSmsAlertsEnabled ?? true}
-                                onChange={(e) => {
-                                  const nextVal = e.target.checked;
-                                  handleUpdateIndicators('msttSmsAlertsEnabled', nextVal);
-                                  handleSyncCloudSettings({ ...settings.indicators, msttSmsAlertsEnabled: nextVal });
-                                }}
-                                className="sr-only peer"
-                              />
-                              <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
-                            </label>
-                          </div>
-
-                          <p className="text-xs text-gray-300 leading-relaxed">
-                            ኢንተርኔት (Data/Wi-Fi) ጠፍቶ ወይም ስልክዎ ተኝቶ ቢሆንም እንኳን፣ አዲስ የ 30M BOS Breakout ሲግናል ሲወጣ <b>በቀጥታ በ SMS መልእክት ወደ ስልክዎ ይላካል</b>!
-                          </p>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                            {/* Phone Number Input */}
-                            <div className="space-y-1">
-                              <label className="block text-xs font-medium text-gray-300">የእርስዎ ስልክ ቁጥር (Recipient Phone)</label>
-                              <input
-                                type="text"
-                                value={settings.indicators.msttSmsPhone || '251968865885'}
-                                onChange={(e) => handleUpdateIndicators('msttSmsPhone', e.target.value)}
-                                placeholder="251968865885"
-                                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-amber-300 focus:outline-none focus:border-amber-500"
-                              />
-                              <span className="text-[10px] text-gray-500">ኢንተርናሽናል ፎርማት (251968865885)</span>
-                            </div>
-
-                            {/* smsethiopia API Key Input */}
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-xs">
-                                <label className="font-medium text-gray-300">smsethiopia.com API Key</label>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowSmsKeySecret(!showSmsKeySecret)}
-                                  className="text-[11px] text-amber-400 hover:text-amber-300 transition-colors"
-                                >
-                                  {showSmsKeySecret ? 'ደብቅ (Hide)' : 'አሳይ (Show)'}
-                                </button>
-                              </div>
-                              <input
-                                type={showSmsKeySecret ? 'text' : 'password'}
-                                value={settings.indicators.msttSmsApiKey || 'X5UZHVO1BTC9VTNGXPAR4BJQCDCLLOPYPEJ6U4H6'}
-                                onChange={(e) => handleUpdateIndicators('msttSmsApiKey', e.target.value)}
-                                placeholder="X5UZHVO..."
-                                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-amber-500"
-                              />
-                              <span className="text-[10px] text-gray-500">ከ Console &gt; API KEY የተገኘ</span>
-                            </div>
-                          </div>
-
-                          {/* Test SMS Button */}
-                          <div className="pt-1">
-                            <button
-                              type="button"
-                              disabled={smsTesting}
-                              onClick={handleTestSms}
-                              className="w-full py-2 px-3 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
-                            >
-                              <span>{smsTesting ? '⏳ SMS እየተላከ ነው...' : '📨 የሙከራ SMS ወደ ስልክህ ላክ (Test Live SMS)'}</span>
-                            </button>
-                          </div>
-
-                          {/* SMS Feedback Message */}
-                          {smsMsg && (
-                            <div
-                              className={`p-2.5 rounded-lg text-xs font-medium border ${
-                                smsMsg.type === 'success'
-                                  ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300'
-                                  : 'bg-rose-950/70 border-rose-500/50 text-rose-300'
-                              }`}
-                            >
-                              {smsMsg.text}
-                            </div>
-                          )}
-
-                          <div className="p-2.5 bg-neutral-950/80 rounded-lg border border-neutral-850 text-[11px] text-gray-400 space-y-1">
-                            <p>💡 <b>የድምፅ ምክር፦</b> በስልክዎ <b>Messages Settings &gt; Notifications</b> ውስጥ ገብተው ለሚመጣው SMS <b>በጣም ጮክ ያለ የደወል ድምፅ (Ringtone)</b> ይምረጡለት። ስትተኙም እንኳን ቀስቅሶ ትሬዱን እንድትከፍቱ ያደርጋል!</p>
-                          </div>
-                        </div>
-
-                        {/* ======================================================== */}
-                        {/* 🤖 MT5 VPS AUTO-TRADING & CIRCUIT BREAKER ENGINE PANEL */}
-                        {/* ======================================================== */}
-                        <div className="mt-4 pt-4 border-t border-emerald-500/40 space-y-3.5 bg-neutral-950/80 p-3.5 rounded-xl border border-neutral-800">
+                        <div className="p-4 bg-gradient-to-br from-emerald-950/30 via-neutral-900 to-neutral-950 rounded-xl border border-emerald-500/40 space-y-4 shadow-xl">
                           <div className="flex items-center justify-between flex-wrap gap-2">
                             <div className="flex items-center gap-2">
                               <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                                <span>🤖</span> MT5 VPS Auto-Trading &amp; Circuit Breaker
+                                <span>⚡</span> Deriv Multipliers Auto-Trading
                               </span>
-                              <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                                MT5 MQL5 EA
+                              <span className="px-2 py-0.5 text-[10px] font-mono font-bold rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                NO VPS · 200MS SPEED
                               </span>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={fetchEaStatus}
-                              className="text-[10px] font-mono text-gray-400 hover:text-emerald-300 flex items-center gap-1 px-1.5 py-0.5 rounded bg-neutral-900 border border-neutral-800 transition-colors"
-                            >
-                              <span>🔄 ሁኔታውን ፈትሽ (Refresh)</span>
-                            </button>
+                            {/* Demo vs Real Account Switch */}
+                            <div className="flex items-center bg-neutral-950 rounded-lg p-0.5 border border-neutral-800">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleUpdateIndicators('derivMode', 'demo');
+                                  handleSyncCloudSettings({ ...settings.indicators, derivMode: 'demo' });
+                                }}
+                                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
+                                  (settings.indicators.derivMode || 'demo') === 'demo'
+                                    ? 'bg-amber-500/30 text-amber-300 border border-amber-500/50 shadow'
+                                    : 'text-gray-400 hover:text-gray-200'
+                                }`}
+                              >
+                                🧪 DEMO
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleUpdateIndicators('derivMode', 'real');
+                                  handleSyncCloudSettings({ ...settings.indicators, derivMode: 'real' });
+                                }}
+                                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
+                                  settings.indicators.derivMode === 'real'
+                                    ? 'bg-rose-600 text-white shadow'
+                                    : 'text-gray-400 hover:text-gray-200'
+                                }`}
+                              >
+                                🔴 REAL
+                              </button>
+                            </div>
                           </div>
 
                           <p className="text-xs text-gray-300 leading-relaxed">
-                            በዚህ WebApp ላይ የሚወጣውን የ 30M BOS Breakout Signal በሰከንዶች ውስጥ በ VPS MetaTrader 5 ላይ በቀጥታ ያለ ምንም የሰው ጣልቃገብነት auto-trade ያደርጋል!
+                            ያለ ምንም VPS ወይም MT5 ጭንቀት፣ አዲስ የ 1H/30M Breakout ሲግናል ሲወጣ <b>በ 200 ሚሊሰከንድ ውስጥ በቀጥታ በ Deriv Multipliers (MULTUP / MULTDOWN)</b> ትሬድ ይከፍታል!
                           </p>
 
                           {/* MASTER START / STOP BUTTON */}
                           <div className="p-3 rounded-lg border border-neutral-800 bg-neutral-900/90 space-y-2">
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-bold text-gray-200">
-                                🕹️ Auto-Trading ዋና መቆጣጠሪያ (Master Switch):
+                                🕹️ Auto-Trading ዋና መቆጣጠሪያ:
                               </span>
                               <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded ${
-                                (settings.indicators.msttAutoBotEnabled !== false && !eaStatus?.circuitBreakerTripped)
+                                settings.indicators.derivAutoTradeEnabled && !circuitBreakerStatus?.isTripped
                                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                  : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                  : (circuitBreakerStatus?.isTripped ? 'bg-rose-500/30 text-rose-300 border border-rose-500' : 'bg-neutral-800 text-gray-400')
                               }`}>
-                                {(settings.indicators.msttAutoBotEnabled !== false && !eaStatus?.circuitBreakerTripped)
-                                  ? '🟢 ACTIVE (እየሰራ ነው)'
-                                  : (eaStatus?.circuitBreakerTripped ? '🛑 CIRCUIT BREAKER STOPPED' : '🔴 PAUSED (ቆሟል)')}
+                                {circuitBreakerStatus?.isTripped
+                                  ? '🛑 CIRCUIT BREAKER STOPPED'
+                                  : settings.indicators.derivAutoTradeEnabled
+                                  ? `🟢 ACTIVE (${(settings.indicators.derivMode || 'demo').toUpperCase()} እየሰራ ነው)`
+                                  : '🔴 PAUSED (ቆሟል)'}
                               </span>
                             </div>
 
                             <div className="pt-1">
-                              {settings.indicators.msttAutoBotEnabled !== false ? (
+                              {settings.indicators.derivAutoTradeEnabled ? (
                                 <button
                                   type="button"
-                                  disabled={eaLoading}
-                                  onClick={() => handleToggleAutoBot(false)}
-                                  className="w-full py-2.5 px-4 bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white rounded-lg font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+                                  onClick={() => {
+                                    handleUpdateIndicators('derivAutoTradeEnabled', false);
+                                    handleSyncCloudSettings({ ...settings.indicators, derivAutoTradeEnabled: false });
+                                  }}
+                                  className="w-full py-2.5 px-4 bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white rounded-lg font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98"
                                 >
                                   <span>🛑</span>
-                                  <span>AUTO-BOT አቁም (Click to PAUSE Auto-Trading)</span>
+                                  <span>AUTO-TRADING አቁም (Click to PAUSE Auto-Trade)</span>
                                 </button>
                               ) : (
                                 <button
                                   type="button"
-                                  disabled={eaLoading}
-                                  onClick={() => handleToggleAutoBot(true)}
-                                  className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-lg font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+                                  onClick={() => {
+                                    handleUpdateIndicators('derivAutoTradeEnabled', true);
+                                    handleSyncCloudSettings({ ...settings.indicators, derivAutoTradeEnabled: true });
+                                  }}
+                                  className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-lg font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98"
                                 >
                                   <span>▶️</span>
-                                  <span>AUTO-BOT አስጀምር (Click to START Auto-Trading)</span>
+                                  <span>AUTO-TRADING አስጀምር (Click to START Auto-Trade on {(settings.indicators.derivMode || 'demo').toUpperCase()})</span>
                                 </button>
                               )}
                             </div>
                             <span className="block text-[10px] text-gray-400">
-                              * ሲቆም (PAUSED) ወደ Telegram Botም ሆነ ወደ EA ምንም አይነት አዲስ የትሬድ ሲግናል አይተላለፍም።
+                              * ሲቆም (PAUSED) በክላውድ Cron ሲግናል ቢገኝም Deriv ጋር ምንም አዲስ ትሬድ አይከፈትም።
                             </span>
                           </div>
 
-                          {/* CIRCUIT BREAKER NOTIFICATION IF TRIPPED */}
-                          {eaStatus?.circuitBreakerTripped && (
-                            <div className="p-2.5 rounded-lg bg-rose-950/80 border border-rose-500 text-rose-200 text-xs space-y-1">
-                              <span className="font-bold flex items-center gap-1.5 text-rose-300">
-                                <span>🚨</span> የቀን የኪሳራ ገደብ ደርሷል (Daily Circuit Breaker Tripped)!
+                          {/* API CREDENTIALS (TOKEN & APP ID) */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                            {/* Personal Access Token */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <label className="font-medium text-gray-300">Deriv Personal Access Token (PAT)</label>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowDerivTokenSecret(!showDerivTokenSecret)}
+                                  className="text-[11px] text-emerald-400 hover:text-emerald-300 transition-colors"
+                                >
+                                  {showDerivTokenSecret ? 'ደብቅ' : 'አሳይ'}
+                                </button>
+                              </div>
+                              <input
+                                type={showDerivTokenSecret ? 'text' : 'password'}
+                                value={settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93'}
+                                onChange={(e) => handleUpdateIndicators('derivApiToken', e.target.value)}
+                                placeholder="pat_..."
+                                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
+                              />
+                            </div>
+
+                            {/* Deriv App ID */}
+                            <div className="space-y-1">
+                              <label className="block text-xs font-medium text-gray-300">
+                                Deriv App ID (ከ Mire_kkk የተገኘ)
+                              </label>
+                              <input
+                                type="text"
+                                value={settings.indicators.derivAppId || ''}
+                                onChange={(e) => handleUpdateIndicators('derivAppId', e.target.value)}
+                                placeholder="e.g. 34Tq...74xqTh"
+                                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
+                              />
+                              <span className="text-[10px] text-gray-400">
+                                ከ developers.deriv.com/dashboard &gt; Apps የተገኘ
                               </span>
-                              <p className="text-[11px] text-rose-200 leading-relaxed">
-                                ዛሬ በተከታታይ {eaStatus.consecutiveLossesToday} ኪሳራ ስላጋጠመ ካፒታልዎን ለመጠበቅ ቦቱ ለቀኑ ቆሟል። ነገ በ 00:00 UTC በራሱ ዳግም ይጀምራል፤ ወይም ከላይ <b>"አስጀምር"</b> የሚለውን ተጭነው ማንሳት ይችላሉ።
-                              </p>
+                            </div>
+                          </div>
+
+                          {/* Verify & Check Connection Button */}
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              disabled={derivVerifying}
+                              onClick={handleVerifyDerivToken}
+                              className="w-full py-2 px-3 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-98 disabled:opacity-50"
+                            >
+                              <span>{derivVerifying ? '⏳ Deriv ጋር እየተገናኘ ነው...' : '🔗 የ Deriv ግንኙነት ፈትሽ (Verify & Check Live Balance)'}</span>
+                            </button>
+                          </div>
+
+                          {derivVerifyMsg && (
+                            <div className={`p-2.5 rounded-lg text-xs font-mono border ${
+                              derivVerifyMsg.type === 'success'
+                                ? 'bg-emerald-950/80 border-emerald-500 text-emerald-200'
+                                : 'bg-rose-950/80 border-rose-500 text-rose-200'
+                            }`}>
+                              {derivVerifyMsg.text}
                             </div>
                           )}
 
-                          {/* RISK SAFEGUARD: CONSECUTIVE LOSSES & LOT SIZE SETTINGS */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                            {/* Consecutive Loss Input */}
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-xs">
-                                <label className="font-medium text-gray-300 flex items-center gap-1">
-                                  <span>⚠️</span> የቀን ተከታታይ ኪሳራ ገደብ
-                                </label>
-                                <span className="text-[10px] text-amber-400 font-mono">
-                                  ዛሬ የደረሰው: {eaStatus?.consecutiveLossesToday ?? 0}
-                                </span>
+                          {/* Connected Accounts Card */}
+                          {derivAccounts.length > 0 && (
+                            <div className="p-2.5 bg-neutral-950 rounded-lg border border-neutral-800 space-y-1 text-xs font-mono">
+                              <span className="text-[10px] text-gray-400 block font-sans font-bold">የተገናኙ አካውንቶች (Active Accounts):</span>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                                {derivAccounts.map((acc: any) => (
+                                  <div
+                                    key={acc.account_id}
+                                    className={`p-2 rounded border flex items-center justify-between ${
+                                      acc.account_type === 'demo'
+                                        ? 'bg-amber-950/20 border-amber-500/40 text-amber-300'
+                                        : 'bg-emerald-950/20 border-emerald-500/40 text-emerald-300'
+                                    }`}
+                                  >
+                                    <div>
+                                      <span className="font-bold block uppercase text-[10px]">
+                                        {acc.account_type === 'demo' ? '🧪 DEMO' : '🔴 REAL'}: {acc.account_id}
+                                      </span>
+                                    </div>
+                                    <span className="font-black text-sm">
+                                      ${acc.balance.toFixed(2)} {acc.currency}
+                                    </span>
+                                  </div>
+                                ))}
                               </div>
+                            </div>
+                          )}
+
+                          {/* MULTIPLIER & RISK CONTROLS GRID */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                            {/* Stake ($) */}
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-gray-300 block">Stake Amount ($)</label>
                               <input
                                 type="number"
-                                min={1}
-                                max={10}
-                                value={settings.indicators.msttMaxConsecutiveLosses ?? 2}
+                                step="0.5"
+                                min="0.35"
+                                max="1000"
+                                value={settings.indicators.derivStake ?? 2.0}
                                 onChange={(e) => {
-                                  const val = Math.max(1, Math.min(10, parseInt(e.target.value) || 2));
-                                  handleUpdateConsecutiveLossLimit(val);
+                                  const val = parseFloat(e.target.value) || 2.0;
+                                  handleUpdateIndicators('derivStake', val);
+                                  handleSyncCloudSettings({ ...settings.indicators, derivStake: val });
                                 }}
-                                className="w-full px-3 py-2 bg-neutral-900 border border-neutral-750 rounded-lg text-xs font-mono text-amber-300 focus:outline-none focus:border-emerald-500"
+                                className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-emerald-400 font-bold focus:outline-none focus:border-emerald-500"
                               />
-                              <span className="text-[10px] text-gray-500">
-                                በተከታታይ ይሄ ያህል Loss ሲመጣ ቦቱ ለቀኑ Auto-Stop ያደርጋል (Default: 2)
-                              </span>
+                              <span className="text-[9.5px] text-gray-500">ነባሪ: $2.00</span>
                             </div>
 
-                            {/* Auto-Trade Lot Size Input */}
+                            {/* Multiplier (x) */}
                             <div className="space-y-1">
-                              <div className="flex items-center justify-between text-xs">
-                                <label className="font-medium text-gray-300 flex items-center gap-1">
-                                  <span>⚖️</span> MT5 Auto-Trade Lot Size
-                                </label>
-                                <span className="text-[10px] text-emerald-400 font-mono">
-                                  V75 Min: 0.001
-                                </span>
-                              </div>
+                              <label className="text-[11px] font-bold text-gray-300 block">Multiplier (x)</label>
+                              <select
+                                value={settings.indicators.derivMultiplier ?? 200}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value) || 200;
+                                  handleUpdateIndicators('derivMultiplier', val);
+                                  handleSyncCloudSettings({ ...settings.indicators, derivMultiplier: val });
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-cyan-400 font-bold focus:outline-none focus:border-cyan-500"
+                              >
+                                <option value={20}>20x</option>
+                                <option value={40}>40x</option>
+                                <option value={60}>60x</option>
+                                <option value={100}>100x</option>
+                                <option value={200}>200x (ምርጥ)</option>
+                                <option value={400}>400x</option>
+                              </select>
+                              <span className="text-[9.5px] text-gray-500">ለ R_75 መደበኛ</span>
+                            </div>
+
+                            {/* Take Profit ($) */}
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-emerald-400 block">Take Profit ($)</label>
                               <input
                                 type="number"
-                                step="0.001"
-                                min="0.001"
-                                max="1.0"
-                                value={settings.indicators.msttLotSize ?? 0.001}
+                                step="0.1"
+                                min="0.5"
+                                value={settings.indicators.derivTakeProfitUsd ?? 6.68}
                                 onChange={(e) => {
-                                  const val = parseFloat(e.target.value) || 0.001;
-                                  handleUpdateLotSize(val);
+                                  const val = parseFloat(e.target.value) || 6.68;
+                                  handleUpdateIndicators('derivTakeProfitUsd', val);
+                                  handleSyncCloudSettings({ ...settings.indicators, derivTakeProfitUsd: val });
                                 }}
-                                className="w-full px-3 py-2 bg-neutral-900 border border-neutral-750 rounded-lg text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
+                                className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-emerald-300 font-bold focus:outline-none focus:border-emerald-500"
                               />
-                              <span className="text-[10px] text-gray-500">
-                                ለእያንዳንዱ ትሬድ የሚከፈተው የሎት መጠን (0.001 Lot = $2.20 SL Risk)
-                              </span>
+                              <span className="text-[9.5px] text-emerald-500 font-mono">+607 pips (~79% WR)</span>
+                            </div>
+
+                            {/* Stop Loss ($) */}
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-rose-400 block">Stop Loss ($)</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0.5"
+                                value={settings.indicators.derivStopLossUsd ?? 2.0}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 2.0;
+                                  handleUpdateIndicators('derivStopLossUsd', val);
+                                  handleSyncCloudSettings({ ...settings.indicators, derivStopLossUsd: val });
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-rose-300 font-bold focus:outline-none focus:border-rose-500"
+                              />
+                              <span className="text-[9.5px] text-rose-500 font-mono">-165 pips ($2 Capped)</span>
                             </div>
                           </div>
 
-                          {/* MT5 EA API ENDPOINTS FOR VPS */}
-                          <div className="p-3 bg-neutral-900/90 rounded-lg border border-neutral-800 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-bold text-gray-200 flex items-center gap-1.5">
-                                <span>🔗</span> የ MT5 EA Polling URL (ለ EA የሚሰጠው):
-                              </span>
+                          {/* Circuit Breaker (Consecutive Losses Limit) */}
+                          <div className="p-2.5 bg-neutral-950 rounded-lg border border-neutral-800 flex items-center justify-between flex-wrap gap-2 text-xs">
+                            <div>
+                              <span className="font-bold text-gray-200 block">🛑 የቀን ተከታታይ ኪሳራ ገደብ (Circuit Breaker):</span>
+                              <span className="text-[10px] text-gray-400">ይህ ያህል ተከታታይ Loss ሲያጋጥም ለቀኑ auto-stop በማድረግ ካፒታልህን ይጠብቃል!</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="10"
+                                value={settings.indicators.derivMaxConsecutiveLosses ?? 2}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value) || 2;
+                                  handleUpdateIndicators('derivMaxConsecutiveLosses', val);
+                                  handleSyncCloudSettings({ ...settings.indicators, derivMaxConsecutiveLosses: val });
+                                }}
+                                className="w-16 px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-center font-mono font-bold text-amber-300 text-xs"
+                              />
+                              <span className="text-[10px] text-gray-400">ተከታታይ Loss</span>
+                            </div>
+                          </div>
+
+                          {/* INSTANT LIVE TEST TRADE BUTTONS */}
+                          <div className="pt-2 border-t border-neutral-800 space-y-2">
+                            <span className="text-xs font-bold text-gray-300 block">
+                              🚀 የቀጥታ የሙከራ ትሬድ ክፈት (Open Live Test Trade on {(settings.indicators.derivMode || 'demo').toUpperCase()}):
+                            </span>
+                            <div className="grid grid-cols-2 gap-2">
                               <button
                                 type="button"
-                                onClick={() => {
-                                  const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
-                                  const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
-                                  navigator.clipboard.writeText(origin);
-                                  setEaUrlCopied(true);
-                                  setTimeout(() => setEaUrlCopied(false), 3000);
-                                }}
-                                className="px-2 py-0.5 text-[10px] font-semibold bg-neutral-800 hover:bg-neutral-700 text-emerald-400 rounded border border-neutral-700 transition-colors"
+                                disabled={derivTestingTrade}
+                                onClick={() => handleExecuteLiveDerivTrade('BUY')}
+                                className="py-2.5 px-3 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/50 font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-98 disabled:opacity-50"
                               >
-                                {eaUrlCopied ? '✅ ተገልብጧል (Copied)!' : 'Base URL ኮፒ (Copy)'}
+                                <span>{derivTestingTrade ? '⏳ እየከፈተ ነው...' : '+ BUY MULTUP ($2.00)'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={derivTestingTrade}
+                                onClick={() => handleExecuteLiveDerivTrade('SELL')}
+                                className="py-2.5 px-3 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/50 font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-98 disabled:opacity-50"
+                              >
+                                <span>{derivTestingTrade ? '⏳ እየከፈተ ነው...' : '- SELL MULTDOWN ($2.00)'}</span>
                               </button>
                             </div>
 
-                            <div className="p-2 bg-neutral-950 rounded border border-neutral-850 text-[11px] font-mono text-emerald-400 break-all select-all">
-                              {(() => {
-                                const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
-                                const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
-                                return `${origin}/api/ea-signal`;
-                              })()}
-                            </div>
-                          </div>
-
-                          {/* DOWNLOAD & COPY MQL5 EXPERT ADVISOR SCRIPT */}
-                          <div className="p-3 bg-emerald-950/20 border border-emerald-500/30 rounded-lg space-y-2.5">
-                            <div className="flex items-center justify-between flex-wrap gap-2">
-                              <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
-                                <span>📥</span> የ MT5 Expert Advisor (EA) ፋይል፦
-                              </span>
-
-                              <div className="flex items-center gap-2">
-                                <a
-                                  href="/Mcharts_V75_AutoTrader.mq5"
-                                  download="Mcharts_V75_AutoTrader.mq5"
-                                  className="px-2.5 py-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md shadow transition-colors flex items-center gap-1"
-                                >
-                                  <span>⬇️</span> .mq5 ፋይል አውርድ
-                                </a>
-
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    try {
-                                      const res = await fetch('/Mcharts_V75_AutoTrader.mq5');
-                                      const code = await res.text();
-                                      navigator.clipboard.writeText(code);
-                                      setEaCodeCopied(true);
-                                      setTimeout(() => setEaCodeCopied(false), 3000);
-                                    } catch (e) {}
-                                  }}
-                                  className="px-2.5 py-1 text-xs font-semibold bg-neutral-800 hover:bg-neutral-750 text-sky-300 rounded-md border border-neutral-700 transition-colors flex items-center gap-1"
-                                >
-                                  <span>{eaCodeCopied ? '✅ ኮፒ ሆኗል!' : '📋 ሙሉ ኮድ ኮፒ አድርግ'}</span>
-                                </button>
+                            {derivTradeMsg && (
+                              <div className={`p-2.5 rounded-lg text-xs font-mono border ${
+                                derivTradeMsg.type === 'success'
+                                  ? 'bg-emerald-950/80 border-emerald-500 text-emerald-200'
+                                  : 'bg-rose-950/80 border-rose-500 text-rose-200'
+                              }`}>
+                                <div className="font-bold">{derivTradeMsg.text}</div>
                               </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* ======================================================== */}
+                        {/* 🧪 DEMO SIGNAL SIMULATOR (የሙከራ ሲግናል ላክ) */}
+                        {/* ======================================================== */}
+                        <div className="mt-4 pt-4 border-t border-cyan-500/40 space-y-3.5 bg-gradient-to-br from-cyan-950/20 via-neutral-950 to-neutral-900 p-4 rounded-xl border border-cyan-500/30">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                                <span>🧪</span> Demo Signal Simulator (የሙከራ ሲግናል ላክ)
+                              </span>
+                              <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+                                Telegram Live Pipeline
+                              </span>
                             </div>
 
-                            <div className="text-[11px] text-gray-300 space-y-1">
-                              <p><b>1.</b> በ VPS ኮምፒውተርዎ ላይ MT5 ን ይክፈቱ ➔ <b>Tools &gt; Options &gt; Expert Advisors</b> ውስጥ ይግቡ።</p>
-                              <p><b>2.</b> <b>"Allow WebRequest for listed URL"</b> የሚለውን አብርተው የ WebAppዎን URL (<code>https://mrvol75.vercel.app</code>) ያስገቡ።</p>
-                              <p><b>3.</b> የወረደውን <b>Mcharts_V75_AutoTrader.mq5</b> ፋይል MT5 ላይ <b>MQL5/Experts</b> ውስጥ አስቀምጠው <b>Compile</b> ይበሉ።</p>
-                              <p><b>4.</b> EAውን ወደ <b>Volatility 75 Index (30M)</b> ቻርት ላይ ጎትተው ይጫኑትና <b>Algo Trading</b> የሚለውን ያብሩት! አበቃ!</p>
+                            {/* BUY / SELL Switch */}
+                            <div className="flex items-center bg-neutral-900 rounded-lg p-0.5 border border-neutral-800">
+                              <button
+                                type="button"
+                                onClick={() => setDemoDirection('BUY')}
+                                className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                                  demoDirection === 'BUY'
+                                    ? 'bg-emerald-600 text-white shadow'
+                                    : 'text-gray-400 hover:text-gray-200'
+                                }`}
+                              >
+                                BUY
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDemoDirection('SELL')}
+                                className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                                  demoDirection === 'SELL'
+                                    ? 'bg-rose-600 text-white shadow'
+                                    : 'text-gray-400 hover:text-gray-200'
+                                }`}
+                              >
+                                SELL
+                              </button>
                             </div>
                           </div>
+
+                          <p className="text-xs text-gray-300 leading-relaxed">
+                            ይህ ቁልፍ በ Settings ላይ ባስቀመጡት <b>TP ({settings.indicators.pointsTp1 ?? 450} pips)</b> እና <b>SL ({settings.indicators.pointsSl ?? 220} pips)</b> መሰረት ወዲያውኑ ወደ <b>Telegram Bot</b>ህ የሙከራ ትሬድ ሲግናል ይልካል! ቴሌግራምዎን በቅጽበት ይፈትሹ!
+                          </p>
+
+                          {/* ACTION BUTTON */}
+                          <div>
+                            <button
+                              type="button"
+                              disabled={demoTesting}
+                              onClick={() => handleSendDemoSignal(demoDirection)}
+                              className={`w-full py-3 px-4 rounded-xl font-bold text-xs shadow-xl transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 text-white ${
+                                demoDirection === 'BUY'
+                                  ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 shadow-emerald-950/40'
+                                  : 'bg-gradient-to-r from-rose-600 via-red-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 shadow-rose-950/40'
+                              }`}
+                            >
+                              <span>{demoTesting ? '⏳ ወደ Telegram እየተላከ ነው...' : `🚀 የ ${demoDirection} የሙከራ ሲግናል ላክ (Send Demo ${demoDirection} Signal)`}</span>
+                            </button>
+                          </div>
+
+                          {demoMsg && (
+                            <div className={`p-3 rounded-lg text-xs leading-relaxed space-y-1.5 ${
+                              demoMsg.type === 'success'
+                                ? 'bg-emerald-950/80 border border-emerald-500 text-emerald-200'
+                                : 'bg-rose-950/80 border border-rose-500 text-rose-200'
+                            }`}>
+                              <div className="font-bold">{demoMsg.text}</div>
+                              {demoMsg.details && (
+                                <div className="text-[11px] font-mono text-gray-300 pt-1 border-t border-emerald-800/40">
+                                  <span>• Telegram Bot: {demoMsg.details.destinations?.telegram?.ok ? '✅ ደርሷል (200 OK)' : '❌ አልተላከም'}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

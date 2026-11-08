@@ -1358,7 +1358,12 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           fetch('/api/telegram', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'send_message', text: msg }),
+            body: JSON.stringify({
+              action: 'send_message',
+              text: msg,
+              botToken: (settings.indicators.msttTgBotToken || '').trim(),
+              chatId: (settings.indicators.msttTgChatId || '').trim(),
+            }),
           }).catch(console.error);
           activeTgTradeRef.current = null;
         } else if (latestCandle.low <= active.slPrice) {
@@ -1371,7 +1376,12 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           fetch('/api/telegram', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'send_message', text: msg }),
+            body: JSON.stringify({
+              action: 'send_message',
+              text: msg,
+              botToken: (settings.indicators.msttTgBotToken || '').trim(),
+              chatId: (settings.indicators.msttTgChatId || '').trim(),
+            }),
           }).catch(console.error);
           activeTgTradeRef.current = null;
         }
@@ -1388,7 +1398,12 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           fetch('/api/telegram', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'send_message', text: msg }),
+            body: JSON.stringify({
+              action: 'send_message',
+              text: msg,
+              botToken: (settings.indicators.msttTgBotToken || '').trim(),
+              chatId: (settings.indicators.msttTgChatId || '').trim(),
+            }),
           }).catch(console.error);
           activeTgTradeRef.current = null;
         } else if (latestCandle.high >= active.slPrice) {
@@ -1401,7 +1416,12 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           fetch('/api/telegram', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'send_message', text: msg }),
+            body: JSON.stringify({
+              action: 'send_message',
+              text: msg,
+              botToken: (settings.indicators.msttTgBotToken || '').trim(),
+              chatId: (settings.indicators.msttTgChatId || '').trim(),
+            }),
           }).catch(console.error);
           activeTgTradeRef.current = null;
         }
@@ -1446,7 +1466,12 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         fetch('/api/telegram', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'send_message', text: signalMsg }),
+          body: JSON.stringify({
+            action: 'send_message',
+            text: signalMsg,
+            botToken: (settings.indicators.msttTgBotToken || '').trim(),
+            chatId: (settings.indicators.msttTgChatId || '').trim(),
+          }),
         }).catch(console.error);
 
         // Store active trade to detect instant TP or SL hit

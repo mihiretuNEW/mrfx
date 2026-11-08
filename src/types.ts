@@ -611,15 +611,16 @@ export interface ChartSettings {
     msttTgAlertsEnabled?: boolean; // Enable 24/7 Cloud Telegram Alerts (default: false)
     msttTgSymbol?: string; // Symbol to monitor (default: '1HZ75V')
     msttTgTimeframe?: string; // Timeframe to monitor (default: '1H')
-    // 📱 smsethiopia.com SMS Alerts Integration
-    msttSmsApiKey?: string; // smsethiopia.com API Key
-    msttSmsPhone?: string; // Recipient phone number (e.g. 251968865885)
-    msttSmsAlertsEnabled?: boolean; // Enable instant SMS alerts on trade signals (default: true)
-    // 🤖 MT5 VPS Auto-Trading & Circuit Breaker Engine
-    msttAutoBotEnabled?: boolean; // Master Start/Stop toggle for auto-trading (default: true)
-    msttMaxConsecutiveLosses?: number; // Max consecutive losses before stopping for the day (default: 2)
-    msttLotSize?: number; // Auto-trading lot size (default: 0.001)
-    msttMagicNumber?: number; // MT5 Expert Advisor Magic Number (default: 757575)
+    // Deriv Multipliers Auto-Trading Engine
+    derivApiToken?: string; // Deriv Personal Access Token (PAT)
+    derivAppId?: string; // Deriv Application ID (from developers.deriv.com)
+    derivMode?: 'demo' | 'real'; // Account mode: 'demo' (Virtual VRTC) or 'real' (CR)
+    derivAutoTradeEnabled?: boolean; // Master auto-trading switch (default: false)
+    derivStake?: number; // Stake amount in USD (default: 2.00)
+    derivMultiplier?: number; // Multiplier leverage (default: 200)
+    derivTakeProfitUsd?: number; // Take profit in USD (default: 6.68)
+    derivStopLossUsd?: number; // Stop loss in USD (default: 2.00)
+    derivMaxConsecutiveLosses?: number; // Circuit breaker limit (default: 2)
     // VIP Market Scanner™ (VIP Algos) - Single Pair Matrix
     showVipMarketScanner?: boolean;
     vipScannerShowHud?: boolean;

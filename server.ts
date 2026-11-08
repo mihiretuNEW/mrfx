@@ -1,7 +1,7 @@
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import app from "./api/_app";
+import app from "./api/_app.js";
 
 // Load environment variables
 dotenv.config();

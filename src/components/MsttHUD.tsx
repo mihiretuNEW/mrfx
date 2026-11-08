@@ -126,30 +126,32 @@ export const MsttHUD: React.FC<MsttHUDProps> = ({
             </span>
           </div>
 
-          {/* MT5 EA Auto-Trading Quick Toggle & Status */}
+          {/* Deriv Multiplier Auto-Trading Status in Mini HUD */}
           <div className="flex items-center justify-between px-1.5 py-1 rounded bg-neutral-900/90 border border-neutral-800 text-[10px] mt-0.5">
             <span className="text-gray-400 flex items-center gap-1 font-semibold">
-              <span>🤖</span> EA Auto-Trade:
+              <span>⚡</span> Deriv Multiplier:
             </span>
             <button
               type="button"
               onClick={() => {
-                const nextVal = settings.indicators.msttAutoBotEnabled === false ? true : false;
-                if (onUpdateSetting) onUpdateSetting('msttAutoBotEnabled', nextVal);
-                fetch('/api/ea-status', {
+                const nextVal = !settings.indicators.derivAutoTradeEnabled;
+                if (onUpdateSetting) onUpdateSetting('derivAutoTradeEnabled', nextVal);
+                fetch('/api/cloud-alert-config', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ autoBotEnabled: nextVal }),
+                  body: JSON.stringify({
+                    options: { derivAutoTradeEnabled: nextVal },
+                  }),
                 }).catch(() => {});
               }}
-              title="Click to toggle MT5 Auto-Trading on/off"
+              title="Click to toggle Deriv Auto-Trading on/off"
               className={`px-1.5 py-0.5 rounded font-bold font-mono transition-colors text-[9.5px] ${
-                settings.indicators.msttAutoBotEnabled !== false
+                settings.indicators.derivAutoTradeEnabled
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-500/30'
                   : 'bg-rose-500/20 text-rose-300 border border-rose-500/50 hover:bg-rose-500/30'
               }`}
             >
-              {settings.indicators.msttAutoBotEnabled !== false ? '🟢 ACTIVE' : '🔴 PAUSED'}
+              {settings.indicators.derivAutoTradeEnabled ? '🟢 ACTIVE' : '🔴 PAUSED'}
             </button>
           </div>
         </div>
@@ -313,32 +315,94 @@ export const MsttHUD: React.FC<MsttHUDProps> = ({
             </div>
           </div>
 
-          {/* MT5 VPS Auto-Trading Row in Full HUD */}
+          {/* Deriv Multiplier Auto-Trading Status & Toggle */}
           <div className="flex items-center justify-between px-2 py-1.5 bg-neutral-900/90 border border-neutral-800 rounded mt-1 text-[10.5px]">
             <div className="flex items-center gap-1.5 font-semibold text-gray-300">
-              <span>🤖</span>
-              <span>MT5 Auto-Trader:</span>
+              <span>⚡</span>
+              <span>Deriv {(settings.indicators.derivMode || 'demo').toUpperCase()}:</span>
+              <span className="text-[9.5px] font-mono text-cyan-400">
+                ({settings.indicators.derivMultiplier ?? 200}x · ${settings.indicators.derivStake ?? 2})
+              </span>
             </div>
             <button
               type="button"
               onClick={() => {
-                const nextVal = settings.indicators.msttAutoBotEnabled === false ? true : false;
-                if (onUpdateSetting) onUpdateSetting('msttAutoBotEnabled', nextVal);
-                fetch('/api/ea-status', {
+                const nextVal = !settings.indicators.derivAutoTradeEnabled;
+                if (onUpdateSetting) onUpdateSetting('derivAutoTradeEnabled', nextVal);
+                fetch('/api/cloud-alert-config', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ autoBotEnabled: nextVal }),
+                  body: JSON.stringify({
+                    options: { derivAutoTradeEnabled: nextVal },
+                  }),
                 }).catch(() => {});
               }}
-              title="Click to toggle MT5 Auto-Trading on/off"
+              title="Click to toggle Deriv Auto-Trading on/off"
               className={`px-2 py-0.5 rounded font-bold font-mono transition-colors text-[10px] ${
-                settings.indicators.msttAutoBotEnabled !== false
+                settings.indicators.derivAutoTradeEnabled
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-500/30'
                   : 'bg-rose-500/20 text-rose-300 border border-rose-500/50 hover:bg-rose-500/30'
               }`}
             >
-              {settings.indicators.msttAutoBotEnabled !== false ? '🟢 ACTIVE (START)' : '🔴 PAUSED (STOP)'}
+              {settings.indicators.derivAutoTradeEnabled ? '🟢 ACTIVE' : '🔴 PAUSED'}
             </button>
+          </div>
+
+          {/* Quick Demo Signal Trigger */}
+          <div className="flex items-center justify-between pt-1 mt-1 border-t border-neutral-800/60 text-[10px]">
+            <span className="text-gray-400 font-semibold flex items-center gap-1">
+              <span>🧪</span> Demo Signal:
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  fetch('/api/demo-signal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action: 'BUY',
+                      botToken: (settings.indicators.msttTgBotToken || '').trim(),
+                      chatId: (settings.indicators.msttTgChatId || '').trim(),
+                      derivApiToken: (settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim(),
+                      derivAppId: (settings.indicators.derivAppId || '').trim(),
+                      stake: settings.indicators.derivStake ?? 2.0,
+                      multiplier: settings.indicators.derivMultiplier ?? 200,
+                      takeProfitUsd: settings.indicators.derivTakeProfitUsd ?? 6.68,
+                      stopLossUsd: settings.indicators.derivStopLossUsd ?? 2.0,
+                    }),
+                  }).catch(() => {});
+                }}
+                className="px-1.5 py-0.5 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 text-[9.5px] font-bold font-mono transition-colors"
+                title="Send simulated BUY signal to Telegram and Deriv Demo"
+              >
+                + BUY
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  fetch('/api/demo-signal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action: 'SELL',
+                      botToken: (settings.indicators.msttTgBotToken || '').trim(),
+                      chatId: (settings.indicators.msttTgChatId || '').trim(),
+                      derivApiToken: (settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim(),
+                      derivAppId: (settings.indicators.derivAppId || '').trim(),
+                      stake: settings.indicators.derivStake ?? 2.0,
+                      multiplier: settings.indicators.derivMultiplier ?? 200,
+                      takeProfitUsd: settings.indicators.derivTakeProfitUsd ?? 6.68,
+                      stopLossUsd: settings.indicators.derivStopLossUsd ?? 2.0,
+                    }),
+                  }).catch(() => {});
+                }}
+                className="px-1.5 py-0.5 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/40 text-[9.5px] font-bold font-mono transition-colors"
+                title="Send simulated SELL signal to Telegram and Deriv Demo"
+              >
+                - SELL
+              </button>
+            </div>
           </div>
         </div>
       </div>

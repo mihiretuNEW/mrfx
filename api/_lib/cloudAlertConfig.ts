@@ -1,7 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { sendSmsDirect } from './smsEthiopia.js';
-import { sendGitHubDispatch } from './githubDispatch.js';
 
 const PRIMARY_CONFIG_FILE = path.join(process.cwd(), '.cloud_alert_config.json');
 const FALLBACK_CONFIG_FILE = path.join('/tmp', 'mcharts_cloud_alert_config.json');
@@ -13,13 +11,6 @@ export interface CloudAlertConfig {
   symbol: string;
   timeframe: string;
   updatedAt: number;
-  smsApiKey?: string;
-  smsPhone?: string;
-  smsAlertsEnabled?: boolean;
-  githubOwner?: string;
-  githubRepo?: string;
-  githubToken?: string;
-  githubDispatchEnabled?: boolean;
   options: Record<string, any>;
 }
 
@@ -29,13 +20,6 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
   enabled: true,
   symbol: 'R_75',
   timeframe: '30M',
-  smsApiKey: 'X5UZHVO1BTC9VTNGXPAR4BJQCDCLLOPYPEJ6U4H6',
-  smsPhone: '251968865885',
-  smsAlertsEnabled: true,
-  githubOwner: 'mihiretuNEW',
-  githubRepo: 'my-vps',
-  githubToken: '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',
-  githubDispatchEnabled: true,
   updatedAt: Date.now(),
   options: {
     targetMode: 'points',
@@ -68,6 +52,15 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
     useTurtleSoupFilter: false,
     useRetestConfirmation: false,
     useAntiWhipsawFilter: false,
+    derivApiToken: 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93',
+    derivAppId: '',
+    derivMode: 'demo',
+    derivAutoTradeEnabled: false,
+    derivStake: 2.0,
+    derivMultiplier: 200,
+    derivTakeProfitUsd: 6.68,
+    derivStopLossUsd: 2.0,
+    derivMaxConsecutiveLosses: 2,
   },
 };
 
@@ -86,6 +79,8 @@ export function loadAlertConfig(): CloudAlertConfig {
   }
   return DEFAULT_CONFIG;
 }
+
+export const getAlertConfig = loadAlertConfig;
 
 export function saveAlertConfig(config: Partial<CloudAlertConfig>): CloudAlertConfig {
   const current = loadAlertConfig();
@@ -201,22 +196,6 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
     }
 
     if (req.method === 'POST') {
-      if (action === 'test_sms' || body.action === 'test_sms') {
-        const currentCfg = loadAlertConfig();
-        const apiKey = body.smsApiKey || currentCfg.smsApiKey;
-        const phone = body.smsPhone || currentCfg.smsPhone;
-        if (!apiKey || !phone) {
-          return res.status(400).json({ ok: false, error: 'SMS Ethiopia API Key and Phone Number are required.' });
-        }
-        const testText = '🔔 Mcharts Signal Connected! Your SMS alerts are active. Mire stay disciplined!';
-        const smsRes = await sendSmsDirect(apiKey, phone, testText);
-        if (smsRes.ok) {
-          return res.status(200).json({ ok: true, message: `✅ የሙከራ SMS ወደ ${phone} በተሳካ ሁኔታ ተልኳል! ስልክዎን ይመልከቱ።` });
-        } else {
-          return res.status(400).json({ ok: false, error: smsRes.error || 'Failed to send SMS via smsethiopia.com' });
-        }
-      }
-
       if (action === 'test' || body.action === 'test') {
         const token = body.botToken || loadAlertConfig().botToken;
         const chat = body.chatId || loadAlertConfig().chatId;
@@ -236,63 +215,22 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
         }
       }
 
-      if (action === 'test_github' || body.action === 'test_github') {
-        const currentCfg = loadAlertConfig();
-        const owner = body.githubOwner || currentCfg.githubOwner || 'mihiretuNEW';
-        const repo = body.githubRepo || currentCfg.githubRepo || 'my-vps';
-        const token = body.githubToken || currentCfg.githubToken || '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';
-
-        const ghRes = await sendGitHubDispatch(owner, repo, token, {
-          id: `TEST_${Date.now()}`,
-          symbol: 'R_75',
-          action: 'BUY',
-          lot: 0.001,
-          entryPrice: 35500.0,
-          sl: 35280.0,
-          tp: 35950.0,
-          slPips: 220,
-          tpPips: 450,
-          isDemo: true,
-          timestamp: Date.now(),
-        });
-
-        if (ghRes.ok) {
-          return res.status(200).json({
-            ok: true,
-            message: `✅ GitHub Dispatch successfully delivered to https://api.github.com/repos/${owner}/${repo}/dispatches!`,
-          });
-        } else {
-          return res.status(400).json({
-            ok: false,
-            error: ghRes.error || `GitHub returned error HTTP ${ghRes.status}`,
-          });
-        }
-      }
-
       const saved = saveAlertConfig({
         botToken: body.botToken !== undefined ? body.botToken : undefined,
         chatId: body.chatId !== undefined ? body.chatId : undefined,
         enabled: body.enabled !== undefined ? Boolean(body.enabled) : undefined,
         symbol: body.symbol || '1HZ75V',
         timeframe: body.timeframe || '1H',
-        smsApiKey: body.smsApiKey !== undefined ? body.smsApiKey : undefined,
-        smsPhone: body.smsPhone !== undefined ? body.smsPhone : undefined,
-        smsAlertsEnabled: body.smsAlertsEnabled !== undefined ? Boolean(body.smsAlertsEnabled) : undefined,
-        githubOwner: body.githubOwner !== undefined ? body.githubOwner : undefined,
-        githubRepo: body.githubRepo !== undefined ? body.githubRepo : undefined,
-        githubToken: body.githubToken !== undefined ? body.githubToken : undefined,
-        githubDispatchEnabled: body.githubDispatchEnabled !== undefined ? Boolean(body.githubDispatchEnabled) : undefined,
         options: body.options || {},
       });
 
       return res.status(200).json({
         ok: true,
-        message: 'Cloud Alert configuration saved successfully! Signals will now follow these exact settings.',
+        message: 'Telegram Alert configuration saved successfully! Signals will now follow these exact settings.',
         config: {
           ...saved,
           botToken: saved.botToken ? `${saved.botToken.substring(0, 6)}...${saved.botToken.slice(-4)}` : '',
           hasToken: Boolean(saved.botToken),
-          githubToken: saved.githubToken ? `${saved.githubToken.substring(0, 7)}...` : '',
         },
       });
     }

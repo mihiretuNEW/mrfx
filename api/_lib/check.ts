@@ -1,4 +1,4 @@
-import { verifyToken } from './auth';
+import { verifyToken } from './auth.js';
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
   const cookies: Record<string, string> = {};

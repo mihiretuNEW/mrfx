@@ -1,4 +1,4 @@
-import { createToken } from './auth';
+import { createToken } from './auth.js';
 
 export default function loginHandler(req: any, res: any) {
   if (req.method !== 'POST') {
