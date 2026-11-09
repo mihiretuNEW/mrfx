@@ -18,7 +18,7 @@ export const PWAInstallButton: React.FC = () => {
         <button
           id="btn-pwa-install"
           onClick={install}
-          title="Add Mcharts to Home Screen (Install App)"
+          title="Add mire75 TRADER to Home Screen (Install App)"
           className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-sm border border-blue-400/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
         >
           <Download className="w-3.5 h-3.5" />
@@ -30,7 +30,7 @@ export const PWAInstallButton: React.FC = () => {
         <button
           id="btn-pwa-guide"
           onClick={() => setShowGuide(true)}
-          title="Install Mcharts on Phone (Add to Home Screen)"
+          title="Install mire75 TRADER on Phone (Add to Home Screen)"
           className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-[#1e222d] hover:bg-[#2a2e39] text-gray-300 hover:text-white border border-[#2a2e39] transition-colors"
         >
           <Smartphone className="w-3.5 h-3.5 text-blue-400" />
@@ -58,7 +58,7 @@ export const PWAInstallButton: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white">Add to Home Screen (PWA)</h3>
-                  <p className="text-xs text-gray-400">Install Mcharts as a standalone mobile app</p>
+                  <p className="text-xs text-gray-400">Install mire75 TRADER as a standalone mobile app</p>
                 </div>
               </div>
               <button

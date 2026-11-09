@@ -1674,64 +1674,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* TAB 3: FUTURE INDICATOR SETTINGS */}
           {activeTab === 'indicators' && (
             <div className="space-y-4">
-              {/* TOP PRO / FREE SUITE CONTROLLER (Mpro2 · Master System · Nexus) */}
-              <div className="p-4 bg-gradient-to-br from-neutral-900 via-neutral-900/95 to-neutral-950 border border-amber-500/35 rounded-xl space-y-3.5 shadow-lg relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-emerald-400 to-amber-500" />
 
-                {/* Top Row: Title + Status + PRO/FREE Switch */}
-                <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                      <Crown className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
-                          Mcharts PRO Suite
-                        </h4>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider ${
-                          proMode === 'pro' && isProActivated
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                            : 'bg-neutral-800 text-neutral-400 border border-neutral-700'
-                        }`}>
-                          {proMode === 'pro' && isProActivated ? '👑 PRO ACTIVE' : 'FREE MODE'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-neutral-400">
-                        Unified PRO Suite: Mpro · Mpro2 · Nexus Smart Money (All others are FREE)
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* PRO / FREE Switch Buttons */}
-                  <div className="flex items-center bg-neutral-950 p-1 rounded-lg border border-neutral-800">
-                    <button
-                      type="button"
-                      id="btn-mode-free"
-                      onClick={handleSwitchToFree}
-                      className={`px-3 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
-                        proMode === 'free'
-                          ? 'bg-neutral-700 text-white shadow font-bold'
-                          : 'text-neutral-400 hover:text-white'
-                      }`}
-                    >
-                      FREE
-                    </button>
-                    <button
-                      type="button"
-                      id="btn-mode-pro"
-                      onClick={handleSwitchToPro}
-                      className={`px-3 py-1 rounded text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                        proMode === 'pro'
-                          ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold shadow-md'
-                          : 'text-amber-400 hover:text-amber-300'
-                      }`}
-                    >
-                      <Crown className="w-3 h-3" />
-                      <span>PRO</span>
-                    </button>
-                  </div>
-                </div>
 
                 <div className="space-y-3">
                   {/* Active Controls & Master Turn-All Switch */}
@@ -1739,14 +1682,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
                         <Check className="w-3.5 h-3.5" />
-                        <span>PRO Suite Fully Unlocked</span>
+                        <span>mire75 Algorithm Suite</span>
                       </div>
                       <p className="text-[11px] text-neutral-400">
-                        Full institutional access to Mpro, Mpro2, Nexus Suite, and Order Blocks with Volume Delta.
+                        Institutional access to Mpro, Mpro2, Nexus Engine, and Order Blocks.
                       </p>
                     </div>
 
-                    {/* Master Switch to Turn ALL PRO ON or OFF together */}
+                    {/* Master Switch to Turn ALL Engines ON or OFF together */}
                     <button
                       type="button"
                       id="btn-toggle-all-pro-suite"
@@ -1773,7 +1716,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       }`}
                     >
                       <Power className="w-3.5 h-3.5" />
-                      <span>{(isSRActive && isMpro2Active && isNexusActive && isObvActive && isProObActive) ? 'All PRO ON (Turn OFF All)' : '⚡ Turn ON All PRO Suite'}</span>
+                      <span>{(isSRActive && isMpro2Active && isNexusActive && isObvActive && isProObActive) ? 'All Engines ON (Turn OFF All)' : '⚡ Turn ON All Engines'}</span>
                     </button>
                   </div>
 
@@ -1889,13 +1832,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                {proCodeSuccess && (
-                  <div className="p-2 bg-emerald-950/60 border border-emerald-500/40 rounded-lg text-emerald-300 text-xs font-semibold flex items-center gap-2">
-                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    <span>{proCodeSuccess}</span>
-                  </div>
-                )}
-              </div>
               {/* Added vs All Filter Bar (Only shown if opened from full settings, since indicators mode has top filter bar) */}
               {effectiveMode !== 'indicators' && (
                 <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-neutral-900 border border-neutral-850 rounded-xl">

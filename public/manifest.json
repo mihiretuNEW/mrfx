@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Mcharts - Professional Trading Platform",
-  "short_name": "Mcharts",
-  "description": "A professional web charting platform with Deriv live WebSocket API, Nexus Smart Money Suite, and Mpro Signals.",
+  "name": "mire75 TRADER - Professional Trading Platform",
+  "short_name": "mire75 TRADER",
+  "description": "The official mire75 TRADER Volatility 75 index algorithmic trading platform with Deriv live Multipliers API.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

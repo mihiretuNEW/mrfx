@@ -9633,13 +9633,13 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       }
     }
 
-    // 11. Draw Mcharts Watermark (matching screenshot)
+    // 11. Draw mire75 TRADER Watermark
     ctx.save();
-    ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.12)';
+    ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)';
     ctx.font = '900 28px "Inter", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('Mcharts', 24, chartHeight - 32);
+    ctx.fillText('mire75 TRADER', 24, chartHeight - 32);
 
     ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.28)' : 'rgba(0, 0, 0, 0.28)';
     ctx.font = 'bold 13px "Inter", monospace';

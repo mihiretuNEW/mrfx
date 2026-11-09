@@ -251,10 +251,11 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       <div className="flex items-center justify-between min-w-max w-full h-full px-2 sm:px-3 gap-2">
         {/* Left section: Brand, Pair Selector, Timeframe Dropdown (Vertical only), Indicators */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 whitespace-nowrap">
-          {/* Mcharts Brand */}
-          <div className="flex items-center gap-1 select-none pr-1">
+          {/* mire75 TRADER Brand */}
+          <div className="flex items-center gap-1.5 select-none pr-1">
+            <img src="/app-icon.jpg" alt="mire75" className="w-5 h-5 rounded-md border border-amber-500/40 object-cover shrink-0" />
             <span className={`font-sans font-black text-sm tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-              M<span className="text-blue-500 font-semibold">charts</span>
+              mire<span className="text-amber-400 font-extrabold">75</span> <span className="text-sky-400 text-[10px] font-bold tracking-wider px-1 py-0.5 rounded bg-sky-950/60 border border-sky-500/30">TRADER</span>
             </span>
           </div>
 
