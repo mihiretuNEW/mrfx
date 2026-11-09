@@ -67,20 +67,27 @@ export default async function handler(req: any, res: any) {
     const targetBotToken = (body.botToken || body.tgBotToken || query.botToken || query.token || config.botToken || '').trim();
     const targetChatId = (body.chatId || body.tgChatId || query.chatId || query.chat || config.chatId || '').toString().trim();
 
-    // Auto-persist new bot credentials if provided
-    if (body.botToken || body.chatId) {
-      saveAlertConfig({
-        botToken: targetBotToken || undefined,
-        chatId: targetChatId || undefined,
-      });
-    }
+    const tf = (body.tf || body.timeframe || body.msttTgTimeframe || query.tf || query.timeframe || config.timeframe || '30M').toString();
+    const slPips = Number(body.slPips || body.msttPointsSl || body.pointsSl || body.sl || query.slPips || query.sl || config.options?.pointsSl || 220);
+    const tp1Pips = Number(body.tp1Pips || body.msttPointsTp1 || body.pointsTp1 || body.tp1 || query.tp1Pips || query.tp1 || config.options?.pointsTp1 || 450);
+
+    // Auto-persist new bot credentials and settings to cloud config
+    saveAlertConfig({
+      botToken: targetBotToken || undefined,
+      chatId: targetChatId || undefined,
+      timeframe: tf,
+      options: {
+        pointsSl: slPips,
+        pointsTp1: tp1Pips,
+        ...(body.stake ? { derivStake: Number(body.stake) } : {}),
+        ...(body.multiplier ? { derivMultiplier: Number(body.multiplier) } : {}),
+        ...(body.takeProfitUsd ? { derivTakeProfitUsd: Number(body.takeProfitUsd) } : {}),
+        ...(body.stopLossUsd ? { derivStopLossUsd: Number(body.stopLossUsd) } : {}),
+      },
+    });
 
     const action: 'BUY' | 'SELL' = (body.action || query.action || 'BUY').toString().toUpperCase() === 'SELL' ? 'SELL' : 'BUY';
     const symbol = (body.symbol || query.symbol || config.symbol || 'R_75').toString();
-    const tf = (body.tf || query.tf || config.timeframe || '30M').toString();
-
-    const slPips = Number(body.slPips || query.slPips || config.options?.pointsSl || 220);
-    const tp1Pips = Number(body.tp1Pips || query.tp1Pips || config.options?.pointsTp1 || 450);
 
     // Approximate baseline price for synthetic demo testing if not provided
     const basePrice = Number(body.entryPrice || query.entryPrice || 35500.0);
@@ -108,8 +115,8 @@ export default async function handler(req: any, res: any) {
 
     // Execute on Deriv Demo Account if configured
     let derivResult: any = null;
-    const derivToken = (body.derivApiToken || config.options?.derivApiToken || '').trim();
-    const derivAppId = (body.derivAppId || config.options?.derivAppId || '').trim();
+    const derivToken = (body.derivApiToken || config.options?.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim();
+    const derivAppId = (body.derivAppId || config.options?.derivAppId || '34TqYcyq1e1ZVYR74xqTh').trim();
 
     if (derivToken && derivAppId) {
       derivResult = await executeDerivMultiplierTrade({

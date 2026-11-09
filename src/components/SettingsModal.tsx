@@ -214,19 +214,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setDemoTesting(true);
     setDemoMsg(null);
     try {
+      const activeTf = (settings.indicators.msttTgTimeframe || '30M').trim();
+      const activeSl = Number(settings.indicators.msttPointsSl ?? settings.indicators.pointsSl ?? settings.indicators.tpPipsSl ?? 220);
+      const activeTp1 = Number(settings.indicators.msttPointsTp1 ?? settings.indicators.pointsTp1 ?? settings.indicators.tpPipsTp1 ?? 450);
+      const activeSym = (settings.indicators.msttTgSymbol || 'R_75').trim();
+      const userAppId = (settings.indicators.derivAppId || '34TqYcyq1e1ZVYR74xqTh').trim();
+      const userPatToken = (settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim();
+
       const res = await fetch('/api/demo-signal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: dir,
-          symbol: 'R_75',
-          tf: '30M',
+          symbol: activeSym,
+          tf: activeTf,
           botToken: userBotToken,
           chatId: userChatId,
-          slPips: settings.indicators.pointsSl || 220,
-          tp1Pips: settings.indicators.pointsTp1 || 450,
-          derivApiToken: (settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim(),
-          derivAppId: (settings.indicators.derivAppId || '').trim(),
+          slPips: activeSl,
+          tp1Pips: activeTp1,
+          derivApiToken: userPatToken,
+          derivAppId: userAppId,
           stake: settings.indicators.derivStake ?? 2.0,
           multiplier: settings.indicators.derivMultiplier ?? 200,
           takeProfitUsd: settings.indicators.derivTakeProfitUsd ?? 6.68,
@@ -8286,8 +8293,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   type="number"
                                   step={1}
                                   min={1}
-                                  value={settings.indicators.msttPointsSl ?? 220}
-                                  onChange={(e) => handleUpdateIndicators('msttPointsSl', Math.max(1, parseFloat(e.target.value) || 220))}
+                                  value={settings.indicators.msttPointsSl ?? settings.indicators.tpPipsSl ?? 220}
+                                  onChange={(e) => {
+                                    const val = Math.max(1, parseFloat(e.target.value) || 220);
+                                    handleUpdateIndicators('msttPointsSl', val);
+                                    handleUpdateIndicators('tpPipsSl', val);
+                                    handleSyncCloudSettings({ ...settings.indicators, msttPointsSl: val });
+                                  }}
                                   className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-rose-300 font-bold text-center font-mono focus:border-rose-500"
                                 />
                               </div>
@@ -8298,8 +8310,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   type="number"
                                   step={1}
                                   min={1}
-                                  value={settings.indicators.msttPointsTp1 ?? 1030}
-                                  onChange={(e) => handleUpdateIndicators('msttPointsTp1', Math.max(1, parseFloat(e.target.value) || 1030))}
+                                  value={settings.indicators.msttPointsTp1 ?? settings.indicators.tpPipsTp1 ?? 450}
+                                  onChange={(e) => {
+                                    const val = Math.max(1, parseFloat(e.target.value) || 450);
+                                    handleUpdateIndicators('msttPointsTp1', val);
+                                    handleUpdateIndicators('tpPipsTp1', val);
+                                    handleSyncCloudSettings({ ...settings.indicators, msttPointsTp1: val });
+                                  }}
                                   className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-emerald-300 font-bold text-center font-mono focus:border-emerald-500"
                                 />
                               </div>
@@ -8754,7 +8771,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <label className="block text-[11px] font-medium text-gray-400 mb-1">Target Pair / Symbol</label>
                             <select
                               value={settings.indicators.msttTgSymbol || 'R_75'}
-                              onChange={(e) => handleUpdateIndicators('msttTgSymbol', e.target.value)}
+                              onChange={(e) => {
+                                const sym = e.target.value;
+                                handleUpdateIndicators('msttTgSymbol', sym);
+                                handleSyncCloudSettings({ ...settings.indicators, msttTgSymbol: sym });
+                              }}
                               className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-sky-300 font-bold focus:outline-none focus:border-sky-500"
                             >
                               <option value="R_75">Volatility 75 Index (R_75)</option>
@@ -8770,7 +8791,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <label className="block text-[11px] font-medium text-gray-400 mb-1">Alert Timeframe</label>
                             <select
                               value={settings.indicators.msttTgTimeframe || '30M'}
-                              onChange={(e) => handleUpdateIndicators('msttTgTimeframe', e.target.value)}
+                              onChange={(e) => {
+                                const tf = e.target.value;
+                                handleUpdateIndicators('msttTgTimeframe', tf);
+                                handleSyncCloudSettings({ ...settings.indicators, msttTgTimeframe: tf });
+                              }}
                               className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-emerald-300 font-bold focus:outline-none focus:border-emerald-500"
                             >
                               <option value="30M">30 Minutes (30M) ★ 79% Win</option>
@@ -8827,26 +8852,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               onClick={() => {
                                 const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
                                 const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
-                                const token = (settings.indicators.msttTgBotToken || '').trim() || 'YOUR_BOT_TOKEN';
-                                const chat = (settings.indicators.msttTgChatId || '').trim() || 'YOUR_CHAT_ID';
-                                const sym = settings.indicators.msttTgSymbol || 'R_75';
-                                const tf = settings.indicators.msttTgTimeframe || '30M';
-                                const sl = settings.indicators.msttPointsSl ?? 220;
-                                const tp1 = settings.indicators.msttPointsTp1 ?? 450;
-                                const tp2 = settings.indicators.msttPointsTp2 ?? 650;
-                                const showTp1 = settings.indicators.msttShowTp1 !== false;
-                                const showTp2 = Boolean(settings.indicators.msttShowTp2);
-                                const tfocus = settings.indicators.msttTargetFocus || 'TP1';
-                                const dAppId = (settings.indicators.derivAppId || '').trim();
-                                const dToken = (settings.indicators.derivApiToken || '').trim();
-                                const dMode = settings.indicators.derivMode || 'demo';
-                                const dAuto = Boolean(settings.indicators.derivAutoTradeEnabled);
-
-                                let cronUrl = `${origin}/api/cron-check?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&sl=${sl}&tp1=${tp1}&tp2=${tp2}&showTp1=${showTp1}&showTp2=${showTp2}&targetFocus=${encodeURIComponent(tfocus)}`;
-                                if (dAppId) cronUrl += `&appId=${encodeURIComponent(dAppId)}`;
-                                if (dToken) cronUrl += `&derivToken=${encodeURIComponent(dToken)}`;
-                                if (dMode) cronUrl += `&mode=${encodeURIComponent(dMode)}`;
-                                if (dAuto) cronUrl += `&autoTrade=1`;
+                                const token = (settings.indicators.msttTgBotToken || '').trim();
+                                const chat = (settings.indicators.msttTgChatId || '').trim();
+                                let cronUrl = `${origin}/api/cron-check`;
+                                if (token && chat) {
+                                  cronUrl += `?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}`;
+                                }
 
                                 navigator.clipboard.writeText(cronUrl);
                                 setCronUrlCopied(true);
@@ -8861,28 +8872,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             {(() => {
                               const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
                               const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
-                              const token = (settings.indicators.msttTgBotToken || '').trim() || 'YOUR_BOT_TOKEN';
-                              const chat = (settings.indicators.msttTgChatId || '').trim() || 'YOUR_CHAT_ID';
-                              const sym = settings.indicators.msttTgSymbol || 'R_75';
-                              const tf = settings.indicators.msttTgTimeframe || '30M';
-                              const sl = settings.indicators.msttPointsSl ?? 220;
-                              const tp1 = settings.indicators.msttPointsTp1 ?? 450;
-                              const tp2 = settings.indicators.msttPointsTp2 ?? 650;
-                              const showTp1 = settings.indicators.msttShowTp1 !== false;
-                              const showTp2 = Boolean(settings.indicators.msttShowTp2);
-                              const tfocus = settings.indicators.msttTargetFocus || 'TP1';
-                              const dAppId = (settings.indicators.derivAppId || '').trim();
-                              const dToken = (settings.indicators.derivApiToken || '').trim();
-                              const dMode = settings.indicators.derivMode || 'demo';
-                              const dAuto = Boolean(settings.indicators.derivAutoTradeEnabled);
-
-                              let url = `${origin}/api/cron-check?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&sl=${sl}&tp1=${tp1}&tp2=${tp2}&showTp1=${showTp1}&showTp2=${showTp2}&targetFocus=${encodeURIComponent(tfocus)}`;
-                              if (dAppId) url += `&appId=${encodeURIComponent(dAppId)}`;
-                              if (dToken) url += `&derivToken=${encodeURIComponent(dToken)}`;
-                              if (dMode) url += `&mode=${encodeURIComponent(dMode)}`;
-                              if (dAuto) url += `&autoTrade=1`;
+                              const token = (settings.indicators.msttTgBotToken || '').trim();
+                              const chat = (settings.indicators.msttTgChatId || '').trim();
+                              let url = `${origin}/api/cron-check`;
+                              if (token && chat) {
+                                url += `?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}`;
+                              }
                               return url;
                             })()}
+                          </div>
+                          <div className="text-[10px] text-emerald-400/90 bg-emerald-950/40 p-1.5 rounded border border-emerald-500/20">
+                            💡 <b>Smart Sync:</b> በ Settings ውስጥ የምትቀይሩት ማንኛውም Timeframe (ለምሳሌ 1H, 15M, 30M) ወይም SL/TP በራስ-ሰር ወደ Cloud ይሰምራል፤ cron-job.org ላይ URL መቀየር አያስፈልግዎትም!
                           </div>
                           <div className="text-[11px] text-gray-400 space-y-1">
                             <p><b>1.</b> በ <b>cron-job.org</b> ላይ <b>"CREATE CRONJOB"</b> የሚለውን ይጫኑ።</p>
@@ -9275,8 +9275,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             </div>
                           </div>
 
+                          {/* Quick Live Parameters for Signal: Timeframe, SL pips, TP pips */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-2.5 bg-neutral-950/90 rounded-lg border border-neutral-800">
+                            <div>
+                              <label className="block text-[10px] font-semibold text-gray-400 mb-1 flex items-center gap-1">
+                                <span>⏰</span> Timeframe
+                              </label>
+                              <select
+                                value={settings.indicators.msttTgTimeframe || '30M'}
+                                onChange={(e) => {
+                                  const tfVal = e.target.value;
+                                  handleUpdateIndicators('msttTgTimeframe', tfVal);
+                                  handleSyncCloudSettings({ ...settings.indicators, msttTgTimeframe: tfVal });
+                                }}
+                                className="w-full px-2 py-1.5 bg-neutral-900 border border-neutral-750 rounded text-xs font-mono font-bold text-emerald-300 focus:outline-none focus:border-emerald-500"
+                              >
+                                <option value="30M">30M (30 Minutes)</option>
+                                <option value="1H">1H (1 Hour)</option>
+                                <option value="15M">15M (15 Minutes)</option>
+                                <option value="5M">5M (5 Minutes)</option>
+                                <option value="4H">4H (4 Hours)</option>
+                                <option value="1D">1D (1 Day)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-semibold text-rose-400 mb-1 flex items-center gap-1">
+                                <span>🛑</span> SL (Pips/Points)
+                              </label>
+                              <input
+                                type="number"
+                                step={1}
+                                min={1}
+                                value={settings.indicators.msttPointsSl ?? settings.indicators.tpPipsSl ?? 220}
+                                onChange={(e) => {
+                                  const slVal = Math.max(1, parseFloat(e.target.value) || 220);
+                                  handleUpdateIndicators('msttPointsSl', slVal);
+                                  handleUpdateIndicators('tpPipsSl', slVal);
+                                  handleSyncCloudSettings({ ...settings.indicators, msttPointsSl: slVal });
+                                }}
+                                className="w-full px-2 py-1.5 bg-neutral-900 border border-rose-900/50 rounded text-xs font-mono font-bold text-rose-300 focus:outline-none focus:border-rose-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-semibold text-emerald-400 mb-1 flex items-center gap-1">
+                                <span>🎯</span> TP1 (Pips/Points)
+                              </label>
+                              <input
+                                type="number"
+                                step={1}
+                                min={1}
+                                value={settings.indicators.msttPointsTp1 ?? settings.indicators.tpPipsTp1 ?? 450}
+                                onChange={(e) => {
+                                  const tpVal = Math.max(1, parseFloat(e.target.value) || 450);
+                                  handleUpdateIndicators('msttPointsTp1', tpVal);
+                                  handleUpdateIndicators('tpPipsTp1', tpVal);
+                                  handleSyncCloudSettings({ ...settings.indicators, msttPointsTp1: tpVal });
+                                }}
+                                className="w-full px-2 py-1.5 bg-neutral-900 border border-emerald-900/50 rounded text-xs font-mono font-bold text-emerald-300 focus:outline-none focus:border-emerald-500"
+                              />
+                            </div>
+                          </div>
+
                           <p className="text-xs text-gray-300 leading-relaxed">
-                            ይህ ቁልፍ በ Settings ላይ ባስቀመጡት <b>TP ({settings.indicators.pointsTp1 ?? 450} pips)</b> እና <b>SL ({settings.indicators.pointsSl ?? 220} pips)</b> መሰረት ወዲያውኑ ወደ <b>Telegram Bot</b>ህ የሙከራ ትሬድ ሲግናል ይልካል! ቴሌግራምዎን በቅጽበት ይፈትሹ!
+                            ይህ ቁልፍ ባስቀመጡት <b>Timeframe ({settings.indicators.msttTgTimeframe || '30M'})</b>፣ <b>TP (+{settings.indicators.msttPointsTp1 ?? settings.indicators.tpPipsTp1 ?? 450} pips)</b> እና <b>SL (-{settings.indicators.msttPointsSl ?? settings.indicators.tpPipsSl ?? 220} pips)</b> መሰረት ወዲያውኑ ወደ <b>Telegram Bot</b>ህ የሙከራ ትሬድ ሲግናል ይልካል! ቴሌግራምዎን በቅጽበት ይፈትሹ!
                           </p>
 
                           {/* ACTION BUTTON */}

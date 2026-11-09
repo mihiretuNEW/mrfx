@@ -215,13 +215,17 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
         }
       }
 
+      const existing = loadAlertConfig();
       const saved = saveAlertConfig({
-        botToken: body.botToken !== undefined ? body.botToken : undefined,
-        chatId: body.chatId !== undefined ? body.chatId : undefined,
-        enabled: body.enabled !== undefined ? Boolean(body.enabled) : undefined,
-        symbol: body.symbol || '1HZ75V',
-        timeframe: body.timeframe || '1H',
-        options: body.options || {},
+        botToken: body.botToken !== undefined ? body.botToken : existing.botToken,
+        chatId: body.chatId !== undefined ? body.chatId : existing.chatId,
+        enabled: body.enabled !== undefined ? Boolean(body.enabled) : existing.enabled,
+        symbol: body.symbol || existing.symbol || 'R_75',
+        timeframe: body.timeframe || existing.timeframe || '30M',
+        options: {
+          ...(existing.options || {}),
+          ...(body.options || {}),
+        },
       });
 
       return res.status(200).json({

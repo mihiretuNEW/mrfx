@@ -467,18 +467,20 @@ export default async function handler(req: any, res: any) {
     }
 
     const savedConfig = loadAlertConfig();
-    const botToken = (req.query?.token || req.query?.botToken || body.botToken || savedConfig.botToken || '')?.toString()?.trim();
-    const chatId = (req.query?.chat || req.query?.chatId || body.chatId || savedConfig.chatId || '')?.toString()?.trim();
+    const botToken = (body.botToken || savedConfig.botToken || req.query?.token || req.query?.botToken || '')?.toString()?.trim();
+    const chatId = (body.chatId || savedConfig.chatId || req.query?.chat || req.query?.chatId || '')?.toString()?.trim();
 
-    const symbol = (req.query?.symbol || body.symbol || savedConfig.symbol || 'R_75').toString();
-    const tf = (req.query?.tf || req.query?.timeframe || body.timeframe || savedConfig.timeframe || '30M').toString();
+    const symbol = (body.symbol || savedConfig.symbol || req.query?.symbol || 'R_75').toString();
+    // Prioritize user's configured timeframe from Settings (savedConfig) over static query params
+    const tf = (body.timeframe || body.tf || savedConfig.timeframe || req.query?.tf || req.query?.timeframe || '30M').toString();
     const granularity = TIMEFRAME_SECONDS[tf] || 1800; // 30M default = 1800s
     const symbolName = getSymbolDisplayName(symbol);
 
-    const slPips = Number(req.query?.sl || body.options?.pointsSl || savedConfig.options?.pointsSl || 220);
-    const tp1Pips = Number(req.query?.tp1 || body.options?.pointsTp1 || savedConfig.options?.pointsTp1 || 450);
-    const tp2Pips = Number(req.query?.tp2 || body.options?.pointsTp2 || savedConfig.options?.pointsTp2 || 650);
-    const tp3Pips = Number(req.query?.tp3 || body.options?.pointsTp3 || savedConfig.options?.pointsTp3 || 1000);
+    // Prioritize user's configured SL/TP points from Settings (savedConfig) over static query params
+    const slPips = Number(body.options?.pointsSl || savedConfig.options?.pointsSl || req.query?.sl || 220);
+    const tp1Pips = Number(body.options?.pointsTp1 || savedConfig.options?.pointsTp1 || req.query?.tp1 || 450);
+    const tp2Pips = Number(body.options?.pointsTp2 || savedConfig.options?.pointsTp2 || req.query?.tp2 || 650);
+    const tp3Pips = Number(body.options?.pointsTp3 || savedConfig.options?.pointsTp3 || req.query?.tp3 || 1000);
     const showTp1 = req.query?.showTp1 !== undefined ? (req.query.showTp1 === 'true' || req.query.showTp1 === '1') : (savedConfig.options?.showTp1 ?? true);
     const showTp2 = req.query?.showTp2 !== undefined ? (req.query.showTp2 === 'true' || req.query.showTp2 === '1') : (savedConfig.options?.showTp2 ?? false);
     const showTp3 = req.query?.showTp3 !== undefined ? (req.query.showTp3 === 'true' || req.query.showTp3 === '1') : (savedConfig.options?.showTp3 ?? false);
@@ -943,13 +945,13 @@ export default async function handler(req: any, res: any) {
             ).toString().trim();
 
             const derivAutoTrade = Boolean(
-              req.query?.autoTrade !== undefined
-                ? (req.query.autoTrade === 'true' || req.query.autoTrade === '1')
-                : savedConfig.options?.derivAutoTradeEnabled
+              savedConfig.options?.derivAutoTradeEnabled !== undefined
+                ? savedConfig.options?.derivAutoTradeEnabled
+                : (req.query?.autoTrade !== undefined ? (req.query.autoTrade === 'true' || req.query.autoTrade === '1') : false)
             );
 
             const derivTargetMode = (
-              (req.query?.mode || body?.mode || savedConfig.options?.derivMode) === 'real' ? 'real' : 'demo'
+              (savedConfig.options?.derivMode || body?.mode || req.query?.mode) === 'real' ? 'real' : 'demo'
             ) as 'real' | 'demo';
 
             if (derivAutoTrade && derivToken && derivAppId) {
