@@ -308,7 +308,9 @@ async function checkAndSendScheduledReports(
   botToken: string,
   chatId: string,
   state: CronState,
-  savedConfig: any
+  savedConfig: any,
+  reqQuery: any = {},
+  reqBody: any = {}
 ) {
   if (!botToken || !chatId) return;
 
@@ -321,9 +323,28 @@ async function checkAndSendScheduledReports(
   const eatDateStr = eatDate.toISOString().slice(0, 10);
   const eatTimeFormatted = `${String(eatHour).padStart(2, '0')}:${String(eatMinutes).padStart(2, '0')} EAT`;
 
-  const derivToken = (savedConfig.options?.derivApiToken || '').trim();
-  const derivAppId = (savedConfig.options?.derivAppId || '').trim();
-  const derivMode = (savedConfig.options?.derivMode === 'real' ? 'real' : 'demo') as 'real' | 'demo';
+  const derivToken = (
+    reqQuery.derivToken ||
+    reqQuery.token ||
+    reqBody.derivToken ||
+    savedConfig.options?.derivApiToken ||
+    'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93'
+  )?.toString()?.trim();
+
+  const derivAppId = (
+    reqQuery.derivAppId ||
+    reqQuery.appId ||
+    reqBody.derivAppId ||
+    reqBody.appId ||
+    savedConfig.options?.derivAppId ||
+    process.env.DERIV_APP_ID ||
+    '34TqYcyq1e1ZVYR74xqTh'
+  )?.toString()?.trim();
+
+  const derivMode = (
+    (reqQuery.mode || reqBody.mode || savedConfig.options?.derivMode) === 'real' ? 'real' : 'demo'
+  ) as 'real' | 'demo';
+
   const circuit = getDerivCircuitStatus();
 
   async function getLiveBalanceStr(): Promise<string> {
@@ -335,73 +356,93 @@ async function checkAndSendScheduledReports(
           if (match) {
             return `${match.balance.toFixed(2)} ${match.currency}`;
           }
+        } else if (accs.error) {
+          console.warn('Deriv balance check warning:', accs.error);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('Deriv balance fetch error:', e);
+      }
     }
     return '---';
   }
 
-  // 1. DAILY REPORT: Triggered every morning at 06:00 Ethiopian Time (06:00 - 06:59 EAT)
-  if (eatHour === 6 && state.lastDailyReportDate !== eatDateStr) {
-    state.lastDailyReportDate = eatDateStr;
+  // 1. DAILY REPORT: Triggered exactly at 06:00 AM Ethiopian Time (during first 3 minutes: 06:00 - 06:03 EAT)
+  // Multi-tier cloud deduplication: local state + atomic file lock
+  const dailyReportTag = `REPORT_DAILY_${eatDateStr}`;
+  const isDailyWindow = eatHour === 6 && eatMinutes <= 5;
 
-    const oneDayAgo = now - 24 * 3600 * 1000;
-    const last24hTrades = (state.tradeHistory || []).filter((t) => t.closedAt >= oneDayAgo);
-    const wins = last24hTrades.filter((t) => t.type === 'win').length;
-    const losses = last24hTrades.filter((t) => t.type === 'loss').length;
-    const totalTrades = last24hTrades.length;
-    const winRate = totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : '0.0';
-    const totalPips = last24hTrades.reduce((acc, t) => acc + (t.pips || 0), 0);
-    const balanceStr = await getLiveBalanceStr();
+  if (isDailyWindow && state.lastDailyReportDate !== eatDateStr) {
+    const hasLock = tryAcquireSignalLock(dailyReportTag);
+    if (hasLock) {
+      state.lastDailyReportDate = eatDateStr;
 
-    const dailyMsg =
-      `🌅 <b>DAILY MORNING BRIEFING (የዕለቱ ሪፖርት)</b>\n\n` +
-      `📅 <b>Date:</b> ${eatDateStr} | ⏰ <b>${eatTimeFormatted}</b>\n` +
-      `🪙 <b>Strategy:</b> Volatility 75 Index (1H Breakout)\n` +
-      `🎯 <b>Risk:</b> Stake $${Number(savedConfig.options?.derivStake || 2.0).toFixed(2)} | TP +$${Number(savedConfig.options?.derivTakeProfitUsd || 6.68).toFixed(2)} | SL -$${Number(savedConfig.options?.derivStopLossUsd || 2.0).toFixed(2)}\n\n` +
-      `📊 <b>24-Hour Performance:</b>\n` +
-      `• Total Trades: <b>${totalTrades}</b>\n` +
-      `• Wins (TP Hit): <b>${wins} ✅</b>\n` +
-      `• Losses (SL Hit): <b>${losses} ❌</b>\n` +
-      `• Win Rate: <b>${winRate}%</b>\n` +
-      `• Net Pips: <b>${totalPips >= 0 ? '+' : ''}${totalPips} pips</b>\n\n` +
-      `💼 <b>Deriv Status (${derivMode.toUpperCase()}):</b>\n` +
-      `• Live Balance: <b>$${balanceStr}</b>\n` +
-      `• Circuit Breaker: <b>${circuit.isTripped ? '🛑 TRIPPED (Safe Stop)' : `🟢 ACTIVE (${circuit.consecutiveLosses}/${circuit.maxConsecutiveLosses} consecutive losses)`}</b>\n\n` +
-      `✨ <i>Mire, discipline is key! Never revenge trade, let the 1H strategy execute cleanly!</i>`;
+      const oneDayAgo = now - 24 * 3600 * 1000;
+      const last24hTrades = (state.tradeHistory || []).filter((t) => t.closedAt >= oneDayAgo);
+      const wins = last24hTrades.filter((t) => t.type === 'win').length;
+      const losses = last24hTrades.filter((t) => t.type === 'loss').length;
+      const totalTrades = last24hTrades.length;
+      const winRate = totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : '0.0';
+      const totalPips = last24hTrades.reduce((acc, t) => acc + (t.pips || 0), 0);
+      const balanceStr = await getLiveBalanceStr();
 
-    await sendTelegramDirect(botToken, chatId, dailyMsg).catch(() => {});
-    saveCronState(state);
+      const dailyMsg =
+        `🌅 <b>DAILY MORNING BRIEFING (የዕለቱ ሪፖርት)</b>\n\n` +
+        `📅 <b>Date:</b> ${eatDateStr} | ⏰ <b>${eatTimeFormatted}</b>\n` +
+        `🪙 <b>Strategy:</b> Volatility 75 Index (1H Breakout)\n` +
+        `🎯 <b>Risk:</b> Stake $${Number(savedConfig.options?.derivStake || 2.0).toFixed(2)} | TP +$${Number(savedConfig.options?.derivTakeProfitUsd || 6.68).toFixed(2)} | SL -$${Number(savedConfig.options?.derivStopLossUsd || 2.0).toFixed(2)}\n\n` +
+        `📊 <b>24-Hour Performance:</b>\n` +
+        `• Total Trades: <b>${totalTrades}</b>\n` +
+        `• Wins (TP Hit): <b>${wins} ✅</b>\n` +
+        `• Losses (SL Hit): <b>${losses} ❌</b>\n` +
+        `• Win Rate: <b>${winRate}%</b>\n` +
+        `• Net Pips: <b>${totalPips >= 0 ? '+' : ''}${totalPips} pips</b>\n\n` +
+        `💼 <b>Deriv Status (${derivMode.toUpperCase()}):</b>\n` +
+        `• Live Balance: <b>$${balanceStr}</b>\n` +
+        `• Circuit Breaker: <b>${circuit.isTripped ? '🛑 TRIPPED (Safe Stop)' : `🟢 ACTIVE (${circuit.consecutiveLosses}/${circuit.maxConsecutiveLosses} consecutive losses)`}</b>\n\n` +
+        `✨ <i>Mire, discipline is key! Never revenge trade, let the 1H strategy execute cleanly!</i>\n\n` +
+        `<tg-spoiler>#${dailyReportTag}</tg-spoiler>`;
+
+      await sendTelegramDirect(botToken, chatId, dailyMsg).catch(() => {});
+      saveCronState(state);
+    }
   }
 
-  // 2. WEEKLY REPORT: Triggered every Sunday night at 21:00 Ethiopian Time (21:00 - 21:59 EAT)
-  if (eatDayOfWeek === 0 && eatHour >= 21 && state.lastWeeklyReportDate !== eatDateStr) {
-    state.lastWeeklyReportDate = eatDateStr;
+  // 2. WEEKLY REPORT: Triggered once on Sunday night at 21:00 Ethiopian Time (during first 5 minutes: 21:00 - 21:05 EAT)
+  // Multi-tier cloud deduplication: local state + atomic file lock
+  const weeklyReportTag = `REPORT_WEEKLY_${eatDateStr}`;
+  const isWeeklyWindow = eatDayOfWeek === 0 && eatHour === 21 && eatMinutes <= 5;
 
-    const sevenDaysAgo = now - 7 * 24 * 3600 * 1000;
-    const weekTrades = (state.tradeHistory || []).filter((t) => t.closedAt >= sevenDaysAgo);
-    const wins = weekTrades.filter((t) => t.type === 'win').length;
-    const losses = weekTrades.filter((t) => t.type === 'loss').length;
-    const totalTrades = weekTrades.length;
-    const winRate = totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : '0.0';
-    const totalPips = weekTrades.reduce((acc, t) => acc + (t.pips || 0), 0);
-    const balanceStr = await getLiveBalanceStr();
+  if (isWeeklyWindow && state.lastWeeklyReportDate !== eatDateStr) {
+    const hasLock = tryAcquireSignalLock(weeklyReportTag);
+    if (hasLock) {
+      state.lastWeeklyReportDate = eatDateStr;
 
-    const weeklyMsg =
-      `👑 <b>WEEKLY PERFORMANCE MASTER REPORT</b>\n\n` +
-      `📅 <b>Week Ending:</b> ${eatDateStr} (Sunday Night)\n` +
-      `🪙 <b>Asset:</b> Volatility 75 Index\n\n` +
-      `📈 <b>Weekly Summary:</b>\n` +
-      `• Total Trades: <b>${totalTrades}</b>\n` +
-      `• Wins: <b>${wins} ✅</b>\n` +
-      `• Losses: <b>${losses} ❌</b>\n` +
-      `• Win Rate: <b>${winRate}%</b>\n` +
-      `• Total Pips: <b>${totalPips >= 0 ? '+' : ''}${totalPips} pips</b>\n\n` +
-      `💼 <b>Deriv Balance:</b> $${balanceStr}\n\n` +
-      `🚀 <i>Strong discipline this week! Ready for tomorrow's markets!</i>`;
+      const sevenDaysAgo = now - 7 * 24 * 3600 * 1000;
+      const weekTrades = (state.tradeHistory || []).filter((t) => t.closedAt >= sevenDaysAgo);
+      const wins = weekTrades.filter((t) => t.type === 'win').length;
+      const losses = weekTrades.filter((t) => t.type === 'loss').length;
+      const totalTrades = weekTrades.length;
+      const winRate = totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : '0.0';
+      const totalPips = weekTrades.reduce((acc, t) => acc + (t.pips || 0), 0);
+      const balanceStr = await getLiveBalanceStr();
 
-    await sendTelegramDirect(botToken, chatId, weeklyMsg).catch(() => {});
-    saveCronState(state);
+      const weeklyMsg =
+        `👑 <b>WEEKLY PERFORMANCE MASTER REPORT</b>\n\n` +
+        `📅 <b>Week Ending:</b> ${eatDateStr} (Sunday Night)\n` +
+        `🪙 <b>Asset:</b> Volatility 75 Index\n\n` +
+        `📈 <b>Weekly Summary:</b>\n` +
+        `• Total Trades: <b>${totalTrades}</b>\n` +
+        `• Wins: <b>${wins} ✅</b>\n` +
+        `• Losses: <b>${losses} ❌</b>\n` +
+        `• Win Rate: <b>${winRate}%</b>\n` +
+        `• Total Pips: <b>${totalPips >= 0 ? '+' : ''}${totalPips} pips</b>\n\n` +
+        `💼 <b>Deriv Balance:</b> $${balanceStr}\n\n` +
+        `🚀 <i>Strong discipline this week! Ready for tomorrow's markets!</i>\n\n` +
+        `<tg-spoiler>#${weeklyReportTag}</tg-spoiler>`;
+
+      await sendTelegramDirect(botToken, chatId, weeklyMsg).catch(() => {});
+      saveCronState(state);
+    }
   }
 }
 
@@ -531,7 +572,7 @@ export default async function handler(req: any, res: any) {
     // =========================================================================
     // CHECK SCHEDULED REPORTS (Daily 06:00 EAT & Sunday 21:00 EAT)
     // =========================================================================
-    await checkAndSendScheduledReports(botToken, chatId, state, savedConfig);
+    await checkAndSendScheduledReports(botToken, chatId, state, savedConfig, req.query, body);
 
     // =========================================================================
     // METHOD 3: MULTI-PASS SURVEILLANCE LOOP (3 passes across ~10-12s)
@@ -883,16 +924,40 @@ export default async function handler(req: any, res: any) {
 
             // DERIV AUTO-TRADING MULTIPLIER EXECUTION
             let derivTradeResult: any = null;
-            const derivToken = (savedConfig.options?.derivApiToken || '').trim();
-            const derivAppId = (savedConfig.options?.derivAppId || '').trim();
-            const derivAutoTrade = Boolean(savedConfig.options?.derivAutoTradeEnabled);
+            const derivToken = (
+              req.query?.derivToken ||
+              req.query?.token ||
+              body?.derivToken ||
+              savedConfig.options?.derivApiToken ||
+              'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93'
+            ).toString().trim();
+
+            const derivAppId = (
+              req.query?.derivAppId ||
+              req.query?.appId ||
+              body?.derivAppId ||
+              body?.appId ||
+              savedConfig.options?.derivAppId ||
+              process.env.DERIV_APP_ID ||
+              '34TqYcyq1e1ZVYR74xqTh'
+            ).toString().trim();
+
+            const derivAutoTrade = Boolean(
+              req.query?.autoTrade !== undefined
+                ? (req.query.autoTrade === 'true' || req.query.autoTrade === '1')
+                : savedConfig.options?.derivAutoTradeEnabled
+            );
+
+            const derivTargetMode = (
+              (req.query?.mode || body?.mode || savedConfig.options?.derivMode) === 'real' ? 'real' : 'demo'
+            ) as 'real' | 'demo';
 
             if (derivAutoTrade && derivToken && derivAppId) {
               try {
                 derivTradeResult = await executeDerivMultiplierTrade({
                   token: derivToken,
                   appId: derivAppId,
-                  mode: savedConfig.options?.derivMode === 'real' ? 'real' : 'demo',
+                  mode: derivTargetMode,
                   action: isBull ? 'BUY' : 'SELL',
                   symbol: symbol === '1HZ75V' || symbol === 'R_75' ? 'R_75' : symbol,
                   stake: Number(savedConfig.options?.derivStake || 2.0),

@@ -8901,8 +8901,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 const showTp1 = settings.indicators.msttShowTp1 !== false;
                                 const showTp2 = Boolean(settings.indicators.msttShowTp2);
                                 const tfocus = settings.indicators.msttTargetFocus || 'TP1';
+                                const dAppId = (settings.indicators.derivAppId || '').trim();
+                                const dToken = (settings.indicators.derivApiToken || '').trim();
+                                const dMode = settings.indicators.derivMode || 'demo';
+                                const dAuto = Boolean(settings.indicators.derivAutoTradeEnabled);
 
                                 let cronUrl = `${origin}/api/cron-check?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&sl=${sl}&tp1=${tp1}&tp2=${tp2}&showTp1=${showTp1}&showTp2=${showTp2}&targetFocus=${encodeURIComponent(tfocus)}`;
+                                if (dAppId) cronUrl += `&appId=${encodeURIComponent(dAppId)}`;
+                                if (dToken) cronUrl += `&derivToken=${encodeURIComponent(dToken)}`;
+                                if (dMode) cronUrl += `&mode=${encodeURIComponent(dMode)}`;
+                                if (dAuto) cronUrl += `&autoTrade=1`;
+
                                 navigator.clipboard.writeText(cronUrl);
                                 setCronUrlCopied(true);
                                 setTimeout(() => setCronUrlCopied(false), 3000);
@@ -8926,8 +8935,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               const showTp1 = settings.indicators.msttShowTp1 !== false;
                               const showTp2 = Boolean(settings.indicators.msttShowTp2);
                               const tfocus = settings.indicators.msttTargetFocus || 'TP1';
+                              const dAppId = (settings.indicators.derivAppId || '').trim();
+                              const dToken = (settings.indicators.derivApiToken || '').trim();
+                              const dMode = settings.indicators.derivMode || 'demo';
+                              const dAuto = Boolean(settings.indicators.derivAutoTradeEnabled);
 
-                              return `${origin}/api/cron-check?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&sl=${sl}&tp1=${tp1}&tp2=${tp2}&showTp1=${showTp1}&showTp2=${showTp2}&targetFocus=${encodeURIComponent(tfocus)}`;
+                              let url = `${origin}/api/cron-check?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&sl=${sl}&tp1=${tp1}&tp2=${tp2}&showTp1=${showTp1}&showTp2=${showTp2}&targetFocus=${encodeURIComponent(tfocus)}`;
+                              if (dAppId) url += `&appId=${encodeURIComponent(dAppId)}`;
+                              if (dToken) url += `&derivToken=${encodeURIComponent(dToken)}`;
+                              if (dMode) url += `&mode=${encodeURIComponent(dMode)}`;
+                              if (dAuto) url += `&autoTrade=1`;
+                              return url;
                             })()}
                           </div>
                           <div className="text-[11px] text-gray-400 space-y-1">
