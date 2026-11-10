@@ -38,9 +38,11 @@ class LiveDerivDaemon {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private configWatchTimer: NodeJS.Timeout | null = null;
   private lastConfigMtime = 0;
+  private daemonStartTimeSec = Math.floor(Date.now() / 1000);
 
   public start() {
-    console.log('[LiveDerivDaemon] Starting 24/7 Real-Time Tick Engine on Render...');
+    this.daemonStartTimeSec = Math.floor(Date.now() / 1000);
+    console.log(`[LiveDerivDaemon] Starting 24/7 Real-Time Tick Engine on Render (boot time: ${new Date().toISOString()})...`);
     this.syncConfig(true);
     this.connect();
 
@@ -48,6 +50,44 @@ class LiveDerivDaemon {
     this.configWatchTimer = setInterval(() => {
       this.syncConfig(false);
     }, 3000);
+  }
+
+  private getMergedOptions(): Record<string, any> {
+    const config = loadAlertConfig();
+    const options = config.options || {};
+    return {
+      targetMode: 'points',
+      pointsSl: Number(options.pointsSl || 220),
+      pointsTp1: Number(options.pointsTp1 || 450),
+      pointsTp2: Number(options.pointsTp2 || 650),
+      pointsTp3: Number(options.pointsTp3 || 1000),
+      showTp1: options.showTp1 !== false,
+      showTp2: Boolean(options.showTp2),
+      showTp3: Boolean(options.showTp3),
+      showSl: options.showSl !== false,
+      targetFocus: options.targetFocus || 'TP1',
+      swingLen: Number(options.swingLen || 3),
+      filterSwingLen: Number(options.filterSwingLen || 3),
+      useStructureFilter: options.useStructureFilter ?? true,
+      structureTf: options.structureTf || '15',
+      useWickFilter: options.useWickFilter ?? true,
+      maxWickRatio: options.maxWickRatio ?? 0.70,
+      useDisplacementFilter: options.useDisplacementFilter ?? true,
+      minDisplacementAtr: options.minDisplacementAtr ?? 0.80,
+      useBodyCloseFilter: options.useBodyCloseFilter ?? true,
+      minBodyRatio: options.minBodyRatio ?? 0.50,
+      useSweepFilter: options.useSweepFilter ?? false,
+      sweepLookback: options.sweepLookback ?? 10,
+      preventLateEntry: options.preventLateEntry ?? true,
+      maxBreakoutDelay: options.maxBreakoutDelay ?? 1,
+      usePremiumDiscountFilter: Boolean(options.usePremiumDiscountFilter),
+      useInducementFilter: Boolean(options.useInducementFilter),
+      useKillZonesFilter: Boolean(options.useKillZonesFilter),
+      useTurtleSoupFilter: Boolean(options.useTurtleSoupFilter),
+      useRetestConfirmation: Boolean(options.useRetestConfirmation),
+      useAntiWhipsawFilter: Boolean(options.useAntiWhipsawFilter),
+      ...options,
+    };
   }
 
   private syncConfig(force: boolean) {
@@ -112,7 +152,7 @@ class LiveDerivDaemon {
           const raw = typeof data === 'string' ? data : data.toString();
           const msg = JSON.parse(raw);
 
-          // 1. Initial Candles Batch
+          // 1. Initial Candles Batch (HISTORICAL - NEVER TRADE ON INITIAL BATCH)
           if (msg.candles && Array.isArray(msg.candles)) {
             this.candles = msg.candles.map((c: any) => ({
               time: Number(c.epoch),
@@ -121,7 +161,22 @@ class LiveDerivDaemon {
               low: Number(c.low),
               close: Number(c.close),
             }));
-            this.evaluateLiveMarket('initial_history');
+
+            // SEED all existing historical markers into alertedIds so they are NEVER re-executed!
+            try {
+              const options = this.getMergedOptions();
+              const result = calculateMarketStructureTargetTracker(this.candles, options as any, this.currentSymbol);
+              const markers = result.signalMarkers || [];
+              for (const m of markers) {
+                const id = `SIG_${this.currentSymbol}_${this.currentTimeframe}_${m.time}_${m.type}`;
+                this.alertedIds.add(id);
+                this.lastAlertId = id;
+              }
+              console.log(`[LiveDerivDaemon] Initial history loaded (${this.candles.length} candles). Seeded ${this.alertedIds.size} existing historical signals as already processed. Daemon is now listening for LIVE ticks ONLY.`);
+            } catch (err: any) {
+              console.error('[LiveDerivDaemon] Error seeding historical signals:', err.message);
+            }
+            return;
           }
 
           // 2. Real-Time Tick Update (OHLC streaming)
@@ -157,7 +212,7 @@ class LiveDerivDaemon {
               this.candles.push({ time: candleEpoch, open, high, low, close });
             }
 
-            // Real-time evaluation within milliseconds of tick!
+            // Real-time evaluation on live incoming tick!
             this.evaluateLiveMarket('live_tick');
           }
         } catch (err) {
@@ -194,134 +249,110 @@ class LiveDerivDaemon {
   }
 
   private async evaluateLiveMarket(triggerSource: string) {
+    // CRITICAL: NEVER evaluate or execute on anything other than live ticks
+    if (triggerSource !== 'live_tick') return;
     if (this.candles.length < 30) return;
 
     try {
       const config = loadAlertConfig();
-      const options = config.options || {};
+      const options = this.getMergedOptions();
       const tf = this.currentTimeframe;
       const symbol = this.currentSymbol;
 
-      const mergedOptions = {
-        targetMode: 'points',
-        pointsSl: Number(options.pointsSl || 220),
-        pointsTp1: Number(options.pointsTp1 || 450),
-        pointsTp2: Number(options.pointsTp2 || 650),
-        pointsTp3: Number(options.pointsTp3 || 1000),
-        showTp1: options.showTp1 !== false,
-        showTp2: Boolean(options.showTp2),
-        showTp3: Boolean(options.showTp3),
-        showSl: options.showSl !== false,
-        targetFocus: options.targetFocus || 'TP1',
-        swingLen: Number(options.swingLen || 3),
-        filterSwingLen: Number(options.filterSwingLen || 3),
-        useStructureFilter: options.useStructureFilter ?? true,
-        structureTf: options.structureTf || '15',
-        useWickFilter: options.useWickFilter ?? true,
-        maxWickRatio: options.maxWickRatio ?? 0.70,
-        useDisplacementFilter: options.useDisplacementFilter ?? true,
-        minDisplacementAtr: options.minDisplacementAtr ?? 0.80,
-        useBodyCloseFilter: options.useBodyCloseFilter ?? true,
-        minBodyRatio: options.minBodyRatio ?? 0.50,
-        useSweepFilter: options.useSweepFilter ?? false,
-        sweepLookback: options.sweepLookback ?? 10,
-        preventLateEntry: options.preventLateEntry ?? true,
-        maxBreakoutDelay: options.maxBreakoutDelay ?? 1,
-        usePremiumDiscountFilter: Boolean(options.usePremiumDiscountFilter),
-        useInducementFilter: Boolean(options.useInducementFilter),
-        useKillZonesFilter: Boolean(options.useKillZonesFilter),
-        useTurtleSoupFilter: Boolean(options.useTurtleSoupFilter),
-        useRetestConfirmation: Boolean(options.useRetestConfirmation),
-        useAntiWhipsawFilter: Boolean(options.useAntiWhipsawFilter),
-        ...options,
-      };
-
-      const result = calculateMarketStructureTargetTracker(this.candles, mergedOptions as any, symbol);
+      const result = calculateMarketStructureTargetTracker(this.candles, options as any, symbol);
       const markers = result.signalMarkers || [];
       if (markers.length === 0) return;
 
       const recentMarker = markers[markers.length - 1];
       const lastCandleIdx = this.candles.length - 1;
+      const activeCandle = this.candles[lastCandleIdx];
 
-      // Only alert if signal is on current or preceding candle
-      if (recentMarker && recentMarker.barIndex >= lastCandleIdx - 1) {
-        const uniqueSignalId = `SIG_${symbol}_${tf}_${recentMarker.time}_${recentMarker.type}`;
+      // CRITICAL GUARD 1: Only trade if signal is on the ACTIVE forming candle (barIndex === lastCandleIdx)
+      if (recentMarker.barIndex !== lastCandleIdx) {
+        return;
+      }
 
-        if (this.lastAlertId === uniqueSignalId || this.alertedIds.has(uniqueSignalId)) {
-          return;
-        }
+      // CRITICAL GUARD 2: Only trade if candle time is >= daemon startup time (no old historical trades!)
+      if (recentMarker.time < this.daemonStartTimeSec - this.granularity) {
+        return;
+      }
 
-        this.lastAlertId = uniqueSignalId;
-        this.alertedIds.add(uniqueSignalId);
-        console.log(`[LiveDerivDaemon] ⚡ INSTANT BREAKOUT DETECTED [${triggerSource}]: ${uniqueSignalId} in <200ms!`);
+      const uniqueSignalId = `SIG_${symbol}_${tf}_${recentMarker.time}_${recentMarker.type}`;
 
-        const isBull = recentMarker.type === 'bull';
-        const action: 'BUY' | 'SELL' = isBull ? 'BUY' : 'SELL';
-        const entryPrice = recentMarker.price || this.candles[lastCandleIdx].close;
-        const slPips = Number(mergedOptions.pointsSl || 220);
-        const tp1Pips = Number(mergedOptions.pointsTp1 || 450);
-        const slPrice = isBull ? entryPrice - slPips : entryPrice + slPips;
-        const tpPrice = isBull ? entryPrice + tp1Pips : entryPrice - tp1Pips;
-        const symbolName = getSymbolDisplayName(symbol);
+      if (this.lastAlertId === uniqueSignalId || this.alertedIds.has(uniqueSignalId)) {
+        return;
+      }
 
-        // 1. Instant Deriv Trade Execution (<200ms)
-        const isAutoTradeEnabled = Boolean(options.derivAutoTradeEnabled);
-        const token = (options.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim();
-        const appId = (options.derivAppId || '34TqYcyq1e1ZVYR74xqTh').trim();
-        const mode = (options.derivMode === 'real' ? 'real' : 'demo') as 'demo' | 'real';
+      this.lastAlertId = uniqueSignalId;
+      this.alertedIds.add(uniqueSignalId);
+      console.log(`[LiveDerivDaemon] ⚡ GENUINE LIVE BREAKOUT DETECTED: ${uniqueSignalId} in <200ms!`);
 
-        let tradeExecutionReport = '';
-        if (isAutoTradeEnabled && token && appId) {
-          try {
-            console.log(`[LiveDerivDaemon] Executing instant ${mode.toUpperCase()} ${action} on Deriv...`);
-            const tradeRes = await executeDerivMultiplierTrade({
-              token,
-              appId,
-              mode,
-              action,
-              symbol,
-              stake: Number(options.derivStake || 2.0),
-              multiplier: Number(options.derivMultiplier || 200),
-              takeProfitUsd: Number(options.derivTakeProfitUsd || 6.68),
-              stopLossUsd: Number(options.derivStopLossUsd || 2.0),
-              maxConsecutiveLosses: Number(options.derivMaxConsecutiveLosses || 2),
-            });
+      const isBull = recentMarker.type === 'bull';
+      const action: 'BUY' | 'SELL' = isBull ? 'BUY' : 'SELL';
+      const entryPrice = recentMarker.entryPrice || recentMarker.price || activeCandle.close;
+      const slPips = Number(options.pointsSl || 220);
+      const tp1Pips = Number(options.pointsTp1 || 450);
+      const slPrice = recentMarker.slPrice || (isBull ? entryPrice - slPips : entryPrice + slPips);
+      const tpPrice = recentMarker.tp1Price || (isBull ? entryPrice + tp1Pips : entryPrice - tp1Pips);
+      const symbolName = getSymbolDisplayName(symbol);
 
-            if (tradeRes.ok) {
-              tradeExecutionReport =
-                `\n\n⚡ <b>DERIV ${mode.toUpperCase()} ORDER PLACED!</b>\n` +
-                `🆔 Contract: #${tradeRes.contractId}\n` +
-                `💵 Stake: $${(tradeRes.stake ?? Number(options.derivStake || 2)).toFixed(2)} USD (${tradeRes.multiplier ?? 200}x)\n` +
-                `🎯 TP: +$${(tradeRes.takeProfit ?? 6.68).toFixed(2)} | 🛑 SL: -$${(tradeRes.stopLoss ?? 2.0).toFixed(2)}\n` +
-                (tradeRes.balanceAfter !== undefined ? `💰 Balance After: $${tradeRes.balanceAfter.toFixed(2)} USD\n` : '');
-            } else {
-              tradeExecutionReport = `\n\n⚠️ <i>Deriv Execution Note: ${tradeRes.error}</i>`;
-            }
-          } catch (e: any) {
-            tradeExecutionReport = `\n\n⚠️ <i>Deriv Trade Error: ${e.message}</i>`;
+      // 1. Instant Deriv Trade Execution (<200ms)
+      const isAutoTradeEnabled = Boolean(options.derivAutoTradeEnabled);
+      const token = (options.derivApiToken || '').trim();
+      const appId = (options.derivAppId || '').trim();
+      const mode = (options.derivMode === 'real' ? 'real' : 'demo') as 'demo' | 'real';
+
+      let tradeExecutionReport = '';
+      if (isAutoTradeEnabled && token && appId) {
+        try {
+          console.log(`[LiveDerivDaemon] Executing instant ${mode.toUpperCase()} ${action} on Deriv...`);
+          const tradeRes = await executeDerivMultiplierTrade({
+            token,
+            appId,
+            mode,
+            action,
+            symbol,
+            stake: Number(options.derivStake || 2.0),
+            multiplier: Number(options.derivMultiplier || 200),
+            takeProfitUsd: Number(options.derivTakeProfitUsd || 6.68),
+            stopLossUsd: Number(options.derivStopLossUsd || 2.0),
+            maxConsecutiveLosses: Number(options.derivMaxConsecutiveLosses || 2),
+          });
+
+          if (tradeRes.ok) {
+            tradeExecutionReport =
+              `\n\n⚡ <b>DERIV ${mode.toUpperCase()} ORDER PLACED!</b>\n` +
+              `🆔 Contract: #${tradeRes.contractId}\n` +
+              `💵 Stake: $${(tradeRes.stake ?? Number(options.derivStake || 2)).toFixed(2)} USD (${tradeRes.multiplier ?? 200}x)\n` +
+              `🎯 TP: +$${(tradeRes.takeProfit ?? 6.68).toFixed(2)} | 🛑 SL: -$${(tradeRes.stopLoss ?? 2.0).toFixed(2)}\n` +
+              (tradeRes.balanceAfter !== undefined ? `💰 Balance After: $${tradeRes.balanceAfter.toFixed(2)} USD\n` : '');
+          } else {
+            tradeExecutionReport = `\n\n⚠️ <i>Deriv Execution Note: ${tradeRes.error}</i>`;
           }
+        } catch (e: any) {
+          tradeExecutionReport = `\n\n⚠️ <i>Deriv Trade Error: ${e.message}</i>`;
         }
+      }
 
-        // 2. Telegram Alert Dispatch
-        const botToken = config.botToken || '';
-        const chatId = config.chatId || '';
-        if (botToken && chatId) {
-          const arrow = isBull ? '🟢' : '🔴';
-          const direction = isBull ? 'BUY (Long)' : 'SELL (Short)';
-          const msg =
-            `⚡ <b>REAL-TIME MSTT BREAKOUT SIGNAL</b>\n\n` +
-            `🪙 Pair: <b>${symbolName}</b>\n` +
-            `${arrow} Direction: <b>${direction}</b>\n` +
-            `⏰ Timeframe: <b>${tf}</b>\n\n` +
-            `🎯 Entry: <b>${entryPrice.toFixed(2)}</b>\n` +
-            `✅ TP: <b>${tpPrice.toFixed(2)}</b> (+${tp1Pips} pips)\n` +
-            `🛑 Stop Loss: <b>${slPrice.toFixed(2)}</b> (-${slPips} pips)\n` +
-            `⚖️ Mode: <b>${mode.toUpperCase()}</b>` +
-            tradeExecutionReport +
-            `\n\n<tg-spoiler>#${uniqueSignalId}</tg-spoiler>`;
+      // 2. Telegram Alert Dispatch
+      const botToken = config.botToken || '';
+      const chatId = config.chatId || '';
+      if (botToken && chatId) {
+        const arrow = isBull ? '🟢' : '🔴';
+        const direction = isBull ? 'BUY (Long)' : 'SELL (Short)';
+        const msg =
+          `⚡ <b>REAL-TIME MSTT BREAKOUT SIGNAL</b>\n\n` +
+          `🪙 Pair: <b>${symbolName}</b>\n` +
+          `${arrow} Direction: <b>${direction}</b>\n` +
+          `⏰ Timeframe: <b>${tf}</b>\n\n` +
+          `🎯 Entry: <b>${entryPrice.toFixed(2)}</b>\n` +
+          `✅ TP: <b>${tpPrice.toFixed(2)}</b> (+${tp1Pips} pips)\n` +
+          `🛑 Stop Loss: <b>${slPrice.toFixed(2)}</b> (-${slPips} pips)\n` +
+          `⚖️ Mode: <b>${mode.toUpperCase()}</b>` +
+          tradeExecutionReport +
+          `\n\n<tg-spoiler>#${uniqueSignalId}</tg-spoiler>`;
 
-          await sendTelegramDirect(botToken, chatId, msg);
-        }
+        await sendTelegramDirect(botToken, chatId, msg);
       }
     } catch (err: any) {
       console.error('[LiveDerivDaemon] Error in live market evaluation:', err.message);

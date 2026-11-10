@@ -624,8 +624,12 @@ export default async function handler(req: any, res: any) {
         const checkCandles = candles.filter((c) => c.time >= active.entryCandleTime);
 
         for (const candle of checkCandles) {
+          const isEntryBar = candle.time === active.entryCandleTime;
+          const evalHigh = isEntryBar ? latestCandle.close : candle.high;
+          const evalLow = isEntryBar ? latestCandle.close : candle.low;
+
           if (active.type === 'bull') {
-            if (active.showTp3 && active.tp3Price && candle.high >= active.tp3Price) {
+            if (active.showTp3 && active.tp3Price && evalHigh >= active.tp3Price) {
               tradeResolved = true;
               const pipsWon = active.tp3Pips || Math.round(active.tp3Price - active.entryPrice);
               resolutionMessage =
@@ -651,7 +655,7 @@ export default async function handler(req: any, res: any) {
               await sendTelegramDirect(botToken, chatId, resolutionMessage);
               await unpinTelegramDirect(botToken, chatId);
               break;
-            } else if (active.showTp2 && active.tp2Price && candle.high >= active.tp2Price) {
+            } else if (active.showTp2 && active.tp2Price && evalHigh >= active.tp2Price) {
               tradeResolved = true;
               const pipsWon = active.tp2Pips || Math.round(active.tp2Price - active.entryPrice);
               resolutionMessage =
@@ -677,7 +681,7 @@ export default async function handler(req: any, res: any) {
               await sendTelegramDirect(botToken, chatId, resolutionMessage);
               await unpinTelegramDirect(botToken, chatId);
               break;
-            } else if (active.showTp1 && candle.high >= active.tp1Price) {
+            } else if (active.showTp1 && evalHigh >= active.tp1Price) {
               tradeResolved = true;
               const pipsWon = active.tp1Pips;
               resolutionMessage =
@@ -704,7 +708,7 @@ export default async function handler(req: any, res: any) {
               await sendTelegramDirect(botToken, chatId, resolutionMessage);
               await unpinTelegramDirect(botToken, chatId);
               break;
-            } else if (candle.low <= active.slPrice) {
+            } else if (evalLow <= active.slPrice) {
               tradeResolved = true;
               const pipsLost = active.slPips;
               resolutionMessage =
@@ -733,7 +737,7 @@ export default async function handler(req: any, res: any) {
               break;
             }
           } else if (active.type === 'bear') {
-            if (active.showTp3 && active.tp3Price && candle.low <= active.tp3Price) {
+            if (active.showTp3 && active.tp3Price && evalLow <= active.tp3Price) {
               tradeResolved = true;
               const pipsWon = active.tp3Pips || Math.round(active.entryPrice - active.tp3Price);
               resolutionMessage =
@@ -759,7 +763,7 @@ export default async function handler(req: any, res: any) {
               await sendTelegramDirect(botToken, chatId, resolutionMessage);
               await unpinTelegramDirect(botToken, chatId);
               break;
-            } else if (active.showTp2 && active.tp2Price && candle.low <= active.tp2Price) {
+            } else if (active.showTp2 && active.tp2Price && evalLow <= active.tp2Price) {
               tradeResolved = true;
               const pipsWon = active.tp2Pips || Math.round(active.entryPrice - active.tp2Price);
               resolutionMessage =
@@ -785,7 +789,7 @@ export default async function handler(req: any, res: any) {
               await sendTelegramDirect(botToken, chatId, resolutionMessage);
               await unpinTelegramDirect(botToken, chatId);
               break;
-            } else if (active.showTp1 && candle.low <= active.tp1Price) {
+            } else if (active.showTp1 && evalLow <= active.tp1Price) {
               tradeResolved = true;
               const pipsWon = active.tp1Pips;
               resolutionMessage =
@@ -812,7 +816,7 @@ export default async function handler(req: any, res: any) {
               await sendTelegramDirect(botToken, chatId, resolutionMessage);
               await unpinTelegramDirect(botToken, chatId);
               break;
-            } else if (candle.high >= active.slPrice) {
+            } else if (evalHigh >= active.slPrice) {
               tradeResolved = true;
               const pipsLost = active.slPips;
               resolutionMessage =
@@ -849,7 +853,9 @@ export default async function handler(req: any, res: any) {
       const markers = msttResult.signalMarkers || [];
       const recentMarker = markers.length > 0 ? markers[markers.length - 1] : null;
 
-      if (recentMarker && recentMarker.barIndex >= lastCandleIdx - 2) {
+      // CRITICAL: Strictly only trigger if marker is on the ACTIVE current candle and created within current bar's duration
+      const candleAgeSec = recentMarker ? Math.floor((now - recentMarker.time * 1000) / 1000) : 999999;
+      if (recentMarker && recentMarker.barIndex === lastCandleIdx && candleAgeSec <= granularity) {
         const uniqueSignalId = `SIG_${symbol}_${tf}_${recentMarker.time}_${recentMarker.type}`;
         const isLocallyAlerted =
           state.lastAlertId === uniqueSignalId ||
@@ -887,10 +893,10 @@ export default async function handler(req: any, res: any) {
             const directionText = isBull ? '📈 Direction: BUY (Long)' : '📉 Direction: SELL (Short)';
             const entryPrice = recentMarker.entryPrice || msttResult.entryPrice || latestCandle.close;
 
-            const slPrice = isBull ? (entryPrice - slPips) : (entryPrice + slPips);
-            const tp1Price = isBull ? (entryPrice + tp1Pips) : (entryPrice - tp1Pips);
-            const tp2Price = isBull ? (entryPrice + tp2Pips) : (entryPrice - tp2Pips);
-            const tp3Price = isBull ? (entryPrice + tp3Pips) : (entryPrice - tp3Pips);
+            const slPrice = recentMarker.slPrice || (isBull ? (entryPrice - slPips) : (entryPrice + slPips));
+            const tp1Price = recentMarker.tp1Price || (isBull ? (entryPrice + tp1Pips) : (entryPrice - tp1Pips));
+            const tp2Price = recentMarker.tp2Price || (isBull ? (entryPrice + tp2Pips) : (entryPrice - tp2Pips));
+            const tp3Price = recentMarker.tp3Price || (isBull ? (entryPrice + tp3Pips) : (entryPrice - tp3Pips));
 
             const lines: string[] = [
               headerTitle,
