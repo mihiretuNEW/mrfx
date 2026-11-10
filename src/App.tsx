@@ -1332,6 +1332,110 @@ function AppContent() {
     }
   }, [selectedTimeframe]);
 
+  // ── 24/7 CLOUD SYNC: Automatically mirror ANY UI setting, timeframe, pips, or swing change to Render ──
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      try {
+        const ind = settings.indicators || {};
+        const payload = {
+          symbol: selectedSymbol || 'R_75',
+          timeframe: selectedTimeframe || '1H',
+          enabled: ind.msttTgAlertsEnabled !== false,
+          botToken: (ind.msttTgBotToken || '').trim(),
+          chatId: (ind.msttTgChatId || '').trim(),
+          options: {
+            historySpan: settings.historySpan || '1W',
+            targetMode: ind.msttTargetMode ?? 'points',
+            pointsSl: ind.msttPointsSl ?? 220,
+            pointsTp1: ind.msttPointsTp1 ?? 450,
+            pointsTp2: ind.msttPointsTp2 ?? 650,
+            pointsTp3: ind.msttPointsTp3 ?? 1000,
+            showTp1: ind.msttShowTp1 !== false,
+            showTp2: Boolean(ind.msttShowTp2),
+            showTp3: Boolean(ind.msttShowTp3),
+            showSl: ind.msttShowSl !== false,
+            targetFocus: ind.msttTargetFocus ?? 'TP1',
+            swingLen: ind.msttSwingLen ?? 3,
+            filterSwingLen: ind.msttFilterSwingLen ?? 3,
+            useStructureFilter: ind.msttUseStructureFilter ?? true,
+            structureTf: ind.msttStructureTf ?? '15',
+            useWickFilter: ind.msttUseWickFilter ?? true,
+            maxWickRatio: ind.msttMaxWickRatio ?? 0.70,
+            useSweepFilter: ind.msttUseSweepFilter ?? false,
+            sweepLookback: ind.msttSweepLookback ?? 10,
+            useBodyCloseFilter: ind.msttUseBodyCloseFilter ?? true,
+            minBodyRatio: ind.msttMinBodyRatio ?? 0.50,
+            useDisplacementFilter: ind.msttUseDisplacementFilter ?? true,
+            minDisplacementAtr: ind.msttMinDisplacementAtr ?? 0.80,
+            useFvgFilter: ind.msttUseFvgFilter ?? false,
+            useVolumeFilter: ind.msttUseVolumeFilter ?? false,
+            useScoreFilter: ind.msttUseScoreFilter ?? false,
+            useHtfFilter: ind.msttUseHtfFilter ?? false,
+            usePremiumDiscountFilter: ind.msttUsePremiumDiscountFilter ?? false,
+            useInducementFilter: ind.msttUseInducementFilter ?? false,
+            useKillZonesFilter: ind.msttUseKillZonesFilter ?? false,
+            useTurtleSoupFilter: ind.msttUseTurtleSoupFilter ?? false,
+            useRetestConfirmation: ind.msttUseRetestConfirmation ?? false,
+            useAntiWhipsawFilter: ind.msttUseAntiWhipsawFilter ?? false,
+            preventLateEntry: ind.msttPreventLateEntry ?? true,
+            maxBreakoutDelay: ind.msttMaxBreakoutDelay ?? 1,
+            derivApiToken: (ind.derivApiToken || '').trim(),
+            derivAppId: (ind.derivAppId || '').trim(),
+            derivMode: ind.derivMode || 'demo',
+            derivAutoTradeEnabled: Boolean(ind.derivAutoTradeEnabled),
+            derivStake: ind.derivStake ?? 2.0,
+            derivMultiplier: ind.derivMultiplier ?? 200,
+            derivTakeProfitUsd: ind.derivTakeProfitUsd ?? 6.68,
+            derivStopLossUsd: ind.derivStopLossUsd ?? 2.0,
+            derivMaxConsecutiveLosses: ind.derivMaxConsecutiveLosses ?? 2,
+          },
+        };
+
+        await fetch('/api/cloud-alert-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch (e) {
+        // Non-blocking network catch
+      }
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [settings, selectedSymbol, selectedTimeframe]);
+
+  // Initial Cloud Config Reconciliation: Load server settings on mount
+  useEffect(() => {
+    fetch('/api/cloud-alert-config')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.options) {
+          const opt = data.options;
+          setSettings((prev) => {
+            const prevInd = prev.indicators;
+            return {
+              ...prev,
+              historySpan: (opt.historySpan || prev.historySpan || '1W') as any,
+              indicators: {
+                ...prevInd,
+                derivApiToken: prevInd.derivApiToken || opt.derivApiToken || '',
+                derivAppId: prevInd.derivAppId || opt.derivAppId || '',
+                derivMode: prevInd.derivMode || opt.derivMode || 'demo',
+                derivAutoTradeEnabled: opt.derivAutoTradeEnabled !== undefined ? Boolean(opt.derivAutoTradeEnabled) : prevInd.derivAutoTradeEnabled,
+                derivStake: opt.derivStake !== undefined ? opt.derivStake : prevInd.derivStake,
+                derivMultiplier: opt.derivMultiplier !== undefined ? opt.derivMultiplier : prevInd.derivMultiplier,
+                msttPointsSl: opt.pointsSl !== undefined ? opt.pointsSl : prevInd.msttPointsSl,
+                msttPointsTp1: opt.pointsTp1 !== undefined ? opt.pointsTp1 : prevInd.msttPointsTp1,
+                msttSwingLen: opt.swingLen !== undefined ? opt.swingLen : prevInd.msttSwingLen,
+                msttFilterSwingLen: opt.filterSwingLen !== undefined ? opt.filterSwingLen : prevInd.msttFilterSwingLen,
+              },
+            };
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Full-App Theme Synchronization: update html, body, and colorScheme
   useEffect(() => {
     const isDark = isDarkTheme(settings.theme);

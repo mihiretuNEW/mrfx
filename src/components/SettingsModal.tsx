@@ -357,10 +357,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           showTp3: Boolean(ind.msttShowTp3),
           showSl: ind.msttShowSl !== false,
           targetFocus: ind.msttTargetFocus ?? 'TP1',
-          swingLen: ind.msttSwingLen ?? 5,
+          historySpan: settings.historySpan || '1W',
+          swingLen: ind.msttSwingLen ?? 3,
           useStructureFilter: ind.msttUseStructureFilter ?? true,
           structureTf: ind.msttStructureTf ?? '15',
-          filterSwingLen: ind.msttFilterSwingLen ?? 5,
+          filterSwingLen: ind.msttFilterSwingLen ?? 3,
           useWickFilter: ind.msttUseWickFilter ?? true,
           maxWickRatio: ind.msttMaxWickRatio ?? 0.70,
           useSweepFilter: ind.msttUseSweepFilter ?? false,
@@ -1151,10 +1152,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         id={`btn-history-span-${span.id}`}
                         type="button"
                         onClick={() => {
-                          onUpdateSettings({
+                          const nextSettings = {
                             ...settings,
                             historySpan: span.id,
-                          });
+                          };
+                          onUpdateSettings(nextSettings);
+                          handleSyncCloudSettings({ ...settings.indicators });
                         }}
                         className={`flex flex-col p-2.5 rounded-lg text-left transition-all border cursor-pointer ${
                           isSelected
@@ -7061,16 +7064,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           type="number"
                           min={3}
                           max={50}
-                          value={settings.indicators.msttSwingLen ?? 5}
+                          value={settings.indicators.msttSwingLen ?? 3}
                           onChange={(e) => {
                             const raw = e.target.value;
                             if (raw === '') {
-                              handleUpdateIndicators('msttSwingLen', 5);
+                              handleUpdateIndicators('msttSwingLen', 3);
+                              handleSyncCloudSettings({ ...settings.indicators, msttSwingLen: 3 });
                               return;
                             }
                             const val = parseInt(raw, 10);
                             if (!isNaN(val)) {
-                              handleUpdateIndicators('msttSwingLen', Math.min(50, Math.max(3, val)));
+                              const clamped = Math.min(50, Math.max(3, val));
+                              handleUpdateIndicators('msttSwingLen', clamped);
+                              handleSyncCloudSettings({ ...settings.indicators, msttSwingLen: clamped });
                             }
                           }}
                           className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-amber-500 text-center font-mono"

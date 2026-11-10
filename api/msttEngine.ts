@@ -92,6 +92,11 @@ export interface MsttOptions {
   usePremiumDiscountFilter?: boolean; // Premium vs Discount Zones (Fibonacci 0.5) Filter (default: false)
   useInducementFilter?: boolean; // Inducement (IDM) Liquidity Sweep Filter (default: false)
   useKillZonesFilter?: boolean; // V75 Ethiopian Hours Kill Zones Session Filter (default: false)
+  useTurtleSoupFilter?: boolean; // Internal Liquidity Sweep (Turtle Soup) Filter (default: false)
+  useRetestConfirmation?: boolean; // Auto-Retest Confirmation (Wait for Level Retest) (default: false)
+  retestMaxBars?: number; // Max Bars to Wait for Retest (default: 3, min: 1, max: 6)
+  useAntiWhipsawFilter?: boolean; // Anti-Whipsaw / Chop Guard (Block immediate opposite breakouts) (default: false)
+  whipsawCooldownBars?: number; // Whipsaw Cooldown Bars (default: 4, min: 2, max: 10)
   // Signal Quality Filters (EMA Trend, ADX + DI, Strong Breakout Candle)
   useEmaFilter?: boolean; // EMA Trend Filter (default: false)
   emaLen?: number; // EMA Length (default: 200, min: 20, max: 500)
@@ -799,10 +804,15 @@ export function calculateMarketStructureTargetTracker(
   const preventLateEntry = options.preventLateEntry ?? true;
   const maxBreakoutDelay = Math.max(0, Math.min(3, Math.round(options.maxBreakoutDelay ?? 1)));
 
-  // New Algorithmic Filters: Premium/Discount, Inducement (IDM), and V75 Kill Zones
+  // New Algorithmic Filters: Premium/Discount, Inducement (IDM), V75 Kill Zones, Turtle Soup, Retest Confirmation, Anti-Whipsaw
   const usePremiumDiscountFilter = options.usePremiumDiscountFilter ?? false;
   const useInducementFilter = options.useInducementFilter ?? false;
   const useKillZonesFilter = options.useKillZonesFilter ?? false;
+  const useTurtleSoupFilter = options.useTurtleSoupFilter ?? false;
+  const useRetestConfirmation = options.useRetestConfirmation ?? false;
+  const retestMaxBars = Math.max(1, Math.min(6, Math.round(options.retestMaxBars ?? 3)));
+  const useAntiWhipsawFilter = options.useAntiWhipsawFilter ?? false;
+  const whipsawCooldownBars = Math.max(2, Math.min(10, Math.round(options.whipsawCooldownBars ?? 4)));
 
   // Signal Quality Filters (EMA, ADX + DI Regime Engine, Strong Breakout Candle)
   const useEmaFilter = options.useEmaFilter ?? false;
@@ -981,6 +991,23 @@ export function calculateMarketStructureTargetTracker(
 
   let lastBullSweepBar: number | null = null;
   let lastBearSweepBar: number | null = null;
+
+  // Anti-Whipsaw Tracking (Block immediate opposite breakouts)
+  let lastConfirmedBreakDir: 'BULL' | 'BEAR' | null = null;
+  let lastConfirmedBreakBar: number | null = null;
+
+  // Auto-Retest Tracking
+  interface PendingRetestState {
+    dir: 'BULL' | 'BEAR';
+    breakoutBar: number;
+    breakoutTime: number;
+    breakoutLevel: number;
+    targetLevel: number | null;
+    isChoch: boolean;
+    kzActive: boolean;
+    invalidSwingRef: number | null;
+  }
+  let pendingRetest: PendingRetestState | null = null;
 
   // Active drawings (Pine Script line.new, label.new)
   let curBosLine: MsttLine | null = null;
@@ -1516,8 +1543,11 @@ export function calculateMarketStructureTargetTracker(
     const candleOkBull = bodyAtrOk && bufferAtrOkBull;
     const candleOkBear = bodyAtrOk && bufferAtrOkBear;
 
-    const timelyOkBull = !preventLateEntry || (barsSinceBreakBull <= maxBreakoutDelay && !targetAlreadyReachedBull && !overextendedBull);
-    const timelyOkBear = !preventLateEntry || (barsSinceBreakBear <= maxBreakoutDelay && !targetAlreadyReachedBear && !overextendedBear);
+    const isBreakoutBarBull = firstBreakHighBar !== null && bar_index === firstBreakHighBar;
+    const isBreakoutBarBear = firstBreakLowBar !== null && bar_index === firstBreakLowBar;
+
+    const timelyOkBull = !preventLateEntry || isBreakoutBarBull || (barsSinceBreakBull <= maxBreakoutDelay && !targetAlreadyReachedBull && !overextendedBull);
+    const timelyOkBear = !preventLateEntry || isBreakoutBarBear || (barsSinceBreakBear <= maxBreakoutDelay && !targetAlreadyReachedBear && !overextendedBear);
 
     // ── Candidate BOS events gated by all enabled filters ─────────────────────
     const rawBosBull =
@@ -1617,7 +1647,126 @@ export function calculateMarketStructureTargetTracker(
     const kz = isV75KillZone(c.time);
     const kzOk = !useKillZonesFilter || kz.isKillZone;
 
-    const bosBull =
+    if (bar_index === n - 1 && typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('v75_killzone_active', kz.isKillZone ? 'true' : 'false');
+        localStorage.setItem('v75_killzone_session', kz.sessionName);
+      } catch {
+        // ignore
+      }
+    }
+
+    // ── 4. Internal Liquidity Sweep (Turtle Soup) Filter ───────────────────────
+    let turtleSoupOkBull = true;
+    let turtleSoupOkBear = true;
+    if (useTurtleSoupFilter) {
+      // For Bullish (Buy) BOS: Prior to breakout (within 1 to 3 candles), the market must have
+      // swept a recent minor internal low with a wick/reversal (Stop loss hunt / Turtle Soup),
+      // and then aggressively powered up towards the BOS.
+      let foundBullSweep = false;
+      const startSearch = Math.max(1, bar_index - 3);
+      for (let k = startSearch; k <= bar_index; k++) {
+        const prevWindowStart = Math.max(0, k - 5);
+        let internalLow = Infinity;
+        for (let p = prevWindowStart; p < k; p++) {
+          if (candles[p].low < internalLow) {
+            internalLow = candles[p].low;
+          }
+        }
+        if (internalLow !== Infinity) {
+          const sweptWithWick = candles[k].low < internalLow && candles[k].close > internalLow;
+          const lowerWick = Math.min(candles[k].open, candles[k].close) - candles[k].low;
+          const candleR = candles[k].high - candles[k].low;
+          const hasRejectionWick = candleR > 0 && lowerWick / candleR >= 0.20 && candles[k].low < internalLow;
+          const immediateSpringReversal = candles[k].low < internalLow && (k < bar_index && candles[k + 1].close > candles[k].high);
+
+          if (sweptWithWick || hasRejectionWick || immediateSpringReversal) {
+            foundBullSweep = true;
+            break;
+          }
+        }
+      }
+      turtleSoupOkBull = foundBullSweep;
+
+      // For Bearish (Sell) BOS: Prior to breakout (within 1 to 3 candles), the market must have
+      // swept a recent minor internal high with a wick/reversal (Stop loss hunt / Turtle Soup),
+      // and then aggressively powered down towards the BOS.
+      let foundBearSweep = false;
+      for (let k = startSearch; k <= bar_index; k++) {
+        const prevWindowStart = Math.max(0, k - 5);
+        let internalHigh = -Infinity;
+        for (let p = prevWindowStart; p < k; p++) {
+          if (candles[p].high > internalHigh) {
+            internalHigh = candles[p].high;
+          }
+        }
+        if (internalHigh !== -Infinity) {
+          const sweptWithWick = candles[k].high > internalHigh && candles[k].close < internalHigh;
+          const upperWick = candles[k].high - Math.max(candles[k].open, candles[k].close);
+          const candleR = candles[k].high - candles[k].low;
+          const hasRejectionWick = candleR > 0 && upperWick / candleR >= 0.20 && candles[k].high > internalHigh;
+          const immediateUpthrustReversal = candles[k].high > internalHigh && (k < bar_index && candles[k + 1].close < candles[k].low);
+
+          if (sweptWithWick || hasRejectionWick || immediateUpthrustReversal) {
+            foundBearSweep = true;
+            break;
+          }
+        }
+      }
+      turtleSoupOkBear = foundBearSweep;
+    }
+
+    // ── 5. Anti-Whipsaw / Chop Guard ───────────────────────────────────────────
+    let whipsawOkBull = true;
+    let whipsawOkBear = true;
+    if (useAntiWhipsawFilter) {
+      if (lastConfirmedBreakDir === 'BEAR' && lastConfirmedBreakBar !== null && (bar_index - lastConfirmedBreakBar) <= whipsawCooldownBars) {
+        whipsawOkBull = false;
+      }
+      if (lastConfirmedBreakDir === 'BULL' && lastConfirmedBreakBar !== null && (bar_index - lastConfirmedBreakBar) <= whipsawCooldownBars) {
+        whipsawOkBear = false;
+      }
+    }
+
+    // ── 6. Auto-Retest Confirmation Engine ─────────────────────────────────────
+    let triggerRetestBull = false;
+    let triggerRetestBear = false;
+
+    if (useRetestConfirmation && pendingRetest !== null) {
+      const barsSinceBreak = bar_index - pendingRetest.breakoutBar;
+      if (barsSinceBreak > retestMaxBars) {
+        // Retest timed out without confirmation
+        pendingRetest = null;
+      } else {
+        if (pendingRetest.dir === 'BULL') {
+          const retestZone = targetMode === 'points' ? pointsSl * 0.40 : atrLocked * 0.35;
+          const touchedRetest = c.low <= pendingRetest.breakoutLevel + retestZone;
+          const heldAbove = c.close >= pendingRetest.breakoutLevel - (targetMode === 'points' ? pointsSl * 0.15 : atrLocked * 0.15);
+          const crashedBelow = c.close < pendingRetest.breakoutLevel - (targetMode === 'points' ? pointsSl * 0.60 : atrLocked * 0.60);
+
+          if (crashedBelow) {
+            // Fakeout trap detected and discarded without signaling!
+            pendingRetest = null;
+          } else if (touchedRetest && heldAbove) {
+            triggerRetestBull = true;
+          }
+        } else if (pendingRetest.dir === 'BEAR') {
+          const retestZone = targetMode === 'points' ? pointsSl * 0.40 : atrLocked * 0.35;
+          const touchedRetest = c.high >= pendingRetest.breakoutLevel - retestZone;
+          const heldBelow = c.close <= pendingRetest.breakoutLevel + (targetMode === 'points' ? pointsSl * 0.15 : atrLocked * 0.15);
+          const pumpedAbove = c.close > pendingRetest.breakoutLevel + (targetMode === 'points' ? pointsSl * 0.60 : atrLocked * 0.60);
+
+          if (pumpedAbove) {
+            // Fakeout trap detected and discarded without signaling!
+            pendingRetest = null;
+          } else if (touchedRetest && heldBelow) {
+            triggerRetestBear = true;
+          }
+        }
+      }
+    }
+
+    const candidateBosBull =
       rawBosBull &&
       structureOkBull &&
       wickOkBull &&
@@ -1632,9 +1781,11 @@ export function calculateMarketStructureTargetTracker(
       candleOkBull &&
       pdOkBull &&
       idmOkBull &&
-      kzOk;
+      kzOk &&
+      turtleSoupOkBull &&
+      whipsawOkBull;
 
-    const bosBear =
+    const candidateBosBear =
       rawBosBear &&
       structureOkBear &&
       wickOkBear &&
@@ -1649,7 +1800,53 @@ export function calculateMarketStructureTargetTracker(
       candleOkBear &&
       pdOkBear &&
       idmOkBear &&
-      kzOk;
+      kzOk &&
+      turtleSoupOkBear &&
+      whipsawOkBear;
+
+    let bosBull = false;
+    let bosBear = false;
+
+    if (useRetestConfirmation) {
+      if (candidateBosBull && pendingRetest === null) {
+        pendingRetest = {
+          dir: 'BULL',
+          breakoutBar: bar_index,
+          breakoutTime: c.time,
+          breakoutLevel: lastSwingHigh!,
+          targetLevel: prevSwingHigh,
+          isChoch: trend !== 1,
+          kzActive: kz.isKillZone,
+          invalidSwingRef: lastSwingLow,
+        };
+        lastProcessedHighBar = lastSwingHighBar;
+        firstBreakHighBar = null;
+      } else if (candidateBosBear && pendingRetest === null) {
+        pendingRetest = {
+          dir: 'BEAR',
+          breakoutBar: bar_index,
+          breakoutTime: c.time,
+          breakoutLevel: lastSwingLow!,
+          targetLevel: prevSwingLow,
+          isChoch: trend !== -1,
+          kzActive: kz.isKillZone,
+          invalidSwingRef: lastSwingHigh,
+        };
+        lastProcessedLowBar = lastSwingLowBar;
+        firstBreakLowBar = null;
+      }
+
+      if (triggerRetestBull && pendingRetest) {
+        bosBull = true;
+        pendingRetest = null;
+      } else if (triggerRetestBear && pendingRetest) {
+        bosBear = true;
+        pendingRetest = null;
+      }
+    } else {
+      bosBull = candidateBosBull;
+      bosBear = candidateBosBear;
+    }
 
     // ── Bullish BOS/CHoCH Handler ─────────────────────────────────────────────
     if (bosBull) {
@@ -1698,6 +1895,9 @@ export function calculateMarketStructureTargetTracker(
         confidenceBadge: kz.isKillZone ? '🔥 KZ' : undefined,
       });
 
+      lastConfirmedBreakDir = 'BULL';
+      lastConfirmedBreakBar = bar_index;
+
       const currentActiveFilters = [
         useStructureFilter ? 'STR' : '',
         useWickFilter ? 'WICK' : '',
@@ -1714,6 +1914,9 @@ export function calculateMarketStructureTargetTracker(
         usePremiumDiscountFilter ? 'P/D' : '',
         useInducementFilter ? 'IDM' : '',
         useKillZonesFilter ? 'KZ' : '',
+        useTurtleSoupFilter ? 'TURTLE' : '',
+        useRetestConfirmation ? 'RETEST' : '',
+        useAntiWhipsawFilter ? 'CHOP-GUARD' : '',
       ].filter(Boolean).join(' ');
 
       // If an opposite BEAR trade was running, close it on trend reversal
@@ -1755,6 +1958,43 @@ export function calculateMarketStructureTargetTracker(
           tp3Price: tp3Price!,
           filterFlags: currentActiveFilters || 'NONE',
         };
+
+        // Check if this breakout candle reached TP1 in the very same bar (Fast Momentum Win)
+        const sameBarTp1 = c.high >= activeTrade.tp1Price;
+        const sameBarSl = c.low <= activeTrade.slPrice;
+        if (sameBarTp1 && !sameBarSl) {
+          const sameBarTp2 = c.high >= activeTrade.tp2Price;
+          const sameBarTp3 = c.high >= activeTrade.tp3Price;
+          let exitP = activeTrade.tp1Price;
+          let hitReason = 'TP1 Hit (Win)';
+          if (targetFocus === 'TP2' && sameBarTp2) {
+            exitP = activeTrade.tp2Price;
+            hitReason = 'TP2 Hit (Win)';
+          } else if (targetFocus === 'TP3' && sameBarTp3) {
+            exitP = activeTrade.tp3Price;
+            hitReason = 'TP3 Hit (Win)';
+          }
+          completedTrades.push({
+            id: activeTrade.id,
+            dir: 'BULL',
+            entryBar: activeTrade.entryBar,
+            entryTime: activeTrade.entryTime,
+            endBar: bar_index,
+            endTime: c.time,
+            entryPrice: activeTrade.entryPrice,
+            slPrice: activeTrade.slPrice,
+            tp1Price: activeTrade.tp1Price,
+            tp2Price: activeTrade.tp2Price,
+            tp3Price: activeTrade.tp3Price,
+            exitPrice: exitP,
+            exitReason: hitReason,
+            isWin: true,
+            barsHeld: 0,
+            pipsText: `+${Math.abs(exitP - activeTrade.entryPrice).toFixed(1)} pts`,
+            filterFlags: activeTrade.filterFlags,
+          });
+          activeTrade = null;
+        }
       }
 
       if (showBosLine && bosLevel !== null) {
@@ -1886,6 +2126,9 @@ export function calculateMarketStructureTargetTracker(
         confidenceBadge: kz.isKillZone ? '🔥 KZ' : undefined,
       });
 
+      lastConfirmedBreakDir = 'BEAR';
+      lastConfirmedBreakBar = bar_index;
+
       const currentActiveFilters = [
         useStructureFilter ? 'STR' : '',
         useWickFilter ? 'WICK' : '',
@@ -1902,6 +2145,9 @@ export function calculateMarketStructureTargetTracker(
         usePremiumDiscountFilter ? 'P/D' : '',
         useInducementFilter ? 'IDM' : '',
         useKillZonesFilter ? 'KZ' : '',
+        useTurtleSoupFilter ? 'TURTLE' : '',
+        useRetestConfirmation ? 'RETEST' : '',
+        useAntiWhipsawFilter ? 'CHOP-GUARD' : '',
       ].filter(Boolean).join(' ');
 
       // If an opposite BULL trade was running, close it on trend reversal
@@ -1943,6 +2189,43 @@ export function calculateMarketStructureTargetTracker(
           tp3Price: tp3Price!,
           filterFlags: currentActiveFilters || 'NONE',
         };
+
+        // Check if this breakout candle reached TP1 in the very same bar (Fast Momentum Win)
+        const sameBarTp1 = c.low <= activeTrade.tp1Price;
+        const sameBarSl = c.high >= activeTrade.slPrice;
+        if (sameBarTp1 && !sameBarSl) {
+          const sameBarTp2 = c.low <= activeTrade.tp2Price;
+          const sameBarTp3 = c.low <= activeTrade.tp3Price;
+          let exitP = activeTrade.tp1Price;
+          let hitReason = 'TP1 Hit (Win)';
+          if (targetFocus === 'TP2' && sameBarTp2) {
+            exitP = activeTrade.tp2Price;
+            hitReason = 'TP2 Hit (Win)';
+          } else if (targetFocus === 'TP3' && sameBarTp3) {
+            exitP = activeTrade.tp3Price;
+            hitReason = 'TP3 Hit (Win)';
+          }
+          completedTrades.push({
+            id: activeTrade.id,
+            dir: 'BEAR',
+            entryBar: activeTrade.entryBar,
+            entryTime: activeTrade.entryTime,
+            endBar: bar_index,
+            endTime: c.time,
+            entryPrice: activeTrade.entryPrice,
+            slPrice: activeTrade.slPrice,
+            tp1Price: activeTrade.tp1Price,
+            tp2Price: activeTrade.tp2Price,
+            tp3Price: activeTrade.tp3Price,
+            exitPrice: exitP,
+            exitReason: hitReason,
+            isWin: true,
+            barsHeld: 0,
+            pipsText: `+${Math.abs(activeTrade.entryPrice - exitP).toFixed(1)} pts`,
+            filterFlags: activeTrade.filterFlags,
+          });
+          activeTrade = null;
+        }
       }
 
       if (showBosLine && bosLevel !== null) {
@@ -2171,7 +2454,10 @@ export function calculateMarketStructureTargetTracker(
     (useCandleFilter ? 'CANDLE ' : '') +
     (usePremiumDiscountFilter ? 'P/D ' : '') +
     (useInducementFilter ? 'IDM ' : '') +
-    (useKillZonesFilter ? 'KZ ' : '')).trim();
+    (useKillZonesFilter ? 'KZ ' : '') +
+    (useTurtleSoupFilter ? 'TURTLE ' : '') +
+    (useRetestConfirmation ? 'RETEST ' : '') +
+    (useAntiWhipsawFilter ? 'WHIP ' : '')).trim();
 
   const bosLvlStr = isBosActiveNow && bosLevel !== null ? formatPrice(bosLevel, minTickPrecision) : '—';
   const tgtLvlStr = isBosActiveNow && targetLevel !== null ? formatPrice(targetLevel, minTickPrecision) : '—';

@@ -1483,15 +1483,124 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           tp2Price: latestTrade.tp2Price,
           slPrice: latestTrade.slPrice,
           pairName: displayPair,
-          activeTf,
         };
+      }
+    }
+
+    // ── Live MSTT Breakout & Deriv Auto-Trading Execution ─────────────────────
+    if (msttResults && msttResults.signalMarkers && msttResults.signalMarkers.length > 0 && candles.length > 0) {
+      const markers = msttResults.signalMarkers;
+      const recentMarker = markers[markers.length - 1];
+      const lastCandleIdx = candles.length - 1;
+
+      // Check if recent marker is on current candle or previous candle
+      if (recentMarker && recentMarker.barIndex >= lastCandleIdx - 1) {
+        const msttSignalKey = `MSTT_${symbolName}_${activeTf}_${recentMarker.time}_${recentMarker.type}`;
+
+        if (lastBroadcastedSignalRef.current !== msttSignalKey) {
+          lastBroadcastedSignalRef.current = msttSignalKey;
+
+          const isBull = recentMarker.type === 'bull';
+          const headerTitle = isBull ? '📊 BUY SIGNAL' : '📊 SELL SIGNAL';
+          const directionText = isBull ? '📈 Direction: BUY (Long)' : '📉 Direction: SELL (Short)';
+          const entryPrice = recentMarker.entryPrice || candles[lastCandleIdx].close;
+          const slPrice = recentMarker.slPrice;
+          const tp1Price = recentMarker.tp1Price;
+          const tp2Price = recentMarker.tp2Price;
+          const tp3Price = recentMarker.tp3Price;
+
+          const tgBotToken = (settings.indicators.msttTgBotToken || '').trim();
+          const tgChatId = (settings.indicators.msttTgChatId || '').trim();
+
+          // 1. Dispatch Telegram Signal Alert
+          if (tgBotToken && tgChatId) {
+            const lines: string[] = [
+              headerTitle,
+              '',
+              `🪙 Pair: ${displayPair}`,
+              directionText,
+              `⏰ Timeframe: ${activeTf}`,
+              '',
+              `🎯 Entry: ${entryPrice.toFixed(2)}`,
+              `✅ TP1: ${tp1Price.toFixed(2)}`,
+            ];
+            if (tp2Price) lines.push(`✅ TP2: ${tp2Price.toFixed(2)}`);
+            if (tp3Price) lines.push(`✅ TP3: ${tp3Price.toFixed(2)}`);
+            lines.push(`🛑 Stop Loss: ${slPrice.toFixed(2)}`);
+            lines.push('');
+            lines.push('⚖️ Risk: 1–2% only');
+            lines.push('');
+            lines.push('🚨 Mire this time must be comeback! Never revenge');
+            lines.push('');
+            lines.push(`<tg-spoiler>#${msttSignalKey}</tg-spoiler>`);
+
+            fetch('/api/telegram', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'send_message',
+                text: lines.join('\n'),
+                botToken: tgBotToken,
+                chatId: tgChatId,
+              }),
+            }).catch(console.error);
+          }
+
+          // 2. LIVE DERIV AUTO-TRADE EXECUTION (If Auto-Trading is Enabled!)
+          const isAutoTradeActive = Boolean(settings.indicators.derivAutoTradeEnabled);
+          const derivToken = (settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim();
+          const derivAppId = (settings.indicators.derivAppId || '34TqYcyq1e1ZVYR74xqTh').trim();
+
+          if (isAutoTradeActive && derivToken && derivAppId) {
+            fetch('/api/deriv-trade', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'execute',
+                token: derivToken,
+                appId: derivAppId,
+                mode: settings.indicators.derivMode || 'demo',
+                direction: isBull ? 'BUY' : 'SELL',
+                symbol: symbolName === '1HZ75V' || symbolName === 'R_75' ? 'R_75' : symbolName,
+                stake: settings.indicators.derivStake ?? 2.0,
+                multiplier: settings.indicators.derivMultiplier ?? 200,
+                takeProfitUsd: settings.indicators.derivTakeProfitUsd ?? 6.68,
+                stopLossUsd: settings.indicators.derivStopLossUsd ?? 2.0,
+                maxConsecutiveLosses: settings.indicators.derivMaxConsecutiveLosses ?? 2,
+                botToken: tgBotToken,
+                chatId: tgChatId,
+              }),
+            }).catch(console.error);
+          }
+
+          // Store active trade to detect instant TP or SL hit
+          activeTgTradeRef.current = {
+            signalKey: msttSignalKey,
+            direction: isBull ? 'LONG' : 'SHORT',
+            entryPrice,
+            tp1Price,
+            tp2Price,
+            slPrice,
+            pairName: displayPair,
+            activeTf,
+          };
+        }
       }
     }
   }, [
     mssResults,
+    msttResults,
     candles,
     symbolName,
     timeframe,
+    settings.indicators.msttTgBotToken,
+    settings.indicators.msttTgChatId,
+    settings.indicators.derivAutoTradeEnabled,
+    settings.indicators.derivMode,
+    settings.indicators.derivStake,
+    settings.indicators.derivMultiplier,
+    settings.indicators.derivTakeProfitUsd,
+    settings.indicators.derivStopLossUsd,
     settings.indicators.mssSendTelegramSignals,
     settings.indicators.mssTp1Percent,
     settings.indicators.mssTp2Percent,

@@ -15,11 +15,11 @@ export interface CloudAlertConfig {
 }
 
 const DEFAULT_CONFIG: CloudAlertConfig = {
-  botToken: '',
-  chatId: '',
+  botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+  chatId: process.env.TELEGRAM_CHAT_ID || '',
   enabled: true,
   symbol: 'R_75',
-  timeframe: '30M',
+  timeframe: '1H',
   updatedAt: Date.now(),
   options: {
     targetMode: 'points',
@@ -32,10 +32,11 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
     showTp3: false,
     showSl: true,
     targetFocus: 'TP1',
-    swingLen: 5,
+    historySpan: '1W',
+    swingLen: 3,
     useStructureFilter: true,
     structureTf: '15',
-    filterSwingLen: 5,
+    filterSwingLen: 3,
     useWickFilter: true,
     maxWickRatio: 0.70,
     useDisplacementFilter: true,
@@ -55,8 +56,9 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
     derivApiToken: process.env.DERIV_API_TOKEN || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93',
     derivAppId: process.env.DERIV_APP_ID || '34TqYcyq1e1ZVYR74xqTh',
     derivMode: 'demo',
-    derivAutoTradeEnabled: false,
+    derivAutoTradeEnabled: true,
     derivStake: 2.0,
+    multiplier: 200,
     derivMultiplier: 200,
     derivTakeProfitUsd: 6.68,
     derivStopLossUsd: 2.0,
@@ -87,6 +89,8 @@ export function saveAlertConfig(config: Partial<CloudAlertConfig>): CloudAlertCo
   const merged: CloudAlertConfig = {
     ...current,
     ...config,
+    botToken: (config.botToken && config.botToken.trim()) || current.botToken || process.env.TELEGRAM_BOT_TOKEN || '',
+    chatId: (config.chatId && config.chatId.trim()) || current.chatId || process.env.TELEGRAM_CHAT_ID || '',
     updatedAt: Date.now(),
     options: {
       ...current.options,

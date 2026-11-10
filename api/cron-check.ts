@@ -245,7 +245,7 @@ async function deleteTelegramDirect(botToken: string, chatId: string, messageId:
   }
 }
 
-async function fetchDerivCandles(symbol: string, granularity: number, count = 350): Promise<Candle[]> {
+async function fetchDerivCandles(symbol: string, granularity: number, count = 1000): Promise<Candle[]> {
   return new Promise((resolve, reject) => {
     const wsUrl = 'wss://api.derivws.com/trading/v1/options/ws/public?app_id=1089';
     const WebSocketClass = (globalThis as any).WebSocket || WebSocketNode;
@@ -491,6 +491,10 @@ export default async function handler(req: any, res: any) {
     const useRetest = req.query?.useRetest !== undefined ? (req.query.useRetest === 'true' || req.query.useRetest === '1') : Boolean(body.options?.useRetestConfirmation ?? savedConfig.options?.useRetestConfirmation);
     const useWhip = req.query?.useWhip !== undefined ? (req.query.useWhip === 'true' || req.query.useWhip === '1') : Boolean(body.options?.useAntiWhipsawFilter ?? savedConfig.options?.useAntiWhipsawFilter);
 
+    const userHistorySpan = (body.options?.historySpan || savedConfig.options?.historySpan || '1W').toString();
+    const spanDays = userHistorySpan === '2W' ? 14 : userHistorySpan === '1M' ? 30 : 7;
+    const candleFetchCount = Math.min(1000, Math.max(120, Math.ceil((spanDays * 86400) / granularity)));
+
     const mergedOptions: Record<string, any> = {
       targetMode: 'points',
       pointsSl: slPips,
@@ -501,10 +505,10 @@ export default async function handler(req: any, res: any) {
       showTp2,
       showTp3,
       targetFocus: req.query?.targetFocus || savedConfig.options?.targetFocus || 'TP1',
-      swingLen: 5,
+      swingLen: Number(body.options?.swingLen || savedConfig.options?.swingLen || 3),
       useStructureFilter: true,
       structureTf: '15',
-      filterSwingLen: 5,
+      filterSwingLen: Number(body.options?.filterSwingLen || savedConfig.options?.filterSwingLen || 3),
       useWickFilter: true,
       maxWickRatio: 0.70,
       useDisplacementFilter: true,
@@ -599,7 +603,7 @@ export default async function handler(req: any, res: any) {
       }
 
       try {
-        candles = await fetchDerivCandles(symbol, granularity, 350);
+        candles = await fetchDerivCandles(symbol, granularity, candleFetchCount);
       } catch (err) {
         if (pass === maxPasses - 1 && candles.length === 0) {
           throw err;
