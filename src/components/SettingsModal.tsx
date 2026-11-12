@@ -8299,12 +8299,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   type="number"
                                   step={1}
                                   min={1}
-                                  value={settings.indicators.msttPointsSl ?? settings.indicators.tpPipsSl ?? 220}
+                                  value={settings.indicators.msttPointsSl ?? 165}
                                   onChange={(e) => {
-                                    const val = Math.max(1, parseFloat(e.target.value) || 220);
-                                    handleUpdateIndicators('msttPointsSl', val);
-                                    handleUpdateIndicators('tpPipsSl', val);
-                                    handleSyncCloudSettings({ ...settings.indicators, msttPointsSl: val });
+                                    const raw = e.target.value;
+                                    const val = raw === '' ? ('' as any) : parseFloat(raw);
+                                    onUpdateSettings({
+                                      ...settings,
+                                      indicators: {
+                                        ...settings.indicators,
+                                        msttPointsSl: val,
+                                        tpPipsSl: val,
+                                      },
+                                    });
+                                  }}
+                                  onBlur={() => {
+                                    const cur = parseFloat(settings.indicators.msttPointsSl as any);
+                                    const safe = !isNaN(cur) && cur >= 1 ? cur : 165;
+                                    const updatedInd = {
+                                      ...settings.indicators,
+                                      msttPointsSl: safe,
+                                      tpPipsSl: safe,
+                                    };
+                                    onUpdateSettings({
+                                      ...settings,
+                                      indicators: updatedInd,
+                                    });
+                                    handleSyncCloudSettings(updatedInd);
                                   }}
                                   className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-rose-300 font-bold text-center font-mono focus:border-rose-500"
                                 />
@@ -8316,12 +8336,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   type="number"
                                   step={1}
                                   min={1}
-                                  value={settings.indicators.msttPointsTp1 ?? settings.indicators.tpPipsTp1 ?? 450}
+                                  value={settings.indicators.msttPointsTp1 ?? 607}
                                   onChange={(e) => {
-                                    const val = Math.max(1, parseFloat(e.target.value) || 450);
-                                    handleUpdateIndicators('msttPointsTp1', val);
-                                    handleUpdateIndicators('tpPipsTp1', val);
-                                    handleSyncCloudSettings({ ...settings.indicators, msttPointsTp1: val });
+                                    const raw = e.target.value;
+                                    const val = raw === '' ? ('' as any) : parseFloat(raw);
+                                    onUpdateSettings({
+                                      ...settings,
+                                      indicators: {
+                                        ...settings.indicators,
+                                        msttPointsTp1: val,
+                                        tpPipsTp1: val,
+                                      },
+                                    });
+                                  }}
+                                  onBlur={() => {
+                                    const cur = parseFloat(settings.indicators.msttPointsTp1 as any);
+                                    const safe = !isNaN(cur) && cur >= 1 ? cur : 607;
+                                    const updatedInd = {
+                                      ...settings.indicators,
+                                      msttPointsTp1: safe,
+                                      tpPipsTp1: safe,
+                                    };
+                                    onUpdateSettings({
+                                      ...settings,
+                                      indicators: updatedInd,
+                                    });
+                                    handleSyncCloudSettings(updatedInd);
                                   }}
                                   className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-emerald-300 font-bold text-center font-mono focus:border-emerald-500"
                                 />
@@ -8333,8 +8373,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   type="number"
                                   step={1}
                                   min={1}
-                                  value={settings.indicators.msttPointsTp2 ?? 2060}
-                                  onChange={(e) => handleUpdateIndicators('msttPointsTp2', Math.max(1, parseFloat(e.target.value) || 2060))}
+                                  value={settings.indicators.msttPointsTp2 ?? 1200}
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    const val = raw === '' ? ('' as any) : parseFloat(raw);
+                                    handleUpdateIndicators('msttPointsTp2', val);
+                                  }}
+                                  onBlur={() => {
+                                    const cur = parseFloat(settings.indicators.msttPointsTp2 as any);
+                                    const safe = !isNaN(cur) && cur >= 1 ? cur : 1200;
+                                    handleUpdateIndicators('msttPointsTp2', safe);
+                                    handleSyncCloudSettings({ ...settings.indicators, msttPointsTp2: safe });
+                                  }}
                                   className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-teal-300 font-bold text-center font-mono focus:border-teal-500"
                                 />
                               </div>
@@ -8345,8 +8395,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   type="number"
                                   step={1}
                                   min={1}
-                                  value={settings.indicators.msttPointsTp3 ?? 3090}
-                                  onChange={(e) => handleUpdateIndicators('msttPointsTp3', Math.max(1, parseFloat(e.target.value) || 3090))}
+                                  value={settings.indicators.msttPointsTp3 ?? 1800}
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    const val = raw === '' ? ('' as any) : parseFloat(raw);
+                                    handleUpdateIndicators('msttPointsTp3', val);
+                                  }}
+                                  onBlur={() => {
+                                    const cur = parseFloat(settings.indicators.msttPointsTp3 as any);
+                                    const safe = !isNaN(cur) && cur >= 1 ? cur : 1800;
+                                    handleUpdateIndicators('msttPointsTp3', safe);
+                                    handleSyncCloudSettings({ ...settings.indicators, msttPointsTp3: safe });
+                                  }}
                                   className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-cyan-300 font-bold text-center font-mono focus:border-cyan-500"
                                 />
                               </div>
@@ -9113,9 +9173,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 max="1000"
                                 value={settings.indicators.derivStake ?? 2.0}
                                 onChange={(e) => {
-                                  const val = parseFloat(e.target.value) || 2.0;
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? ('' as any) : parseFloat(raw);
                                   handleUpdateIndicators('derivStake', val);
-                                  handleSyncCloudSettings({ ...settings.indicators, derivStake: val });
+                                }}
+                                onBlur={() => {
+                                  const cur = parseFloat(settings.indicators.derivStake as any);
+                                  const safe = !isNaN(cur) && cur >= 0.35 ? cur : 2.0;
+                                  handleUpdateIndicators('derivStake', safe);
+                                  handleSyncCloudSettings({ ...settings.indicators, derivStake: safe });
                                 }}
                                 className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-emerald-400 font-bold focus:outline-none focus:border-emerald-500"
                               />
@@ -9153,9 +9219,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 min="0.5"
                                 value={settings.indicators.derivTakeProfitUsd ?? 6.68}
                                 onChange={(e) => {
-                                  const val = parseFloat(e.target.value) || 6.68;
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? ('' as any) : parseFloat(raw);
                                   handleUpdateIndicators('derivTakeProfitUsd', val);
-                                  handleSyncCloudSettings({ ...settings.indicators, derivTakeProfitUsd: val });
+                                }}
+                                onBlur={() => {
+                                  const cur = parseFloat(settings.indicators.derivTakeProfitUsd as any);
+                                  const safe = !isNaN(cur) && cur >= 0.5 ? cur : 6.68;
+                                  handleUpdateIndicators('derivTakeProfitUsd', safe);
+                                  handleSyncCloudSettings({ ...settings.indicators, derivTakeProfitUsd: safe });
                                 }}
                                 className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-emerald-300 font-bold focus:outline-none focus:border-emerald-500"
                               />
@@ -9171,9 +9243,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 min="0.5"
                                 value={settings.indicators.derivStopLossUsd ?? 2.0}
                                 onChange={(e) => {
-                                  const val = parseFloat(e.target.value) || 2.0;
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? ('' as any) : parseFloat(raw);
                                   handleUpdateIndicators('derivStopLossUsd', val);
-                                  handleSyncCloudSettings({ ...settings.indicators, derivStopLossUsd: val });
+                                }}
+                                onBlur={() => {
+                                  const cur = parseFloat(settings.indicators.derivStopLossUsd as any);
+                                  const safe = !isNaN(cur) && cur >= 0.5 ? cur : 2.0;
+                                  handleUpdateIndicators('derivStopLossUsd', safe);
+                                  handleSyncCloudSettings({ ...settings.indicators, derivStopLossUsd: safe });
                                 }}
                                 className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-rose-300 font-bold focus:outline-none focus:border-rose-500"
                               />
@@ -9194,9 +9272,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 max="10"
                                 value={settings.indicators.derivMaxConsecutiveLosses ?? 2}
                                 onChange={(e) => {
-                                  const val = parseInt(e.target.value) || 2;
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? ('' as any) : parseInt(raw);
                                   handleUpdateIndicators('derivMaxConsecutiveLosses', val);
-                                  handleSyncCloudSettings({ ...settings.indicators, derivMaxConsecutiveLosses: val });
+                                }}
+                                onBlur={() => {
+                                  const cur = parseInt(settings.indicators.derivMaxConsecutiveLosses as any);
+                                  const safe = !isNaN(cur) && cur >= 1 ? cur : 2;
+                                  handleUpdateIndicators('derivMaxConsecutiveLosses', safe);
+                                  handleSyncCloudSettings({ ...settings.indicators, derivMaxConsecutiveLosses: safe });
                                 }}
                                 className="w-16 px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-center font-mono font-bold text-amber-300 text-xs"
                               />
@@ -9312,12 +9396,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 type="number"
                                 step={1}
                                 min={1}
-                                value={settings.indicators.msttPointsSl ?? settings.indicators.tpPipsSl ?? 220}
+                                value={settings.indicators.msttPointsSl ?? 165}
                                 onChange={(e) => {
-                                  const slVal = Math.max(1, parseFloat(e.target.value) || 220);
-                                  handleUpdateIndicators('msttPointsSl', slVal);
-                                  handleUpdateIndicators('tpPipsSl', slVal);
-                                  handleSyncCloudSettings({ ...settings.indicators, msttPointsSl: slVal });
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? ('' as any) : parseFloat(raw);
+                                  onUpdateSettings({
+                                    ...settings,
+                                    indicators: {
+                                      ...settings.indicators,
+                                      msttPointsSl: val,
+                                      tpPipsSl: val,
+                                    },
+                                  });
+                                }}
+                                onBlur={() => {
+                                  const cur = parseFloat(settings.indicators.msttPointsSl as any);
+                                  const safe = !isNaN(cur) && cur >= 1 ? cur : 165;
+                                  const updatedInd = {
+                                    ...settings.indicators,
+                                    msttPointsSl: safe,
+                                    tpPipsSl: safe,
+                                  };
+                                  onUpdateSettings({
+                                    ...settings,
+                                    indicators: updatedInd,
+                                  });
+                                  handleSyncCloudSettings(updatedInd);
                                 }}
                                 className="w-full px-2 py-1.5 bg-neutral-900 border border-rose-900/50 rounded text-xs font-mono font-bold text-rose-300 focus:outline-none focus:border-rose-500"
                               />
@@ -9330,12 +9434,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 type="number"
                                 step={1}
                                 min={1}
-                                value={settings.indicators.msttPointsTp1 ?? settings.indicators.tpPipsTp1 ?? 450}
+                                value={settings.indicators.msttPointsTp1 ?? 607}
                                 onChange={(e) => {
-                                  const tpVal = Math.max(1, parseFloat(e.target.value) || 450);
-                                  handleUpdateIndicators('msttPointsTp1', tpVal);
-                                  handleUpdateIndicators('tpPipsTp1', tpVal);
-                                  handleSyncCloudSettings({ ...settings.indicators, msttPointsTp1: tpVal });
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? ('' as any) : parseFloat(raw);
+                                  onUpdateSettings({
+                                    ...settings,
+                                    indicators: {
+                                      ...settings.indicators,
+                                      msttPointsTp1: val,
+                                      tpPipsTp1: val,
+                                    },
+                                  });
+                                }}
+                                onBlur={() => {
+                                  const cur = parseFloat(settings.indicators.msttPointsTp1 as any);
+                                  const safe = !isNaN(cur) && cur >= 1 ? cur : 607;
+                                  const updatedInd = {
+                                    ...settings.indicators,
+                                    msttPointsTp1: safe,
+                                    tpPipsTp1: safe,
+                                  };
+                                  onUpdateSettings({
+                                    ...settings,
+                                    indicators: updatedInd,
+                                  });
+                                  handleSyncCloudSettings(updatedInd);
                                 }}
                                 className="w-full px-2 py-1.5 bg-neutral-900 border border-emerald-900/50 rounded text-xs font-mono font-bold text-emerald-300 focus:outline-none focus:border-emerald-500"
                               />
@@ -10447,15 +10571,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-rose-900/60">
                               <div className="flex items-center justify-between">
                                 <span className="text-[11px] font-semibold text-rose-400">SL (Pips)</span>
-                                <span className="text-[9px] text-rose-500 font-mono">220 Pips = $2.2</span>
+                                <span className="text-[9px] text-rose-500 font-mono">Loss Distance</span>
                               </div>
                               <input
                                 type="number"
                                 step={10}
                                 min={1}
                                 max={50000}
-                                value={settings.indicators.tpPipsSl ?? 220}
-                                onChange={(e) => handleUpdateIndicators('tpPipsSl', Math.max(1, parseInt(e.target.value) || 220))}
+                                value={settings.indicators.tpPipsSl ?? 165}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? ('' as any) : parseInt(raw);
+                                  handleUpdateIndicators('tpPipsSl', val);
+                                }}
+                                onBlur={() => {
+                                  const cur = parseInt(settings.indicators.tpPipsSl as any);
+                                  const safe = !isNaN(cur) && cur >= 1 ? cur : 165;
+                                  handleUpdateIndicators('tpPipsSl', safe);
+                                }}
                                 className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-rose-500"
                               />
                               <span className="text-[9.5px] text-gray-400">Exact pips against entry for loss</span>
@@ -10465,15 +10598,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-amber-900/50">
                               <div className="flex items-center justify-between">
                                 <span className="text-[11px] font-semibold text-amber-300">TP1 (Pips)</span>
-                                <span className="text-[9px] text-amber-500 font-mono">1030 Pips = $10.3</span>
+                                <span className="text-[9px] text-amber-500 font-mono">Target 1</span>
                               </div>
                               <input
                                 type="number"
                                 step={10}
                                 min={1}
                                 max={100000}
-                                value={settings.indicators.tpPipsTp1 ?? 1030}
-                                onChange={(e) => handleUpdateIndicators('tpPipsTp1', Math.max(1, parseInt(e.target.value) || 1030))}
+                                value={settings.indicators.tpPipsTp1 ?? 607}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? ('' as any) : parseInt(raw);
+                                  handleUpdateIndicators('tpPipsTp1', val);
+                                }}
+                                onBlur={() => {
+                                  const cur = parseInt(settings.indicators.tpPipsTp1 as any);
+                                  const safe = !isNaN(cur) && cur >= 1 ? cur : 607;
+                                  handleUpdateIndicators('tpPipsTp1', safe);
+                                }}
                                 className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-amber-500"
                               />
                               <span className="text-[9.5px] text-gray-400">Exact pips in profit for win</span>
@@ -10490,8 +10632,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 step={10}
                                 min={1}
                                 max={100000}
-                                value={settings.indicators.tpPipsTp2 ?? 2060}
-                                onChange={(e) => handleUpdateIndicators('tpPipsTp2', Math.max(1, parseInt(e.target.value) || 2060))}
+                                value={settings.indicators.tpPipsTp2 ?? 1200}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? ('' as any) : parseInt(raw);
+                                  handleUpdateIndicators('tpPipsTp2', val);
+                                }}
+                                onBlur={() => {
+                                  const cur = parseInt(settings.indicators.tpPipsTp2 as any);
+                                  const safe = !isNaN(cur) && cur >= 1 ? cur : 1200;
+                                  handleUpdateIndicators('tpPipsTp2', safe);
+                                }}
                                 className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-emerald-500"
                               />
                               <span className="text-[9.5px] text-gray-400">Target 2 profit distance</span>
@@ -10508,8 +10659,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 step={10}
                                 min={1}
                                 max={100000}
-                                value={settings.indicators.tpPipsTp3 ?? 3090}
-                                onChange={(e) => handleUpdateIndicators('tpPipsTp3', Math.max(1, parseInt(e.target.value) || 3090))}
+                                value={settings.indicators.tpPipsTp3 ?? 1800}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? ('' as any) : parseInt(raw);
+                                  handleUpdateIndicators('tpPipsTp3', val);
+                                }}
+                                onBlur={() => {
+                                  const cur = parseInt(settings.indicators.tpPipsTp3 as any);
+                                  const safe = !isNaN(cur) && cur >= 1 ? cur : 1800;
+                                  handleUpdateIndicators('tpPipsTp3', safe);
+                                }}
                                 className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-white text-center font-mono focus:border-cyan-500"
                               />
                               <span className="text-[9.5px] text-gray-400">Target 3 profit distance</span>
