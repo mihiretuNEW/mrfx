@@ -24,6 +24,27 @@ export interface ThemePreset {
 
 export const THEME_PRESETS: ThemePreset[] = [
   {
+    id: 'obsidian-copper',
+    name: 'Mire Obsidian Copper',
+    subtitle: 'Deep midnight obsidian canvas with warm rose-copper metallic accents & mint/coral candles',
+    badge: 'Mire75 Pro',
+    isDark: true,
+    backgroundColor: '#12131c',
+    surfaceColor: '#171825',
+    gridColor: '#1e2030',
+    crosshairColor: '#d48b70',
+    borderColor: '#c87d65',
+    textColor: '#e8eaf2',
+    textSecondary: '#9397ab',
+    accentColor: '#d48b70',
+    previewColors: {
+      bg: '#12131c',
+      surface: '#171825',
+      accent: '#d48b70',
+      border: '#c87d65',
+    },
+  },
+  {
     id: 'offlight-white',
     name: 'Off-Light White',
     subtitle: 'Eye-friendly soft canvas · Reduces glare & eye fatigue',

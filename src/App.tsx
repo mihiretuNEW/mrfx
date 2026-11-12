@@ -1332,8 +1332,13 @@ function AppContent() {
     }
   }, [selectedTimeframe]);
 
-  // ── 24/7 CLOUD SYNC: Automatically mirror ANY UI setting, timeframe, pips, or swing change to Render ──
+  const hasHydratedCloudConfig = useRef(false);
+
+  // ── 24/7 CLOUD SYNC: Automatically mirror user-modified UI settings, timeframe, pips, or swings to Render ──
   useEffect(() => {
+    // GUARD: Never sync defaults to server before initial server hydration has completed!
+    if (!hasHydratedCloudConfig.current) return;
+
     const timer = setTimeout(async () => {
       try {
         const ind = settings.indicators || {};
@@ -1346,8 +1351,8 @@ function AppContent() {
           options: {
             historySpan: settings.historySpan || '1W',
             targetMode: ind.msttTargetMode ?? 'points',
-            pointsSl: ind.msttPointsSl ?? 220,
-            pointsTp1: ind.msttPointsTp1 ?? 450,
+            pointsSl: ind.msttPointsSl ?? 165,
+            pointsTp1: ind.msttPointsTp1 ?? 607,
             pointsTp2: ind.msttPointsTp2 ?? 650,
             pointsTp3: ind.msttPointsTp3 ?? 1000,
             showTp1: ind.msttShowTp1 !== false,
@@ -1382,11 +1387,11 @@ function AppContent() {
             derivApiToken: (ind.derivApiToken || '').trim(),
             derivAppId: (ind.derivAppId || '').trim(),
             derivMode: ind.derivMode || 'demo',
-            derivAutoTradeEnabled: Boolean(ind.derivAutoTradeEnabled),
+            derivAutoTradeEnabled: ind.derivAutoTradeEnabled !== false,
             derivStake: ind.derivStake ?? 2.0,
             derivMultiplier: ind.derivMultiplier ?? 200,
             derivTakeProfitUsd: ind.derivTakeProfitUsd ?? 6.68,
-            derivStopLossUsd: ind.derivStopLossUsd ?? 2.0,
+            stopLossUsd: ind.derivStopLossUsd ?? 2.0,
             derivMaxConsecutiveLosses: ind.derivMaxConsecutiveLosses ?? 2,
           },
         };
@@ -1399,7 +1404,7 @@ function AppContent() {
       } catch (e) {
         // Non-blocking network catch
       }
-    }, 700);
+    }, 1200);
 
     return () => clearTimeout(timer);
   }, [settings, selectedSymbol, selectedTimeframe]);
@@ -1409,8 +1414,9 @@ function AppContent() {
     fetch('/api/cloud-alert-config')
       .then((res) => res.json())
       .then((data) => {
-        if (data && data.options) {
-          const opt = data.options;
+        const cfg = data?.config || data;
+        if (cfg && cfg.options) {
+          const opt = cfg.options;
           setSettings((prev) => {
             const prevInd = prev.indicators;
             return {
@@ -1418,10 +1424,13 @@ function AppContent() {
               historySpan: (opt.historySpan || prev.historySpan || '1W') as any,
               indicators: {
                 ...prevInd,
+                msttTgBotToken: prevInd.msttTgBotToken || cfg.botToken || '',
+                msttTgChatId: prevInd.msttTgChatId || cfg.chatId || '',
+                msttTgAlertsEnabled: cfg.enabled !== undefined ? Boolean(cfg.enabled) : prevInd.msttTgAlertsEnabled,
                 derivApiToken: prevInd.derivApiToken || opt.derivApiToken || '',
                 derivAppId: prevInd.derivAppId || opt.derivAppId || '',
                 derivMode: prevInd.derivMode || opt.derivMode || 'demo',
-                derivAutoTradeEnabled: opt.derivAutoTradeEnabled !== undefined ? Boolean(opt.derivAutoTradeEnabled) : prevInd.derivAutoTradeEnabled,
+                derivAutoTradeEnabled: opt.derivAutoTradeEnabled !== undefined ? Boolean(opt.derivAutoTradeEnabled) : true,
                 derivStake: opt.derivStake !== undefined ? opt.derivStake : prevInd.derivStake,
                 derivMultiplier: opt.derivMultiplier !== undefined ? opt.derivMultiplier : prevInd.derivMultiplier,
                 msttPointsSl: opt.pointsSl !== undefined ? opt.pointsSl : prevInd.msttPointsSl,
@@ -1433,7 +1442,10 @@ function AppContent() {
           });
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        hasHydratedCloudConfig.current = true;
+      });
   }, []);
 
   // Full-App Theme Synchronization: update html, body, and colorScheme

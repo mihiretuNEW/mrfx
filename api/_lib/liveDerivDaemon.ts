@@ -39,10 +39,15 @@ class LiveDerivDaemon {
   private configWatchTimer: NodeJS.Timeout | null = null;
   private lastConfigMtime = 0;
   private daemonStartTimeSec = Math.floor(Date.now() / 1000);
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+  private pingTimer: NodeJS.Timeout | null = null;
 
   public start() {
     this.daemonStartTimeSec = Math.floor(Date.now() / 1000);
-    console.log(`[LiveDerivDaemon] Starting 24/7 Real-Time Tick Engine on Render (boot time: ${new Date().toISOString()})...`);
+    console.log(`======================================================================`);
+    console.log(`[RENDER BACKEND] 🚀 24/7 STANDALONE ENGINE STARTED (No Browser Needed!)`);
+    console.log(`[LiveDerivDaemon] Real-Time Tick Engine on Render (boot: ${new Date().toISOString()})...`);
+    console.log(`======================================================================`);
     this.syncConfig(true);
     this.connect();
 
@@ -50,6 +55,13 @@ class LiveDerivDaemon {
     this.configWatchTimer = setInterval(() => {
       this.syncConfig(false);
     }, 3000);
+
+    // Heartbeat every 60 seconds to prove the backend is alive in Render logs
+    this.heartbeatTimer = setInterval(() => {
+      const lastCandle = this.candles[this.candles.length - 1];
+      const priceStr = lastCandle ? lastCandle.close.toFixed(2) : 'connecting...';
+      console.log(`[LiveDerivDaemon Heartbeat] 🟢 24/7 Backend Alive: ${this.currentSymbol} (${this.currentTimeframe}) | Live Price: ${priceStr} | Candles: ${this.candles.length} | Standalone Auto-Trade: READY`);
+    }, 60000);
   }
 
   private getMergedOptions(): Record<string, any> {
@@ -132,6 +144,16 @@ class LiveDerivDaemon {
         this.isConnecting = false;
         console.log(`[LiveDerivDaemon] WebSocket connected. Subscribing to ${this.currentSymbol} ${this.currentTimeframe} live ticks...`);
 
+        // Active 25-second ping keep-alive so Deriv never drops connection due to idle
+        if (this.pingTimer) clearInterval(this.pingTimer);
+        this.pingTimer = setInterval(() => {
+          try {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+              this.ws.send(JSON.stringify({ ping: 1 }));
+            }
+          } catch {}
+        }, 25000);
+
         const spanDays = 7; // 1W default
         const candleCount = Math.min(1000, Math.max(120, Math.ceil((spanDays * 86400) / this.granularity)));
 
@@ -152,6 +174,9 @@ class LiveDerivDaemon {
           const raw = typeof data === 'string' ? data : data.toString();
           const msg = JSON.parse(raw);
 
+          // Handle keep-alive pong
+          if (msg.ping === 'pong') return;
+
           // 1. Initial Candles Batch (HISTORICAL - NEVER TRADE ON INITIAL BATCH)
           if (msg.candles && Array.isArray(msg.candles)) {
             this.candles = msg.candles.map((c: any) => ({
@@ -162,17 +187,26 @@ class LiveDerivDaemon {
               close: Number(c.close),
             }));
 
-            // SEED all existing historical markers into alertedIds so they are NEVER re-executed!
+            // SEED OLD historical markers into alertedIds so they are never executed.
+            // A signal is ONLY fresh if on the active forming candle OR closed within 2-10 seconds!
             try {
               const options = this.getMergedOptions();
               const result = calculateMarketStructureTargetTracker(this.candles, options as any, this.currentSymbol);
               const markers = result.signalMarkers || [];
+              const lastCandleIdx = this.candles.length - 1;
+              const nowSec = Math.floor(Date.now() / 1000);
               for (const m of markers) {
-                const id = `SIG_${this.currentSymbol}_${this.currentTimeframe}_${m.time}_${m.type}`;
-                this.alertedIds.add(id);
-                this.lastAlertId = id;
+                const candleCloseSec = m.time + this.granularity;
+                const isJustClosed = m.barIndex === lastCandleIdx - 1 && (nowSec - candleCloseSec <= 10);
+                const isCurrentBarJustOpened = m.barIndex === lastCandleIdx && (nowSec - m.time <= 10);
+                const isFresh = isJustClosed || isCurrentBarJustOpened;
+                if (!isFresh) {
+                  const id = `SIG_${this.currentSymbol}_${this.currentTimeframe}_${m.time}_${m.type}`;
+                  this.alertedIds.add(id);
+                  this.lastAlertId = id;
+                }
               }
-              console.log(`[LiveDerivDaemon] Initial history loaded (${this.candles.length} candles). Seeded ${this.alertedIds.size} existing historical signals as already processed. Daemon is now listening for LIVE ticks ONLY.`);
+              console.log(`[LiveDerivDaemon] Initial history loaded (${this.candles.length} candles). Seeded ${this.alertedIds.size} old historical signals. Daemon is listening for LIVE breakout ticks.`);
             } catch (err: any) {
               console.error('[LiveDerivDaemon] Error seeding historical signals:', err.message);
             }
@@ -237,10 +271,14 @@ class LiveDerivDaemon {
 
   private scheduleReconnect() {
     this.isConnecting = false;
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
       this.connect();
-    }, 3000);
+    }, 2000);
   }
 
   private reconnect() {
@@ -266,46 +304,88 @@ class LiveDerivDaemon {
       const recentMarker = markers[markers.length - 1];
       const lastCandleIdx = this.candles.length - 1;
       const activeCandle = this.candles[lastCandleIdx];
+      const nowSec = Math.floor(Date.now() / 1000);
 
-      // CRITICAL GUARD 1: Only trade if signal is on the ACTIVE forming candle (barIndex === lastCandleIdx)
-      if (recentMarker.barIndex !== lastCandleIdx) {
+      // CRITICAL GUARD 1: Only trade if signal is on the ACTIVE forming candle OR closed within 2-10 seconds
+      if (recentMarker.barIndex < lastCandleIdx - 1) {
         return;
       }
-
-      // CRITICAL GUARD 2: Only trade if candle time is >= daemon startup time (no old historical trades!)
-      if (recentMarker.time < this.daemonStartTimeSec - this.granularity) {
-        return;
+      if (recentMarker.barIndex === lastCandleIdx - 1) {
+        const candleCloseSec = recentMarker.time + this.granularity;
+        const secondsSinceClose = nowSec - candleCloseSec;
+        if (secondsSinceClose > 10) {
+          console.log(`[LiveDerivDaemon] Signal skipped: candle closed ${secondsSinceClose}s ago (> 10s fresh limit).`);
+          return;
+        }
       }
 
+      // CRITICAL GUARD 2: In-Memory Lock - Ensure signal is not traded twice
       const uniqueSignalId = `SIG_${symbol}_${tf}_${recentMarker.time}_${recentMarker.type}`;
-
       if (this.lastAlertId === uniqueSignalId || this.alertedIds.has(uniqueSignalId)) {
         return;
       }
 
-      this.lastAlertId = uniqueSignalId;
-      this.alertedIds.add(uniqueSignalId);
-      console.log(`[LiveDerivDaemon] ⚡ GENUINE LIVE BREAKOUT DETECTED: ${uniqueSignalId} in <200ms!`);
-
       const isBull = recentMarker.type === 'bull';
       const action: 'BUY' | 'SELL' = isBull ? 'BUY' : 'SELL';
       const entryPrice = recentMarker.entryPrice || recentMarker.price || activeCandle.close;
-      const slPips = Number(options.pointsSl || 220);
-      const tp1Pips = Number(options.pointsTp1 || 450);
+
+      // CRITICAL GUARD 3: 20 Pips Max Slippage Guard
+      // If price moved > 20 pips past entry, SKIP to prevent shifted TP distance!
+      const pipsMovedPastEntry = isBull
+        ? (activeCandle.close - entryPrice)
+        : (entryPrice - activeCandle.close);
+
+      if (pipsMovedPastEntry > 20) {
+        console.log(`[LiveDerivDaemon] ${uniqueSignalId} SKIPPED: Price moved ${pipsMovedPastEntry.toFixed(1)} pips past entry (> 20 pips limit). Chasing prevented.`);
+        this.alertedIds.add(uniqueSignalId);
+        return;
+      }
+
+      const slPips = Number(options.pointsSl || 165);
+      const tp1Pips = Number(options.pointsTp1 || 607);
       const slPrice = recentMarker.slPrice || (isBull ? entryPrice - slPips : entryPrice + slPips);
       const tpPrice = recentMarker.tp1Price || (isBull ? entryPrice + tp1Pips : entryPrice - tp1Pips);
+
+      // CRITICAL GUARD 4: Do not enter if price already surpassed TP1 or hit SL
+      if (isBull) {
+        if (activeCandle.close >= tpPrice || activeCandle.close <= slPrice) {
+          console.log(`[LiveDerivDaemon] ${uniqueSignalId} skipped: Price ${activeCandle.close} already past TP (${tpPrice}) or SL (${slPrice})`);
+          this.alertedIds.add(uniqueSignalId);
+          return;
+        }
+      } else {
+        if (activeCandle.close <= tpPrice || activeCandle.close >= slPrice) {
+          console.log(`[LiveDerivDaemon] ${uniqueSignalId} skipped: Price ${activeCandle.close} already past TP (${tpPrice}) or SL (${slPrice})`);
+          this.alertedIds.add(uniqueSignalId);
+          return;
+        }
+      }
+
+      // Claim lock IMMEDIATELY in-memory (<0.005ms) before sending order
+      this.lastAlertId = uniqueSignalId;
+      this.alertedIds.add(uniqueSignalId);
+      console.log(`[LiveDerivDaemon] ⚡ GENUINE LIVE BREAKOUT DETECTED: ${uniqueSignalId} at price ${activeCandle.close} (slippage: ${pipsMovedPastEntry.toFixed(1)} pips <= 20) in <200ms!`);
+
       const symbolName = getSymbolDisplayName(symbol);
 
       // 1. Instant Deriv Trade Execution (<200ms)
-      const isAutoTradeEnabled = Boolean(options.derivAutoTradeEnabled);
-      const token = (options.derivApiToken || '').trim();
-      const appId = (options.derivAppId || '').trim();
+      const isAutoTradeEnabled = options.derivAutoTradeEnabled !== false;
+      const token = (
+        options.derivApiToken ||
+        process.env.DERIV_API_TOKEN ||
+        'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93'
+      ).trim();
+      const appId = (
+        options.derivAppId ||
+        process.env.DERIV_APP_ID ||
+        '34TqYcyq1e1ZVYR74xqTh'
+      ).trim();
       const mode = (options.derivMode === 'real' ? 'real' : 'demo') as 'demo' | 'real';
 
       let tradeExecutionReport = '';
       if (isAutoTradeEnabled && token && appId) {
         try {
-          console.log(`[LiveDerivDaemon] Executing instant ${mode.toUpperCase()} ${action} on Deriv...`);
+          console.log(`[LiveDerivDaemon] Executing instant ${mode.toUpperCase()} ${action} on Deriv (${symbol})...`);
           const tradeRes = await executeDerivMultiplierTrade({
             token,
             appId,
@@ -326,11 +406,14 @@ class LiveDerivDaemon {
               `💵 Stake: $${(tradeRes.stake ?? Number(options.derivStake || 2)).toFixed(2)} USD (${tradeRes.multiplier ?? 200}x)\n` +
               `🎯 TP: +$${(tradeRes.takeProfit ?? 6.68).toFixed(2)} | 🛑 SL: -$${(tradeRes.stopLoss ?? 2.0).toFixed(2)}\n` +
               (tradeRes.balanceAfter !== undefined ? `💰 Balance After: $${tradeRes.balanceAfter.toFixed(2)} USD\n` : '');
+            console.log(`[LiveDerivDaemon] ✅ Deriv order placed successfully! Contract #${tradeRes.contractId}`);
           } else {
             tradeExecutionReport = `\n\n⚠️ <i>Deriv Execution Note: ${tradeRes.error}</i>`;
+            console.warn(`[LiveDerivDaemon] ⚠️ Deriv trade result: ${tradeRes.error}`);
           }
         } catch (e: any) {
           tradeExecutionReport = `\n\n⚠️ <i>Deriv Trade Error: ${e.message}</i>`;
+          console.error(`[LiveDerivDaemon] ❌ Deriv error:`, e.message);
         }
       }
 

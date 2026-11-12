@@ -853,9 +853,10 @@ export default async function handler(req: any, res: any) {
       const markers = msttResult.signalMarkers || [];
       const recentMarker = markers.length > 0 ? markers[markers.length - 1] : null;
 
-      // CRITICAL: Strictly only trigger if marker is on the ACTIVE current candle and created within current bar's duration
+      // CRITICAL: Trigger if marker is on the ACTIVE forming candle OR immediately preceding completed candle
+      const isEligibleBar = recentMarker && (recentMarker.barIndex === lastCandleIdx || recentMarker.barIndex === lastCandleIdx - 1);
       const candleAgeSec = recentMarker ? Math.floor((now - recentMarker.time * 1000) / 1000) : 999999;
-      if (recentMarker && recentMarker.barIndex === lastCandleIdx && candleAgeSec <= granularity) {
+      if (recentMarker && isEligibleBar && candleAgeSec <= granularity * 1.5) {
         const uniqueSignalId = `SIG_${symbol}_${tf}_${recentMarker.time}_${recentMarker.type}`;
         const isLocallyAlerted =
           state.lastAlertId === uniqueSignalId ||
@@ -892,6 +893,17 @@ export default async function handler(req: any, res: any) {
             const headerTitle = isBull ? '📊 BUY SIGNAL' : '📊 SELL SIGNAL';
             const directionText = isBull ? '📈 Direction: BUY (Long)' : '📉 Direction: SELL (Short)';
             const entryPrice = recentMarker.entryPrice || msttResult.entryPrice || latestCandle.close;
+
+            // 20 Pips Max Slippage Guard: Skip if price already moved > 20 pips past entry!
+            const pipsMoved = isBull ? (latestCandle.close - entryPrice) : (entryPrice - latestCandle.close);
+            if (pipsMoved > 20) {
+              console.log(`[cron-check] ${uniqueSignalId} SKIPPED: Price moved ${pipsMoved.toFixed(1)} pips past entry (> 20 pips limit). Chasing prevented.`);
+              state.lastAlertId = uniqueSignalId;
+              if (!state.alertedIds) state.alertedIds = [];
+              if (!state.alertedIds.includes(uniqueSignalId)) state.alertedIds.push(uniqueSignalId);
+              saveCronState(state);
+              continue;
+            }
 
             const slPrice = recentMarker.slPrice || (isBull ? (entryPrice - slPips) : (entryPrice + slPips));
             const tp1Price = recentMarker.tp1Price || (isBull ? (entryPrice + tp1Pips) : (entryPrice - tp1Pips));
@@ -957,7 +969,7 @@ export default async function handler(req: any, res: any) {
             const derivAutoTrade = Boolean(
               savedConfig.options?.derivAutoTradeEnabled !== undefined
                 ? savedConfig.options?.derivAutoTradeEnabled
-                : (req.query?.autoTrade !== undefined ? (req.query.autoTrade === 'true' || req.query.autoTrade === '1') : false)
+                : (req.query?.autoTrade !== undefined ? (req.query.autoTrade === 'true' || req.query.autoTrade === '1') : true)
             );
 
             const derivTargetMode = (

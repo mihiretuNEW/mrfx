@@ -92,6 +92,7 @@ export const HISTORY_SPANS: HistorySpanOption[] = [
 ];
 
 export type ChartThemeId =
+  | 'obsidian-copper'
   | 'dark'
   | 'light'
   | 'offlight-white'

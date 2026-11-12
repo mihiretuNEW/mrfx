@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { MsttDashboard, MsttTradeStats } from '../utils/marketStructureTargetTracker';
 import { ChartSettings } from '../types';
-import { Minimize2, Maximize2, X, ListFilter, Activity, Trophy, TrendingUp, TrendingDown, Clock } from 'lucide-react';
+import { Minimize2, Maximize2, X, ArrowLeftRight, ListFilter, Activity, Trophy, TrendingUp, TrendingDown, Clock } from 'lucide-react';
 
 interface MsttHUDProps {
   dashboard: MsttDashboard;
@@ -20,9 +20,29 @@ export const MsttHUD: React.FC<MsttHUDProps> = ({
   visible = true,
   onClose,
 }) => {
-  const currentHudSize = settings.indicators.msttHudSize ?? 'Normal';
+  const currentHudSize = settings.indicators.msttHudSize ?? 'Small';
   const isSmall = currentHudSize === 'Small';
   const [showTradeLog, setShowTradeLog] = useState(true);
+  const [hudPosition, setHudPosition] = useState<'left' | 'right'>(() => {
+    try {
+      const saved = localStorage.getItem('mstt_hud_position');
+      if (saved === 'left' || saved === 'right') return saved;
+      return (settings.indicators.msttHudPosition as 'left' | 'right') || 'right';
+    } catch {
+      return 'right';
+    }
+  });
+
+  const handleTogglePosition = () => {
+    const nextPos = hudPosition === 'right' ? 'left' : 'right';
+    setHudPosition(nextPos);
+    try {
+      localStorage.setItem('mstt_hud_position', nextPos);
+    } catch {}
+    if (onUpdateSetting) {
+      onUpdateSetting('msttHudPosition', nextPos);
+    }
+  };
 
   if (!visible || !dashboard) return null;
 
@@ -56,19 +76,29 @@ export const MsttHUD: React.FC<MsttHUDProps> = ({
       <aside
         id="mstt-hud-mini"
         aria-label="MSTT Performance Mini HUD"
-        className="absolute top-12 right-2 sm:right-4 z-20 w-64 bg-neutral-950/95 border border-emerald-500/30 rounded-xl shadow-2xl backdrop-blur-md text-white select-none transition-all duration-200 overflow-hidden font-mono"
+        className={`absolute top-12 ${
+          hudPosition === 'left' ? 'left-2 sm:left-4' : 'right-2 sm:right-4'
+        } z-20 w-72 max-w-[calc(100vw-1.5rem)] bg-[#13141f]/95 border border-[#c87d65]/70 rounded-xl shadow-[0_8px_32px_rgba(200,125,101,0.22)] backdrop-blur-md text-white select-none transition-all duration-200 overflow-hidden font-mono`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-2.5 py-1.5 bg-neutral-900/90 border-b border-neutral-800">
+        <div className="flex items-center justify-between px-3 py-2 bg-[#191a27]/95 border-b border-[#c87d65]/30">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span className="text-[11px] font-bold text-gray-200 tracking-wide">MSTT PERF</span>
-            <span className="px-1 py-0.2 text-[9px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/80 rounded">
-              MINI
+            <span className="text-[9px] font-extrabold text-[#26a69a] tracking-tight">
+              [MINI]
             </span>
           </div>
 
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleTogglePosition}
+              title={hudPosition === 'right' ? 'Move HUD to Left' : 'Move HUD to Right'}
+              className="p-1 text-gray-400 hover:text-white hover:bg-neutral-800 rounded transition-colors"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+            </button>
             <button
               type="button"
               onClick={handleToggleSize}
@@ -90,46 +120,42 @@ export const MsttHUD: React.FC<MsttHUDProps> = ({
           </div>
         </div>
 
-        {/* Compact Stats View (Only Total Trades, Win Rate, Wins, Losses, Consec W/L) */}
-        <div className="p-2 space-y-1.5 text-xs">
-          <div className="flex items-center justify-between px-1 py-0.5 rounded bg-neutral-900/60">
-            <span className="text-gray-400 text-[11px]">Total Trades:</span>
-            <span className="font-bold text-sky-400 font-mono">{currentStats.totalTrades} Trades</span>
+        {/* Compact Stats View (Left to Right rows, matching screenshot) */}
+        <div className="p-2.5 space-y-1.5 text-xs">
+          <div className="flex items-center justify-between px-2 py-1 rounded bg-[#1c1d2c]/80 border border-neutral-800/40">
+            <span className="text-gray-400 text-[11px] font-medium tracking-tight">TOTAL TRADES:</span>
+            <span className="font-bold text-gray-200 font-mono tracking-wide">{currentStats.totalTrades} TRADES</span>
           </div>
 
-          <div className="flex items-center justify-between px-1 py-0.5 rounded bg-neutral-900/60">
-            <span className="text-gray-400 text-[11px]">Win Rate:</span>
-            <span className={`font-bold font-mono px-1.5 py-0.2 rounded text-[11px] ${
-              isGoodWr
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-            }`}>
-              {winRateVal.toFixed(1)}%
+          <div className="flex items-center justify-between px-2 py-1 rounded bg-[#1c1d2c]/80 border border-neutral-800/40">
+            <span className="text-gray-400 text-[11px] font-medium tracking-tight">WIN RATE:</span>
+            <span className="font-bold font-mono text-amber-300 tracking-wide text-[11.5px]">
+              {winRateVal.toFixed(1)}% WIN RATE
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-            <div className="flex items-center justify-between px-1.5 py-1 rounded bg-emerald-950/40 border border-emerald-800/50">
-              <span className="text-emerald-400 text-[10px] uppercase font-bold">Wins:</span>
-              <span className="font-black text-emerald-300 font-mono">{currentStats.wins}</span>
+          <div className="grid grid-cols-2 gap-2 pt-0.5">
+            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-emerald-950/50 border border-emerald-600/50">
+              <span className="text-emerald-400 text-[11px] uppercase font-bold tracking-tight">WINS:</span>
+              <span className="font-black text-emerald-300 font-mono text-xs">{currentStats.wins}</span>
             </div>
-            <div className="flex items-center justify-between px-1.5 py-1 rounded bg-rose-950/40 border border-rose-800/50">
-              <span className="text-rose-400 text-[10px] uppercase font-bold">Losses:</span>
-              <span className="font-black text-rose-300 font-mono">{currentStats.losses}</span>
+            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-rose-950/50 border border-rose-800/50">
+              <span className="text-rose-400 text-[11px] uppercase font-bold tracking-tight">LOSSES:</span>
+              <span className="font-black text-rose-300 font-mono text-xs">{currentStats.losses}</span>
             </div>
           </div>
 
-          <div className="flex items-center justify-between px-1 py-0.5 rounded bg-neutral-900/60 text-[10.5px]">
-            <span className="text-gray-400">Consec W/L:</span>
-            <span className="font-semibold text-emerald-400 font-mono">
+          <div className="flex items-center justify-between px-2 py-1 rounded bg-[#1c1d2c]/80 border border-neutral-800/40 text-[11px]">
+            <span className="text-gray-400 font-medium tracking-tight">Consec W/L:</span>
+            <span className="font-bold text-emerald-400 font-mono">
               {currentStats.consecWins}W · <span className="text-rose-400">{currentStats.consecLosses}L</span>
             </span>
           </div>
 
           {/* Deriv Multiplier Auto-Trading Status in Mini HUD */}
-          <div className="flex items-center justify-between px-1.5 py-1 rounded bg-neutral-900/90 border border-neutral-800 text-[10px] mt-0.5">
-            <span className="text-gray-400 flex items-center gap-1 font-semibold">
-              <span>⚡</span> Deriv Multiplier:
+          <div className="flex items-center justify-between px-2 py-1.5 rounded bg-[#1c1d2c]/90 border border-neutral-800 text-[10.5px] mt-0.5">
+            <span className="text-gray-300 flex items-center gap-1 font-semibold">
+              <span className="text-amber-400">⚡</span> DERIV MULTIPLIER:
             </span>
             <button
               type="button"
@@ -145,13 +171,14 @@ export const MsttHUD: React.FC<MsttHUDProps> = ({
                 }).catch(() => {});
               }}
               title="Click to toggle Deriv Auto-Trading on/off"
-              className={`px-1.5 py-0.5 rounded font-bold font-mono transition-colors text-[9.5px] ${
+              className={`px-2 py-0.5 rounded-full font-bold font-mono transition-colors text-[9.5px] flex items-center gap-1 ${
                 settings.indicators.derivAutoTradeEnabled
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-500/30'
                   : 'bg-rose-500/20 text-rose-300 border border-rose-500/50 hover:bg-rose-500/30'
               }`}
             >
-              {settings.indicators.derivAutoTradeEnabled ? '🟢 ACTIVE' : '🔴 PAUSED'}
+              <span className={`w-1.5 h-1.5 rounded-full ${settings.indicators.derivAutoTradeEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+              {settings.indicators.derivAutoTradeEnabled ? 'ACTIVE' : 'PAUSED'}
             </button>
           </div>
         </div>
@@ -166,10 +193,12 @@ export const MsttHUD: React.FC<MsttHUDProps> = ({
     <aside
       id="mstt-hud-full"
       aria-label="MSTT Full Performance and Trade Audit HUD"
-      className="absolute top-12 right-2 sm:right-4 z-20 w-80 max-w-[calc(100vw-1rem)] bg-neutral-950/95 border border-neutral-800 rounded-xl shadow-2xl backdrop-blur-md text-white select-none transition-all duration-200 overflow-hidden font-mono"
+      className={`absolute top-12 ${
+        hudPosition === 'left' ? 'left-2 sm:left-4' : 'right-2 sm:right-4'
+      } z-20 w-80 max-w-[calc(100vw-1rem)] bg-[#13141f]/95 border border-[#c87d65]/70 rounded-xl shadow-[0_8px_32px_rgba(200,125,101,0.22)] backdrop-blur-md text-white select-none transition-all duration-200 overflow-hidden font-mono`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 bg-neutral-900/90 border-b border-neutral-800">
+      <div className="flex items-center justify-between px-3 py-2 bg-[#191a27]/95 border-b border-[#c87d65]/30">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
           <div className="flex items-center gap-1.5">
@@ -181,6 +210,14 @@ export const MsttHUD: React.FC<MsttHUDProps> = ({
         </div>
 
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleTogglePosition}
+            title={hudPosition === 'right' ? 'Move HUD to Left' : 'Move HUD to Right'}
+            className="p-1 text-gray-400 hover:text-white hover:bg-neutral-800 rounded transition-colors"
+          >
+            <ArrowLeftRight className="w-3.5 h-3.5" />
+          </button>
           <button
             type="button"
             onClick={handleToggleSize}

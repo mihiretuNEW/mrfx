@@ -23,8 +23,8 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
   updatedAt: Date.now(),
   options: {
     targetMode: 'points',
-    pointsSl: 220,
-    pointsTp1: 450,
+    pointsSl: 165,
+    pointsTp1: 607,
     pointsTp2: 650,
     pointsTp3: 1000,
     showTp1: true,
@@ -68,13 +68,34 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
 
 export function loadAlertConfig(): CloudAlertConfig {
   try {
+    let loaded: any = null;
     if (fs.existsSync(PRIMARY_CONFIG_FILE)) {
       const data = fs.readFileSync(PRIMARY_CONFIG_FILE, 'utf-8');
-      return { ...DEFAULT_CONFIG, ...JSON.parse(data) };
-    }
-    if (fs.existsSync(FALLBACK_CONFIG_FILE)) {
+      loaded = JSON.parse(data);
+    } else if (fs.existsSync(FALLBACK_CONFIG_FILE)) {
       const data = fs.readFileSync(FALLBACK_CONFIG_FILE, 'utf-8');
-      return { ...DEFAULT_CONFIG, ...JSON.parse(data) };
+      loaded = JSON.parse(data);
+    }
+    if (loaded) {
+      const mergedOptions = {
+        ...DEFAULT_CONFIG.options,
+        ...(loaded.options || {}),
+      };
+      // Guarantee fallback credentials if missing or blank
+      if (!mergedOptions.derivApiToken || !mergedOptions.derivApiToken.trim()) {
+        mergedOptions.derivApiToken = DEFAULT_CONFIG.options.derivApiToken;
+      }
+      if (!mergedOptions.derivAppId || !mergedOptions.derivAppId.trim()) {
+        mergedOptions.derivAppId = DEFAULT_CONFIG.options.derivAppId;
+      }
+      if (mergedOptions.derivAutoTradeEnabled === undefined) {
+        mergedOptions.derivAutoTradeEnabled = true;
+      }
+      return {
+        ...DEFAULT_CONFIG,
+        ...loaded,
+        options: mergedOptions,
+      };
     }
   } catch (err) {
     console.warn('Failed to load alert config from disk, using defaults:', err);
@@ -86,15 +107,41 @@ export const getAlertConfig = loadAlertConfig;
 
 export function saveAlertConfig(config: Partial<CloudAlertConfig>): CloudAlertConfig {
   const current = loadAlertConfig();
+  const incomingOptions = config.options || {};
+
+  // Never wipe out existing non-empty credentials with empty strings!
+  const finalDerivToken = (incomingOptions.derivApiToken && incomingOptions.derivApiToken.trim())
+    ? incomingOptions.derivApiToken.trim()
+    : (current.options?.derivApiToken || DEFAULT_CONFIG.options.derivApiToken);
+
+  const finalDerivAppId = (incomingOptions.derivAppId && incomingOptions.derivAppId.trim())
+    ? incomingOptions.derivAppId.trim()
+    : (current.options?.derivAppId || DEFAULT_CONFIG.options.derivAppId);
+
+  const finalBotToken = (config.botToken && config.botToken.trim())
+    ? config.botToken.trim()
+    : (current.botToken || process.env.TELEGRAM_BOT_TOKEN || '');
+
+  const finalChatId = (config.chatId && config.chatId.trim())
+    ? config.chatId.trim()
+    : (current.chatId || process.env.TELEGRAM_CHAT_ID || '');
+
+  const finalAutoTrade = incomingOptions.derivAutoTradeEnabled !== undefined
+    ? Boolean(incomingOptions.derivAutoTradeEnabled)
+    : (current.options?.derivAutoTradeEnabled !== undefined ? current.options.derivAutoTradeEnabled : true);
+
   const merged: CloudAlertConfig = {
     ...current,
     ...config,
-    botToken: (config.botToken && config.botToken.trim()) || current.botToken || process.env.TELEGRAM_BOT_TOKEN || '',
-    chatId: (config.chatId && config.chatId.trim()) || current.chatId || process.env.TELEGRAM_CHAT_ID || '',
+    botToken: finalBotToken,
+    chatId: finalChatId,
     updatedAt: Date.now(),
     options: {
       ...current.options,
-      ...(config.options || {}),
+      ...incomingOptions,
+      derivApiToken: finalDerivToken,
+      derivAppId: finalDerivAppId,
+      derivAutoTradeEnabled: finalAutoTrade,
     },
   };
   try {
@@ -196,7 +243,7 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
         botToken: cfg.botToken ? `${cfg.botToken.substring(0, 6)}...${cfg.botToken.slice(-4)}` : '',
         hasToken: Boolean(cfg.botToken),
       };
-      return res.status(200).json({ ok: true, config: masked });
+      return res.status(200).json({ ok: true, config: masked, ...masked });
     }
 
     if (req.method === 'POST') {
