@@ -612,10 +612,8 @@ export interface ChartSettings {
     msttTgAlertsEnabled?: boolean; // Enable 24/7 Cloud Telegram Alerts (default: false)
     msttTgSymbol?: string; // Symbol to monitor (default: '1HZ75V')
     msttTgTimeframe?: string; // Timeframe to monitor (default: '1H')
-    // Deriv Multipliers Auto-Trading Engine
-    derivApiToken?: string; // Deriv Personal Access Token (PAT)
-    derivAppId?: string; // Deriv Application ID (from developers.deriv.com)
-    derivMode?: 'demo' | 'real'; // Account mode: 'demo' (Virtual VRTC) or 'real' (CR)
+    // Deriv Multipliers Auto-Trading Engine (credentials managed exclusively via backend env vars)
+    derivMode?: 'demo' | 'real'; // Account mode: 'demo' or 'real'
     derivAutoTradeEnabled?: boolean; // Master auto-trading switch (default: false)
     derivStake?: number; // Stake amount in USD (default: 2.00)
     derivMultiplier?: number; // Multiplier leverage (default: 200)

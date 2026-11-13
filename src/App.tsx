@@ -1204,6 +1204,10 @@ function AppContent() {
             };
           }
         }
+        if (parsed.indicators) {
+          delete parsed.indicators.derivApiToken;
+          delete parsed.indicators.derivAppId;
+        }
         return {
           ...DEFAULT_SETTINGS,
           ...parsed,
@@ -1308,10 +1312,16 @@ function AppContent() {
     ? activeCandles[activeCandles.length - 1]
     : null;
 
-  // Persistence: Save Settings whenever they change
+  // Persistence: Save Settings whenever they change (never store Deriv credentials in browser storage)
   useEffect(() => {
     try {
-      localStorage.setItem('mihiretu_chart_settings', JSON.stringify(settings));
+      const sanitizedIndicators: Record<string, any> = { ...(settings.indicators || {}) };
+      delete sanitizedIndicators.derivApiToken;
+      delete sanitizedIndicators.derivAppId;
+      localStorage.setItem(
+        'mihiretu_chart_settings',
+        JSON.stringify({ ...settings, indicators: sanitizedIndicators })
+      );
     } catch (e) {
       console.error('Failed to persist settings:', e);
     }
@@ -1414,8 +1424,6 @@ function AppContent() {
             whipsawCooldownBars: ind.msttWhipsawCooldownBars ?? 4,
             preventLateEntry: ind.msttPreventLateEntry ?? true,
             maxBreakoutDelay: ind.msttMaxBreakoutDelay ?? 1,
-            derivApiToken: (ind.derivApiToken || '').trim(),
-            derivAppId: (ind.derivAppId || '').trim(),
             derivMode: ind.derivMode || 'demo',
             derivAutoTradeEnabled: ind.derivAutoTradeEnabled !== false,
             derivStake: ind.derivStake ?? 2.0,
@@ -1462,8 +1470,6 @@ function AppContent() {
                   ...prevInd,
                   msttTgBotToken: prevInd.msttTgBotToken || cfg.botToken || '',
                   msttTgChatId: prevInd.msttTgChatId || cfg.chatId || '',
-                  derivApiToken: prevInd.derivApiToken || opt.derivApiToken || '',
-                  derivAppId: prevInd.derivAppId || opt.derivAppId || '',
                   derivMode: prevInd.derivMode || opt.derivMode || 'demo',
                   derivAutoTradeEnabled: prevInd.derivAutoTradeEnabled !== undefined ? prevInd.derivAutoTradeEnabled : Boolean(opt.derivAutoTradeEnabled ?? true),
                 },
@@ -1477,8 +1483,6 @@ function AppContent() {
                 msttTgBotToken: prevInd.msttTgBotToken || cfg.botToken || '',
                 msttTgChatId: prevInd.msttTgChatId || cfg.chatId || '',
                 msttTgAlertsEnabled: cfg.enabled !== undefined ? Boolean(cfg.enabled) : prevInd.msttTgAlertsEnabled,
-                derivApiToken: prevInd.derivApiToken || opt.derivApiToken || '',
-                derivAppId: prevInd.derivAppId || opt.derivAppId || '',
                 derivMode: opt.derivMode || prevInd.derivMode || 'demo',
                 derivAutoTradeEnabled: opt.derivAutoTradeEnabled !== undefined ? Boolean(opt.derivAutoTradeEnabled) : true,
                 derivStake: opt.derivStake !== undefined ? opt.derivStake : prevInd.derivStake,

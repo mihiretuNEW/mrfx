@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import WebSocketNode from 'ws';
 import { calculateMarketStructureTargetTracker, Candle, isV75KillZone } from './msttEngine.js';
-import { loadAlertConfig } from './_lib/cloudAlertConfig.js';
+import { loadAlertConfig, getDerivEnvCredentials } from './_lib/cloudAlertConfig.js';
 import {
   executeDerivMultiplierTrade,
   recordDerivTradeOutcome,
@@ -323,24 +323,6 @@ async function checkAndSendScheduledReports(
   const eatDateStr = eatDate.toISOString().slice(0, 10);
   const eatTimeFormatted = `${String(eatHour).padStart(2, '0')}:${String(eatMinutes).padStart(2, '0')} EAT`;
 
-  const derivToken = (
-    reqQuery.derivToken ||
-    reqQuery.token ||
-    reqBody.derivToken ||
-    savedConfig.options?.derivApiToken ||
-    'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93'
-  )?.toString()?.trim();
-
-  const derivAppId = (
-    reqQuery.derivAppId ||
-    reqQuery.appId ||
-    reqBody.derivAppId ||
-    reqBody.appId ||
-    savedConfig.options?.derivAppId ||
-    process.env.DERIV_APP_ID ||
-    '34TqYcyq1e1ZVYR74xqTh'
-  )?.toString()?.trim();
-
   const derivMode = (
     (reqQuery.mode || reqBody.mode || savedConfig.options?.derivMode) === 'real' ? 'real' : 'demo'
   ) as 'real' | 'demo';
@@ -348,9 +330,10 @@ async function checkAndSendScheduledReports(
   const circuit = getDerivCircuitStatus();
 
   async function getLiveBalanceStr(): Promise<string> {
-    if (derivToken && derivAppId) {
+    const creds = getDerivEnvCredentials();
+    if (creds.ok) {
       try {
-        const accs = await fetchDerivAccounts(derivToken, derivAppId);
+        const accs = await fetchDerivAccounts();
         if (accs.ok && accs.accounts) {
           const match = accs.accounts.find((a) => a.account_type === derivMode);
           if (match) {
@@ -950,25 +933,9 @@ export default async function handler(req: any, res: any) {
               }
             }
 
-            // DERIV AUTO-TRADING MULTIPLIER EXECUTION
+            // DERIV AUTO-TRADING MULTIPLIER EXECUTION (env-only credentials)
             let derivTradeResult: any = null;
-            const derivToken = (
-              req.query?.derivToken ||
-              req.query?.token ||
-              body?.derivToken ||
-              savedConfig.options?.derivApiToken ||
-              'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93'
-            ).toString().trim();
-
-            const derivAppId = (
-              req.query?.derivAppId ||
-              req.query?.appId ||
-              body?.derivAppId ||
-              body?.appId ||
-              savedConfig.options?.derivAppId ||
-              process.env.DERIV_APP_ID ||
-              '34TqYcyq1e1ZVYR74xqTh'
-            ).toString().trim();
+            const creds = getDerivEnvCredentials();
 
             const derivAutoTrade = Boolean(
               savedConfig.options?.derivAutoTradeEnabled !== undefined
@@ -980,11 +947,12 @@ export default async function handler(req: any, res: any) {
               (savedConfig.options?.derivMode || body?.mode || req.query?.mode) === 'real' ? 'real' : 'demo'
             ) as 'real' | 'demo';
 
-            if (derivAutoTrade && derivToken && derivAppId) {
+            if (derivAutoTrade && !creds.ok) {
+              derivTradeResult = { ok: false, error: creds.error };
+              console.warn(`[cron-check] ${uniqueSignalId} skipped Deriv trade: ${creds.error}`);
+            } else if (derivAutoTrade && creds.ok) {
               try {
                 derivTradeResult = await executeDerivMultiplierTrade({
-                  token: derivToken,
-                  appId: derivAppId,
                   mode: derivTargetMode,
                   action: isBull ? 'BUY' : 'SELL',
                   symbol: symbol === '1HZ75V' || symbol === 'R_75' ? 'R_75' : symbol,
@@ -992,17 +960,17 @@ export default async function handler(req: any, res: any) {
                   multiplier: Number(savedConfig.options?.derivMultiplier || 200),
                   takeProfitUsd: Number(savedConfig.options?.derivTakeProfitUsd || 6.68),
                   stopLossUsd: Number(savedConfig.options?.derivStopLossUsd || 2.0),
-                  maxConsecutiveLosses: Number(savedConfig.options?.derivMaxConsecutiveLosses || 2),
+                  maxConsecutiveLosses: Number(savedConfig.options?.derivMaxConsecutiveLosses || 3),
                 });
 
                 if (derivTradeResult?.ok && botToken && chatId) {
-                  const modeLabel = savedConfig.options?.derivMode === 'real' ? '🔴 REAL LIVE' : '🧪 DEMO VIRTUAL';
+                  const modeLabel = derivTargetMode === 'real' ? '🔴 REAL LIVE' : '🧪 DEMO VIRTUAL';
                   const eatDate = new Date(Date.now() + 3 * 3600 * 1000);
                   const eatTimeFormatted = `${eatDate.toISOString().replace('T', ' ').slice(0, 16)} EAT`;
 
                   const derivMsg =
                     `🚀 <b>DERIV AUTO-TRADE EXECUTED!</b>\n\n` +
-                    `⚖️ <b>Account:</b> ${modeLabel} (<code>${derivTradeResult.accountId || 'Deriv'}</code>)\n` +
+                    `⚖️ <b>Account:</b> ${modeLabel} (<code>${derivTradeResult.accountLabel || derivTargetMode.toUpperCase()}</code>)\n` +
                     `🧭 <b>Action:</b> ${isBull ? '📈 BUY (MULTUP)' : '📉 SELL (MULTDOWN)'}\n` +
                     `🪙 <b>Asset:</b> ${symbolName} (${tf})\n` +
                     `💵 <b>Stake:</b> $${Number(savedConfig.options?.derivStake || 2.0).toFixed(2)} USD (${savedConfig.options?.derivMultiplier || 200}x Multiplier)\n` +

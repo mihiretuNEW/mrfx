@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import app from "./api/_app.js";
 import cronHandler from "./api/cron-check.js";
 import { liveDerivDaemon } from "./api/_lib/liveDerivDaemon.js";
+import { getDerivEnvCredentials } from "./api/_lib/cloudAlertConfig.js";
 
 // Load environment variables
 dotenv.config();
@@ -48,10 +49,27 @@ async function startServer() {
     res.status(200).send("OK");
   });
   app.get("/api/health", (_req, res) => {
+    const creds = getDerivEnvCredentials();
     res.status(200).json({
       status: "ok",
       uptime: process.uptime(),
+      credentials: {
+        configured: creds.ok,
+        tokenConfigured: creds.tokenConfigured,
+        appIdConfigured: creds.appIdConfigured,
+      },
       daemon: liveDerivDaemon.getStatus(),
+    });
+  });
+  app.get(["/api/execution-logs", "/api/signals"], (req, res) => {
+    const creds = getDerivEnvCredentials();
+    const limit = Math.min(100, Math.max(1, Number(req.query?.limit || 50)));
+    const logs = liveDerivDaemon.getExecutionLogs(limit);
+    res.status(200).json({
+      ok: true,
+      credentialsConfigured: creds.ok,
+      count: logs.length,
+      logs,
     });
   });
 

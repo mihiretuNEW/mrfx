@@ -14,6 +14,68 @@ export interface CloudAlertConfig {
   options: Record<string, any>;
 }
 
+const SENSITIVE_OPTION_KEYS = [
+  'derivApiToken',
+  'derivAppId',
+  'derivToken',
+  'apiToken',
+  'token',
+  'appId',
+  'secret',
+];
+
+export function stripSensitiveOptions(options: Record<string, any> | undefined | null): Record<string, any> {
+  const clean: Record<string, any> = { ...(options || {}) };
+  for (const key of SENSITIVE_OPTION_KEYS) {
+    if (key in clean) {
+      delete clean[key];
+    }
+  }
+  return clean;
+}
+
+export interface DerivEnvCredentialsResult {
+  ok: boolean;
+  token: string;
+  appId: string;
+  tokenConfigured: boolean;
+  appIdConfigured: boolean;
+  error?: string;
+}
+
+/**
+ * Resolves Deriv credentials exclusively from backend environment variables.
+ * Never falls back to JSON config, browser settings, or hardcoded credentials.
+ */
+export function getDerivEnvCredentials(): DerivEnvCredentialsResult {
+  const token = (process.env.DERIV_API_TOKEN || '').trim();
+  const appId = (process.env.DERIV_APP_ID || '').trim();
+  const tokenConfigured = token.length > 0;
+  const appIdConfigured = appId.length > 0;
+
+  if (!tokenConfigured || !appIdConfigured) {
+    const missing: string[] = [];
+    if (!tokenConfigured) missing.push('DERIV_API_TOKEN');
+    if (!appIdConfigured) missing.push('DERIV_APP_ID');
+    return {
+      ok: false,
+      token: '',
+      appId: '',
+      tokenConfigured,
+      appIdConfigured,
+      error: `Missing Deriv backend environment variable(s): ${missing.join(', ')}. Configure them in Render Environment Variables.`,
+    };
+  }
+
+  return {
+    ok: true,
+    token,
+    appId,
+    tokenConfigured: true,
+    appIdConfigured: true,
+  };
+}
+
 const DEFAULT_CONFIG: CloudAlertConfig = {
   botToken: process.env.TELEGRAM_BOT_TOKEN || '',
   chatId: process.env.TELEGRAM_CHAT_ID || '',
@@ -33,6 +95,8 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
     showSl: true,
     targetFocus: 'TP2',
     historySpan: 'all',
+    invalidateMode: true,
+    keepN: 10,
     swingLen: 3,
     useStructureFilter: false,
     structureTf: '15',
@@ -68,8 +132,6 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
     retestMaxBars: 3,
     useAntiWhipsawFilter: true,
     whipsawCooldownBars: 4,
-    derivApiToken: process.env.DERIV_API_TOKEN || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93',
-    derivAppId: process.env.DERIV_APP_ID || '34TqYcyq1e1ZVYR74xqTh',
     derivMode: 'demo',
     derivAutoTradeEnabled: true,
     derivStake: 2.0,
@@ -92,46 +154,37 @@ export function loadAlertConfig(): CloudAlertConfig {
       loaded = JSON.parse(data);
     }
     if (loaded) {
+      const sanitizedLoadedOptions = stripSensitiveOptions(loaded.options);
       const mergedOptions = {
         ...DEFAULT_CONFIG.options,
-        ...(loaded.options || {}),
+        ...sanitizedLoadedOptions,
       };
-      // Guarantee fallback credentials if missing or blank
-      if (!mergedOptions.derivApiToken || !mergedOptions.derivApiToken.trim()) {
-        mergedOptions.derivApiToken = DEFAULT_CONFIG.options.derivApiToken;
-      }
-      if (!mergedOptions.derivAppId || !mergedOptions.derivAppId.trim()) {
-        mergedOptions.derivAppId = DEFAULT_CONFIG.options.derivAppId;
-      }
       if (mergedOptions.derivAutoTradeEnabled === undefined) {
         mergedOptions.derivAutoTradeEnabled = true;
       }
       return {
         ...DEFAULT_CONFIG,
         ...loaded,
+        botToken: (loaded.botToken && String(loaded.botToken).trim()) || process.env.TELEGRAM_BOT_TOKEN || '',
+        chatId: (loaded.chatId && String(loaded.chatId).trim()) || process.env.TELEGRAM_CHAT_ID || '',
         options: mergedOptions,
       };
     }
   } catch (err) {
     console.warn('Failed to load alert config from disk, using defaults:', err);
   }
-  return DEFAULT_CONFIG;
+  return {
+    ...DEFAULT_CONFIG,
+    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    chatId: process.env.TELEGRAM_CHAT_ID || '',
+  };
 }
 
 export const getAlertConfig = loadAlertConfig;
 
 export function saveAlertConfig(config: Partial<CloudAlertConfig>): CloudAlertConfig {
   const current = loadAlertConfig();
-  const incomingOptions = config.options || {};
-
-  // Never wipe out existing non-empty credentials with empty strings!
-  const finalDerivToken = (incomingOptions.derivApiToken && incomingOptions.derivApiToken.trim())
-    ? incomingOptions.derivApiToken.trim()
-    : (current.options?.derivApiToken || DEFAULT_CONFIG.options.derivApiToken);
-
-  const finalDerivAppId = (incomingOptions.derivAppId && incomingOptions.derivAppId.trim())
-    ? incomingOptions.derivAppId.trim()
-    : (current.options?.derivAppId || DEFAULT_CONFIG.options.derivAppId);
+  const incomingOptions = stripSensitiveOptions(config.options);
 
   const finalBotToken = (config.botToken && config.botToken.trim())
     ? config.botToken.trim()
@@ -151,13 +204,11 @@ export function saveAlertConfig(config: Partial<CloudAlertConfig>): CloudAlertCo
     botToken: finalBotToken,
     chatId: finalChatId,
     updatedAt: Date.now(),
-    options: {
+    options: stripSensitiveOptions({
       ...current.options,
       ...incomingOptions,
-      derivApiToken: finalDerivToken,
-      derivAppId: finalDerivAppId,
       derivAutoTradeEnabled: finalAutoTrade,
-    },
+    }),
   };
   try {
     fs.writeFileSync(PRIMARY_CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf-8');
@@ -253,10 +304,13 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
 
     if (req.method === 'GET' && !action) {
       const cfg = loadAlertConfig();
+      const creds = getDerivEnvCredentials();
       const masked = {
         ...cfg,
         botToken: cfg.botToken ? `${cfg.botToken.substring(0, 6)}...${cfg.botToken.slice(-4)}` : '',
         hasToken: Boolean(cfg.botToken),
+        derivCredentialsConfigured: creds.ok,
+        options: stripSensitiveOptions(cfg.options),
       };
       return res.status(200).json({ ok: true, config: masked, ...masked });
     }
@@ -271,7 +325,7 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
         const testMsg = `🟢 <b>Connected!</b>\n\n` +
           `✅ Telegram Bot successfully connected.\n` +
           `🪙 Pair: Volatility 75 index\n` +
-          `⏰ Timeframe: ${body.timeframe || '30M'}`;
+          `⏰ Timeframe: ${body.timeframe || '1H'}`;
 
         const result = await sendTelegramDirect(token, chat, testMsg);
         if (result.ok) {
@@ -282,25 +336,29 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
       }
 
       const existing = loadAlertConfig();
+      const incomingOptions = stripSensitiveOptions(body.options);
       const saved = saveAlertConfig({
         botToken: body.botToken !== undefined ? body.botToken : existing.botToken,
         chatId: body.chatId !== undefined ? body.chatId : existing.chatId,
         enabled: body.enabled !== undefined ? Boolean(body.enabled) : existing.enabled,
         symbol: body.symbol || existing.symbol || 'R_75',
-        timeframe: body.timeframe || existing.timeframe || '30M',
+        timeframe: body.timeframe || existing.timeframe || '1H',
         options: {
-          ...(existing.options || {}),
-          ...(body.options || {}),
+          ...stripSensitiveOptions(existing.options),
+          ...incomingOptions,
         },
       });
 
+      const creds = getDerivEnvCredentials();
       return res.status(200).json({
         ok: true,
-        message: 'Telegram Alert configuration saved successfully! Signals will now follow these exact settings.',
+        message: 'Cloud Alert settings saved! Deriv credentials remain strictly managed by backend environment variables.',
         config: {
           ...saved,
           botToken: saved.botToken ? `${saved.botToken.substring(0, 6)}...${saved.botToken.slice(-4)}` : '',
           hasToken: Boolean(saved.botToken),
+          derivCredentialsConfigured: creds.ok,
+          options: stripSensitiveOptions(saved.options),
         },
       });
     }

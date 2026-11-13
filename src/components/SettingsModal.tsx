@@ -74,16 +74,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [derivVerifyMsg, setDerivVerifyMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [derivTestingTrade, setDerivTestingTrade] = useState(false);
   const [derivTradeMsg, setDerivTradeMsg] = useState<{ type: 'success' | 'error'; text: string; details?: any } | null>(null);
-  const [showDerivTokenSecret, setShowDerivTokenSecret] = useState(false);
   const [circuitBreakerStatus, setCircuitBreakerStatus] = useState<any>(null);
+  const [derivEnvStatus, setDerivEnvStatus] = useState<{ credentialsConfigured: boolean; tokenConfigured: boolean; appIdConfigured: boolean } | null>(null);
 
   const fetchDerivStatus = async () => {
     try {
       const res = await fetch('/api/deriv-trade');
       if (res.ok) {
         const data = await res.json();
-        if (data.ok && data.circuitBreaker) {
-          setCircuitBreakerStatus(data.circuitBreaker);
+        if (data.ok) {
+          if (data.circuitBreaker) setCircuitBreakerStatus(data.circuitBreaker);
+          setDerivEnvStatus({
+            credentialsConfigured: Boolean(data.credentialsConfigured),
+            tokenConfigured: Boolean(data.tokenConfigured),
+            appIdConfigured: Boolean(data.appIdConfigured),
+          });
         }
       }
     } catch {}
@@ -96,18 +101,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [isOpen]);
 
   const handleVerifyDerivToken = async () => {
-    const token = (settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim();
-    const appId = (settings.indicators.derivAppId || '').trim();
-
-    if (!token) {
-      setDerivVerifyMsg({ type: 'error', text: 'እባክዎ መጀመሪያ Deriv Personal Access Token (PAT) ያስገቡ!' });
-      return;
-    }
-    if (!appId) {
-      setDerivVerifyMsg({ type: 'error', text: 'እባክዎ Deriv App ID ያስገቡ (ከ developers.deriv.com/dashboard/ የተገኘ)!' });
-      return;
-    }
-
     setDerivVerifying(true);
     setDerivVerifyMsg(null);
     try {
@@ -116,9 +109,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'verify_token',
-          token,
-          appId,
-          saveConfig: true,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -126,15 +116,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setDerivAccounts(data.accounts || []);
         setDerivVerifyMsg({
           type: 'success',
-          text: `✅ ግንኙነቱ ተረጋግጧል! ${data.accounts?.length || 0} አካውንቶች (Demo/Real) ተገኝተዋል!`,
+          text: `✅ Backend Deriv ENV ግንኙነት ተረጋግጧል! ${data.accounts?.length || 0} አካውንቶች (Demo/Real) ተገኝተዋል!`,
         });
-        handleSyncCloudSettings({
-          ...settings.indicators,
-          derivApiToken: token,
-          derivAppId: appId,
-        });
+        fetchDerivStatus();
       } else {
-        setDerivVerifyMsg({ type: 'error', text: `❌ ስህተት: ${data?.error || 'Verification failed'}` });
+        setDerivVerifyMsg({ type: 'error', text: `❌ ስህተት: ${data?.error || 'Backend environment credentials missing or invalid'}` });
       }
     } catch (e: any) {
       setDerivVerifyMsg({ type: 'error', text: `❌ ስህተት: ${e?.message || 'Network error'}` });
@@ -144,14 +130,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleExecuteLiveDerivTrade = async (dir: 'BUY' | 'SELL') => {
-    const token = (settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim();
-    const appId = (settings.indicators.derivAppId || '').trim();
     const mode = settings.indicators.derivMode || 'demo';
-
-    if (!token || !appId) {
-      setDerivTradeMsg({ type: 'error', text: 'እባክዎ Token እና App ID ሳያስገቡ ትሬድ መክፈት አይቻልም!' });
-      return;
-    }
 
     setDerivTestingTrade(true);
     setDerivTradeMsg(null);
@@ -161,8 +140,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'execute',
-          token,
-          appId,
           mode,
           direction: dir,
           symbol: 'R_75',
@@ -170,9 +147,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           multiplier: settings.indicators.derivMultiplier ?? 200,
           takeProfitUsd: settings.indicators.derivTakeProfitUsd ?? 6.68,
           stopLossUsd: settings.indicators.derivStopLossUsd ?? 2.0,
-          maxConsecutiveLosses: settings.indicators.derivMaxConsecutiveLosses ?? 2,
-          botToken: settings.indicators.msttTgBotToken,
-          chatId: settings.indicators.msttTgChatId,
+          maxConsecutiveLosses: settings.indicators.derivMaxConsecutiveLosses ?? 3,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -218,8 +193,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const activeSl = Number(settings.indicators.msttPointsSl ?? settings.indicators.pointsSl ?? settings.indicators.tpPipsSl ?? 220);
       const activeTp1 = Number(settings.indicators.msttPointsTp1 ?? settings.indicators.pointsTp1 ?? settings.indicators.tpPipsTp1 ?? 450);
       const activeSym = (settings.indicators.msttTgSymbol || 'R_75').trim();
-      const userAppId = (settings.indicators.derivAppId || '34TqYcyq1e1ZVYR74xqTh').trim();
-      const userPatToken = (settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim();
 
       const res = await fetch('/api/demo-signal', {
         method: 'POST',
@@ -232,8 +205,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           chatId: userChatId,
           slPips: activeSl,
           tp1Pips: activeTp1,
-          derivApiToken: userPatToken,
-          derivAppId: userAppId,
           stake: settings.indicators.derivStake ?? 2.0,
           multiplier: settings.indicators.derivMultiplier ?? 200,
           takeProfitUsd: settings.indicators.derivTakeProfitUsd ?? 6.68,
@@ -412,8 +383,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           atrLen: ind.msttAtrLen ?? 14,
           preventLateEntry: ind.msttPreventLateEntry ?? true,
           maxBreakoutDelay: ind.msttMaxBreakoutDelay ?? 1,
-          derivApiToken: (ind.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim(),
-          derivAppId: (ind.derivAppId || '34TqYcyq1e1ZVYR74xqTh').trim(),
           derivMode: ind.derivMode || 'demo',
           derivAutoTradeEnabled: ind.derivAutoTradeEnabled !== false,
           derivStake: ind.derivStake ?? 2.0,
@@ -9096,45 +9065,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             </span>
                           </div>
 
-                          {/* API CREDENTIALS (TOKEN & APP ID) */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                            {/* Personal Access Token */}
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-xs">
-                                <label className="font-medium text-gray-300">Deriv Personal Access Token (PAT)</label>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowDerivTokenSecret(!showDerivTokenSecret)}
-                                  className="text-[11px] text-emerald-400 hover:text-emerald-300 transition-colors"
-                                >
-                                  {showDerivTokenSecret ? 'ደብቅ' : 'አሳይ'}
-                                </button>
-                              </div>
-                              <input
-                                type={showDerivTokenSecret ? 'text' : 'password'}
-                                value={settings.indicators.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93'}
-                                onChange={(e) => handleUpdateIndicators('derivApiToken', e.target.value)}
-                                placeholder="pat_..."
-                                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
-                              />
-                            </div>
-
-                            {/* Deriv App ID */}
-                            <div className="space-y-1">
-                              <label className="block text-xs font-medium text-gray-300">
-                                Deriv App ID (ከ Mire_kkk የተገኘ)
-                              </label>
-                              <input
-                                type="text"
-                                value={settings.indicators.derivAppId || ''}
-                                onChange={(e) => handleUpdateIndicators('derivAppId', e.target.value)}
-                                placeholder="e.g. 34Tq...74xqTh"
-                                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
-                              />
-                              <span className="text-[10px] text-gray-400">
-                                ከ developers.deriv.com/dashboard &gt; Apps የተገኘ
+                          {/* BACKEND ENV CREDENTIALS STATUS (ZERO BROWSER STORAGE) */}
+                          <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800 space-y-2 text-xs">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <span className="font-bold text-gray-200 flex items-center gap-1.5">
+                                <Key className="w-3.5 h-3.5 text-emerald-400" />
+                                Backend Deriv Environment Credentials
+                              </span>
+                              <span className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold ${
+                                derivEnvStatus?.credentialsConfigured
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                  : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                              }`}>
+                                {derivEnvStatus?.credentialsConfigured ? 'ENV CONFIGURED' : 'MISSING RENDER ENV VARS'}
                               </span>
                             </div>
+                            <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
+                              <div className="px-2.5 py-1.5 rounded bg-neutral-900 border border-neutral-800 flex items-center justify-between">
+                                <span className="text-gray-400">DERIV_API_TOKEN</span>
+                                <span className={derivEnvStatus?.tokenConfigured ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                                  {derivEnvStatus?.tokenConfigured ? 'SET' : 'MISSING'}
+                                </span>
+                              </div>
+                              <div className="px-2.5 py-1.5 rounded bg-neutral-900 border border-neutral-800 flex items-center justify-between">
+                                <span className="text-gray-400">DERIV_APP_ID</span>
+                                <span className={derivEnvStatus?.appIdConfigured ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                                  {derivEnvStatus?.appIdConfigured ? 'SET' : 'MISSING'}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="block text-[10px] text-gray-400">
+                              * ለደህንነት ሲባል Deriv Token እና App ID በብራውዘር አይቀመጡም፤ በ Render Dashboard → Environment Variables (`DERIV_API_TOKEN`, `DERIV_APP_ID`) ውስጥ ብቻ ይቀመጣሉ።
+                            </span>
                           </div>
 
                           {/* Verify & Check Connection Button */}
@@ -9145,7 +9107,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               onClick={handleVerifyDerivToken}
                               className="w-full py-2 px-3 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-98 disabled:opacity-50"
                             >
-                              <span>{derivVerifying ? '⏳ Deriv ጋር እየተገናኘ ነው...' : '🔗 የ Deriv ግንኙነት ፈትሽ (Verify & Check Live Balance)'}</span>
+                              <span>{derivVerifying ? '⏳ Deriv ጋር እየተገናኘ ነው...' : '🔗 የ Backend Deriv ግንኙነት ፈትሽ (Verify Render Env & Check Balance)'}</span>
                             </button>
                           </div>
 
@@ -9159,14 +9121,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             </div>
                           )}
 
-                          {/* Connected Accounts Card */}
+                          {/* Connected Accounts Card (masked labels only) */}
                           {derivAccounts.length > 0 && (
                             <div className="p-2.5 bg-neutral-950 rounded-lg border border-neutral-800 space-y-1 text-xs font-mono">
                               <span className="text-[10px] text-gray-400 block font-sans font-bold">የተገናኙ አካውንቶች (Active Accounts):</span>
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                                {derivAccounts.map((acc: any) => (
+                                {derivAccounts.map((acc: any, idx: number) => (
                                   <div
-                                    key={acc.account_id}
+                                    key={acc.account_label || idx}
                                     className={`p-2 rounded border flex items-center justify-between ${
                                       acc.account_type === 'demo'
                                         ? 'bg-amber-950/20 border-amber-500/40 text-amber-300'
@@ -9175,11 +9137,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   >
                                     <div>
                                       <span className="font-bold block uppercase text-[10px]">
-                                        {acc.account_type === 'demo' ? '🧪 DEMO' : '🔴 REAL'}: {acc.account_id}
+                                        {acc.account_type === 'demo' ? '🧪 DEMO' : '🔴 REAL'}: {acc.account_label || acc.account_type}
                                       </span>
                                     </div>
                                     <span className="font-black text-sm">
-                                      ${acc.balance.toFixed(2)} {acc.currency}
+                                      ${Number(acc.balance ?? 0).toFixed(2)} {acc.currency}
                                     </span>
                                   </div>
                                 ))}

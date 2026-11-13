@@ -1,4 +1,4 @@
-import { loadAlertConfig, saveAlertConfig } from './_lib/cloudAlertConfig.js';
+import { loadAlertConfig, saveAlertConfig, getDerivEnvCredentials } from './_lib/cloudAlertConfig.js';
 import { executeDerivMultiplierTrade } from './_lib/derivTrader.js';
 
 async function parseBody(req: any): Promise<any> {
@@ -67,11 +67,11 @@ export default async function handler(req: any, res: any) {
     const targetBotToken = (body.botToken || body.tgBotToken || query.botToken || query.token || config.botToken || '').trim();
     const targetChatId = (body.chatId || body.tgChatId || query.chatId || query.chat || config.chatId || '').toString().trim();
 
-    const tf = (body.tf || body.timeframe || body.msttTgTimeframe || query.tf || query.timeframe || config.timeframe || '30M').toString();
-    const slPips = Number(body.slPips || body.msttPointsSl || body.pointsSl || body.sl || query.slPips || query.sl || config.options?.pointsSl || 220);
-    const tp1Pips = Number(body.tp1Pips || body.msttPointsTp1 || body.pointsTp1 || body.tp1 || query.tp1Pips || query.tp1 || config.options?.pointsTp1 || 450);
+    const tf = (body.tf || body.timeframe || body.msttTgTimeframe || query.tf || query.timeframe || config.timeframe || '1H').toString();
+    const slPips = Number(body.slPips || body.msttPointsSl || body.pointsSl || body.sl || query.slPips || query.sl || config.options?.pointsSl || 165);
+    const tp1Pips = Number(body.tp1Pips || body.msttPointsTp1 || body.pointsTp1 || body.tp1 || query.tp1Pips || query.tp1 || config.options?.pointsTp1 || 607);
 
-    // Auto-persist new bot credentials and settings to cloud config
+    // Save strategy/Telegram settings only (never save Deriv credentials!)
     saveAlertConfig({
       botToken: targetBotToken || undefined,
       chatId: targetChatId || undefined,
@@ -89,7 +89,6 @@ export default async function handler(req: any, res: any) {
     const action: 'BUY' | 'SELL' = (body.action || query.action || 'BUY').toString().toUpperCase() === 'SELL' ? 'SELL' : 'BUY';
     const symbol = (body.symbol || query.symbol || config.symbol || 'R_75').toString();
 
-    // Approximate baseline price for synthetic demo testing if not provided
     const basePrice = Number(body.entryPrice || query.entryPrice || 35500.0);
     const isBull = action === 'BUY';
     const entryPrice = basePrice;
@@ -113,16 +112,14 @@ export default async function handler(req: any, res: any) {
       createdAt: timestamp,
     };
 
-    // Execute on Deriv Demo Account if configured
+    // Execute strictly in DEMO mode using ONLY backend environment credentials
+    const creds = getDerivEnvCredentials();
     let derivResult: any = null;
-    const derivToken = (body.derivApiToken || config.options?.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim();
-    const derivAppId = (body.derivAppId || config.options?.derivAppId || '34TqYcyq1e1ZVYR74xqTh').trim();
-
-    if (derivToken && derivAppId) {
+    if (!creds.ok) {
+      derivResult = { ok: false, error: creds.error };
+    } else {
       derivResult = await executeDerivMultiplierTrade({
-        token: derivToken,
-        appId: derivAppId,
-        mode: 'demo', // Always demo for test signal simulation
+        mode: 'demo',
         action,
         symbol: 'R_75',
         stake: Number(body.stake || config.options?.derivStake || 2.0),
@@ -132,11 +129,10 @@ export default async function handler(req: any, res: any) {
       }).catch((e: any) => ({ ok: false, error: e?.message || 'Trade execution failed' }));
     }
 
-    // Telegram Dispatch
     let tgResult: any = { ok: false, error: 'Telegram botToken and chatId not configured' };
     if (targetBotToken && targetChatId) {
       let tgText =
-        `🧪 <b>DEMO TEST SIGNAL</b> (Mire Live Simulation)\n\n` +
+        `🧪 <b>DEMO TEST SIGNAL</b>\n\n` +
         `🪙 Pair: Volatility 75 index\n` +
         `${isBull ? '📈 Direction: BUY (Long)' : '📉 Direction: SELL (Short)'}\n` +
         `⏰ Timeframe: ${tf}\n\n` +
@@ -163,7 +159,7 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({
       ok: true,
-      message: `✅ Demo ${action} Signal dispatched!`,
+      message: `✅ Demo ${action} Signal processed!`,
       signal: signalData,
       telegram: tgResult,
       deriv: derivResult,

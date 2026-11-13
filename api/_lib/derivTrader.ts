@@ -1,4 +1,7 @@
 import WebSocket from 'ws';
+import fs from 'fs';
+import path from 'path';
+import { getDerivEnvCredentials } from './cloudAlertConfig.js';
 
 export interface DerivAccount {
   account_id: string;
@@ -15,7 +18,7 @@ export interface DerivExecutionResult {
   buyPrice?: number;
   balanceAfter?: number;
   longcode?: string;
-  accountId?: string;
+  accountLabel?: string;
   accountType?: 'demo' | 'real';
   action?: 'BUY' | 'SELL';
   symbol?: string;
@@ -24,12 +27,16 @@ export interface DerivExecutionResult {
   takeProfit?: number;
   stopLoss?: number;
   error?: string;
-  raw?: any;
+  retryable?: boolean;
+  uncertain?: boolean;
+  reconciled?: boolean;
 }
 
-// Disk-backed trade state for daily circuit breaker & consecutive loss tracking across serverless cold starts
-import fs from 'fs';
-import path from 'path';
+export function maskAccountId(accountId: string): string {
+  const clean = (accountId || '').trim();
+  if (clean.length <= 4) return '***';
+  return `${clean.slice(0, 3)}***${clean.slice(-3)}`;
+}
 
 interface CircuitBreakerState {
   consecutiveLosses: number;
@@ -53,7 +60,7 @@ function readCircuitFromDisk(): CircuitBreakerState {
       const raw = fs.readFileSync(CIRCUIT_FILE, 'utf-8');
       return { ...defaultCircuitState, ...JSON.parse(raw) };
     }
-  } catch (e) {
+  } catch {
     // fallback to default
   }
   return { ...defaultCircuitState };
@@ -71,7 +78,6 @@ export function getDerivCircuitStatus() {
   const current = readCircuitFromDisk();
   const todayStr = new Date().toISOString().slice(0, 10);
   if (current.lastTripDate && current.lastTripDate !== todayStr) {
-    // Reset daily at 00:00 UTC
     current.consecutiveLosses = 0;
     current.isTripped = false;
     current.lastTripDate = '';
@@ -106,28 +112,20 @@ export function recordDerivTradeOutcome(isWin: boolean, maxLosses: number = 2) {
 }
 
 /**
- * Fetch list of accounts (demo and real) for the given Personal Access Token and App ID
+ * Fetch accounts strictly using backend environment variables (DERIV_API_TOKEN & DERIV_APP_ID).
  */
-export async function fetchDerivAccounts(
-  token: string,
-  appId: string
-): Promise<{ ok: boolean; accounts?: DerivAccount[]; error?: string }> {
-  const cleanToken = (token || '').trim();
-  const cleanAppId = (appId || '').trim();
-
-  if (!cleanToken) {
-    return { ok: false, error: 'Deriv API Token is required' };
-  }
-  if (!cleanAppId) {
-    return { ok: false, error: 'Deriv App ID is required' };
+export async function fetchDerivAccounts(): Promise<{ ok: boolean; accounts?: DerivAccount[]; error?: string }> {
+  const creds = getDerivEnvCredentials();
+  if (!creds.ok) {
+    return { ok: false, error: creds.error };
   }
 
   try {
     const res = await fetch('https://api.derivws.com/trading/v1/options/accounts', {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${cleanToken}`,
-        'Deriv-App-ID': cleanAppId,
+        Authorization: `Bearer ${creds.token}`,
+        'Deriv-App-ID': creds.appId,
       },
     });
 
@@ -136,7 +134,7 @@ export async function fetchDerivAccounts(
     try {
       json = JSON.parse(text);
     } catch {
-      return { ok: false, error: `Invalid response from Deriv API (${res.status}): ${text.slice(0, 150)}` };
+      return { ok: false, error: `Invalid response from Deriv API (HTTP ${res.status})` };
     }
 
     if (!res.ok || json?.error) {
@@ -149,7 +147,7 @@ export async function fetchDerivAccounts(
       account_id: String(a.account_id || ''),
       balance: Number(a.balance ?? 0),
       currency: String(a.currency || 'USD'),
-      account_type: a.account_type === 'real' ? 'real' : 'demo',
+      account_type: String(a.account_type).toLowerCase() === 'real' ? 'real' : 'demo',
       status: String(a.status || 'active'),
     }));
 
@@ -160,19 +158,22 @@ export async function fetchDerivAccounts(
 }
 
 /**
- * Request an OTP WebSocket URL for an account
+ * Request an OTP WebSocket URL strictly using backend environment credentials.
  */
 export async function getAccountOtpWsUrl(
-  token: string,
-  appId: string,
   accountId: string
 ): Promise<{ ok: boolean; url?: string; error?: string }> {
+  const creds = getDerivEnvCredentials();
+  if (!creds.ok) {
+    return { ok: false, error: creds.error };
+  }
+
   try {
     const res = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${encodeURIComponent(accountId)}/otp`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token.trim()}`,
-        'Deriv-App-ID': appId.trim(),
+        Authorization: `Bearer ${creds.token}`,
+        'Deriv-App-ID': creds.appId,
         'Content-Type': 'application/json',
       },
     });
@@ -189,121 +190,134 @@ export async function getAccountOtpWsUrl(
   }
 }
 
+/**
+ * Reconciles uncertain buy timeout against Deriv portfolio over a fresh OTP WS connection.
+ */
+async function reconcileRecentContract(
+  accountId: string,
+  symbol: string,
+  contractType: 'MULTUP' | 'MULTDOWN',
+  sinceEpochSec: number
+): Promise<{ found: boolean; contractId?: number; buyPrice?: number }> {
+  try {
+    const otpRes = await getAccountOtpWsUrl(accountId);
+    if (!otpRes.ok || !otpRes.url) return { found: false };
+
+    return await new Promise((resolve) => {
+      let settled = false;
+      const ws = new WebSocket(otpRes.url!);
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          try { ws.close(); } catch {}
+          resolve({ found: false });
+        }
+      }, 6000);
+
+      ws.on('open', () => {
+        ws.send(JSON.stringify({ portfolio: 1 }));
+      });
+
+      ws.on('message', (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (msg.portfolio && Array.isArray(msg.portfolio.contracts)) {
+            const matched = msg.portfolio.contracts.find((c: any) =>
+              String(c.symbol || c.underlying_symbol || '') === symbol &&
+              String(c.contract_type || '') === contractType &&
+              Number(c.purchase_time || c.date_start || 0) >= sinceEpochSec - 15
+            );
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              try { ws.close(); } catch {}
+              if (matched && matched.contract_id) {
+                resolve({
+                  found: true,
+                  contractId: Number(matched.contract_id),
+                  buyPrice: Number(matched.buy_price ?? 0),
+                });
+              } else {
+                resolve({ found: false });
+              }
+            }
+          } else if (msg.error && !settled) {
+            settled = true;
+            clearTimeout(timer);
+            try { ws.close(); } catch {}
+            resolve({ found: false });
+          }
+        } catch {
+          // ignore parse error
+        }
+      });
+
+      ws.on('error', () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve({ found: false });
+        }
+      });
+    });
+  } catch {
+    return { found: false };
+  }
+}
+
 export interface MultiplierTradeParams {
-  token: string;
-  appId: string;
-  mode?: 'demo' | 'real';
-  accountId?: string;
+  mode: 'demo' | 'real';
   action: 'BUY' | 'SELL';
-  symbol?: string; // default R_75
-  stake: number; // e.g. 2.00
-  multiplier: number; // e.g. 200
-  takeProfitUsd?: number; // e.g. 6.68
-  stopLossUsd?: number; // e.g. 2.00
+  symbol?: string;
+  stake: number;
+  multiplier: number;
+  takeProfitUsd?: number;
+  stopLossUsd?: number;
   maxConsecutiveLosses?: number;
 }
 
-/**
- * Execute a Multiplier trade (MULTUP or MULTDOWN) on Deriv
- */
-export async function executeDerivMultiplierTrade(
-  params: MultiplierTradeParams
-): Promise<DerivExecutionResult> {
-  const token = (params.token || '').trim();
-  const appId = (params.appId || '').trim();
-  const targetMode = params.mode === 'real' ? 'real' : 'demo';
-  const symbol = params.symbol || 'R_75';
-  const action = params.action === 'SELL' ? 'SELL' : 'BUY';
-  const contractType = action === 'BUY' ? 'MULTUP' : 'MULTDOWN';
-  const stake = Math.max(0.35, params.stake || 2.0);
-  const multiplier = params.multiplier || 200;
-  const maxLosses = params.maxConsecutiveLosses || 2;
+export interface DerivTransportDeps {
+  fetchAccountsFn?: typeof fetchDerivAccounts;
+  getOtpWsUrlFn?: typeof getAccountOtpWsUrl;
+  wsBuyFn?: (
+    wsUrl: string,
+    buyPayload: any
+  ) => Promise<{ ok: boolean; buy?: any; error?: string; retryable?: boolean; uncertain?: boolean }>;
+  reconcileFn?: typeof reconcileRecentContract;
+}
 
-  // Safeguard: Check Circuit Breaker
-  const breaker = getDerivCircuitStatus();
-  if (breaker.isTripped && targetMode === 'real') {
-    return {
-      ok: false,
-      error: `🛑 Daily Circuit Breaker is active! Trading paused after ${breaker.consecutiveLosses} consecutive losses. Capital protected!`,
-    };
-  }
-
-  // Step 1: Resolve Account ID
-  let targetAccountId = params.accountId;
-  if (!targetAccountId) {
-    const accResult = await fetchDerivAccounts(token, appId);
-    if (!accResult.ok || !accResult.accounts || accResult.accounts.length === 0) {
-      return { ok: false, error: accResult.error || 'Could not fetch Deriv accounts' };
-    }
-
-    const matched = accResult.accounts.find((a) => a.account_type === targetMode);
-    if (!matched) {
-      return { ok: false, error: `No active ${targetMode.toUpperCase()} account found under this token` };
-    }
-
-    if (matched.balance < stake) {
-      return {
-        ok: false,
-        error: `Insufficient balance on ${targetMode.toUpperCase()} account. Balance: $${matched.balance.toFixed(2)}, Stake needed: $${stake.toFixed(2)}`,
-      };
-    }
-
-    targetAccountId = matched.account_id;
-  }
-
-  // Step 2: Request OTP WS URL
-  const otpRes = await getAccountOtpWsUrl(token, appId, targetAccountId);
-  if (!otpRes.ok || !otpRes.url) {
-    return { ok: false, error: otpRes.error || 'Failed to obtain Deriv WebSocket OTP URL' };
-  }
-
-  // Step 3: Connect via WebSocket and purchase contract
-  return new Promise<DerivExecutionResult>((resolve) => {
+async function defaultWsBuy(
+  wsUrl: string,
+  buyPayload: any
+): Promise<{ ok: boolean; buy?: any; error?: string; retryable?: boolean; uncertain?: boolean }> {
+  return new Promise((resolve) => {
     let hasResolved = false;
+    let buySent = false;
+
+    const ws = new WebSocket(wsUrl);
     const timeout = setTimeout(() => {
       if (!hasResolved) {
         hasResolved = true;
-        try {
-          ws.close();
-        } catch {}
-        resolve({ ok: false, error: 'Deriv trade execution timed out after 12 seconds' });
+        try { ws.close(); } catch {}
+        resolve({
+          ok: false,
+          error: buySent
+            ? 'Deriv buy response timed out after 12s'
+            : 'Deriv WebSocket handshake timed out after 12s',
+          retryable: !buySent,
+          uncertain: buySent,
+        });
       }
     }, 12000);
 
-    const ws = new WebSocket(otpRes.url!);
-
     ws.on('open', () => {
-      const buyPayload: any = {
-        buy: 1,
-        price: stake,
-        parameters: {
-          amount: stake,
-          basis: 'stake',
-          contract_type: contractType,
-          currency: 'USD',
-          multiplier,
-          underlying_symbol: symbol,
-        },
-      };
-
-      // Add Limit Order (Take Profit and Stop Loss) if defined
-      if (params.takeProfitUsd || params.stopLossUsd) {
-        buyPayload.parameters.limit_order = {};
-        if (params.takeProfitUsd && params.takeProfitUsd > 0) {
-          buyPayload.parameters.limit_order.take_profit = Number(params.takeProfitUsd);
-        }
-        if (params.stopLossUsd && params.stopLossUsd > 0) {
-          buyPayload.parameters.limit_order.stop_loss = Number(params.stopLossUsd);
-        }
-      }
-
+      buySent = true;
       ws.send(JSON.stringify(buyPayload));
     });
 
     ws.on('message', (data) => {
       try {
         const msg = JSON.parse(data.toString());
-
         if (msg.error) {
           if (!hasResolved) {
             hasResolved = true;
@@ -312,36 +326,18 @@ export async function executeDerivMultiplierTrade(
             resolve({
               ok: false,
               error: msg.error.message || 'Deriv trade rejected by broker',
-              raw: msg,
+              retryable: false,
+              uncertain: false,
             });
           }
           return;
         }
-
         if (msg.buy) {
           if (!hasResolved) {
             hasResolved = true;
             clearTimeout(timeout);
             ws.close();
-
-            const buyData = msg.buy;
-            resolve({
-              ok: true,
-              contractId: buyData.contract_id,
-              transactionId: buyData.transaction_id,
-              buyPrice: buyData.buy_price,
-              balanceAfter: buyData.balance_after,
-              longcode: buyData.longcode,
-              accountId: targetAccountId,
-              accountType: targetMode,
-              action,
-              symbol,
-              stake,
-              multiplier,
-              takeProfit: params.takeProfitUsd,
-              stopLoss: params.stopLossUsd,
-              raw: buyData,
-            });
+            resolve({ ok: true, buy: msg.buy });
           }
         }
       } catch (err: any) {
@@ -349,7 +345,12 @@ export async function executeDerivMultiplierTrade(
           hasResolved = true;
           clearTimeout(timeout);
           ws.close();
-          resolve({ ok: false, error: err?.message || 'Error parsing broker response' });
+          resolve({
+            ok: false,
+            error: err?.message || 'Error parsing broker response',
+            retryable: false,
+            uncertain: buySent,
+          });
         }
       }
     });
@@ -358,8 +359,182 @@ export async function executeDerivMultiplierTrade(
       if (!hasResolved) {
         hasResolved = true;
         clearTimeout(timeout);
-        resolve({ ok: false, error: `Deriv WebSocket error: ${err.message}` });
+        resolve({
+          ok: false,
+          error: `Deriv WebSocket error: ${err.message}`,
+          retryable: !buySent,
+          uncertain: buySent,
+        });
       }
     });
   });
+}
+
+/**
+ * Execute a Multiplier trade (MULTUP or MULTDOWN) on Deriv strictly using backend env credentials
+ * and strict demo vs real account isolation.
+ */
+export async function executeDerivMultiplierTrade(
+  params: MultiplierTradeParams,
+  deps: DerivTransportDeps = {}
+): Promise<DerivExecutionResult> {
+  if (params.mode !== 'demo' && params.mode !== 'real') {
+    return {
+      ok: false,
+      retryable: false,
+      uncertain: false,
+      error: `Invalid execution mode "${String(params.mode)}". Must be "demo" or "real".`,
+    };
+  }
+
+  const targetMode: 'demo' | 'real' = params.mode;
+  const symbol = params.symbol || 'R_75';
+  const action: 'BUY' | 'SELL' = params.action === 'SELL' ? 'SELL' : 'BUY';
+  const contractType: 'MULTUP' | 'MULTDOWN' = action === 'BUY' ? 'MULTUP' : 'MULTDOWN';
+  const stake = Math.max(0.35, Number(params.stake) || 2.0);
+  const multiplier = Number(params.multiplier) || 200;
+
+  // Safeguard: Daily Circuit Breaker for Real Account
+  const breaker = getDerivCircuitStatus();
+  if (breaker.isTripped && targetMode === 'real') {
+    return {
+      ok: false,
+      retryable: false,
+      uncertain: false,
+      error: `Daily Circuit Breaker is active after ${breaker.consecutiveLosses} consecutive losses. Trading paused for capital protection.`,
+    };
+  }
+
+  const fetchAccountsFn = deps.fetchAccountsFn || fetchDerivAccounts;
+  const getOtpFn = deps.getOtpWsUrlFn || getAccountOtpWsUrl;
+  const wsBuyFn = deps.wsBuyFn || defaultWsBuy;
+  const reconcileFn = deps.reconcileFn || reconcileRecentContract;
+
+  // Step 1: Resolve target account strictly matching requested mode (demo vs real)
+  const accResult = await fetchAccountsFn();
+  if (!accResult.ok || !accResult.accounts || accResult.accounts.length === 0) {
+    const errText = accResult.error || 'Could not fetch Deriv accounts';
+    const isMissingCreds = errText.includes('DERIV_API_TOKEN') || errText.includes('DERIV_APP_ID');
+    return {
+      ok: false,
+      retryable: !isMissingCreds,
+      uncertain: false,
+      error: errText,
+    };
+  }
+
+  const matched = accResult.accounts.find((a) => a.account_type === targetMode);
+  if (!matched) {
+    return {
+      ok: false,
+      retryable: false,
+      uncertain: false,
+      error: `No ${targetMode.toUpperCase()} account found under configured Deriv credentials (strict isolation prevents fallback).`,
+    };
+  }
+
+  if (matched.balance < stake) {
+    return {
+      ok: false,
+      retryable: false,
+      uncertain: false,
+      error: `Insufficient balance on ${targetMode.toUpperCase()} account ($${matched.balance.toFixed(2)} < $${stake.toFixed(2)}).`,
+    };
+  }
+
+  const targetAccountId = matched.account_id;
+
+  // Step 2: Request OTP WS URL
+  const otpRes = await getOtpFn(targetAccountId);
+  if (!otpRes.ok || !otpRes.url) {
+    const errText = otpRes.error || 'Failed to obtain Deriv WebSocket OTP URL';
+    const isMissingCreds = errText.includes('DERIV_API_TOKEN') || errText.includes('DERIV_APP_ID');
+    return {
+      ok: false,
+      retryable: !isMissingCreds,
+      uncertain: false,
+      error: errText,
+    };
+  }
+
+  // Step 3: Build & dispatch buy payload
+  const buyPayload: any = {
+    buy: 1,
+    price: stake,
+    parameters: {
+      amount: stake,
+      basis: 'stake',
+      contract_type: contractType,
+      currency: matched.currency || 'USD',
+      multiplier,
+      underlying_symbol: symbol,
+    },
+  };
+
+  if (params.takeProfitUsd || params.stopLossUsd) {
+    buyPayload.parameters.limit_order = {};
+    if (params.takeProfitUsd && params.takeProfitUsd > 0) {
+      buyPayload.parameters.limit_order.take_profit = Number(params.takeProfitUsd);
+    }
+    if (params.stopLossUsd && params.stopLossUsd > 0) {
+      buyPayload.parameters.limit_order.stop_loss = Number(params.stopLossUsd);
+    }
+  }
+
+  const dispatchEpochSec = Math.floor(Date.now() / 1000);
+  const wsRes = await wsBuyFn(otpRes.url, buyPayload);
+
+  if (wsRes.ok && wsRes.buy) {
+    const buyData = wsRes.buy;
+    return {
+      ok: true,
+      contractId: Number(buyData.contract_id),
+      transactionId: Number(buyData.transaction_id),
+      buyPrice: Number(buyData.buy_price ?? stake),
+      balanceAfter: buyData.balance_after !== undefined ? Number(buyData.balance_after) : undefined,
+      longcode: buyData.longcode,
+      accountLabel: `${targetMode.toUpperCase()} (${maskAccountId(targetAccountId)})`,
+      accountType: targetMode,
+      action,
+      symbol,
+      stake,
+      multiplier,
+      takeProfit: params.takeProfitUsd,
+      stopLoss: params.stopLossUsd,
+    };
+  }
+
+  // Uncertain timeout/disconnect AFTER sending buy -> reconcile instead of duplicate retry!
+  if (wsRes.uncertain) {
+    const rec = await reconcileFn(targetAccountId, symbol, contractType, dispatchEpochSec);
+    if (rec.found && rec.contractId) {
+      return {
+        ok: true,
+        contractId: rec.contractId,
+        buyPrice: rec.buyPrice ?? stake,
+        accountLabel: `${targetMode.toUpperCase()} (${maskAccountId(targetAccountId)})`,
+        accountType: targetMode,
+        action,
+        symbol,
+        stake,
+        multiplier,
+        takeProfit: params.takeProfitUsd,
+        stopLoss: params.stopLossUsd,
+        reconciled: true,
+      };
+    }
+    return {
+      ok: false,
+      retryable: false,
+      uncertain: true,
+      error: `${wsRes.error || 'Uncertain buy response'} (reconciliation inconclusive; retry blocked to prevent duplicate order).`,
+    };
+  }
+
+  return {
+    ok: false,
+    retryable: Boolean(wsRes.retryable),
+    uncertain: false,
+    error: wsRes.error || 'Deriv trade execution failed',
+  };
 }
