@@ -4,7 +4,6 @@ import WebSocketNode from 'ws';
 import { calculateMarketStructureTargetTracker, Candle, isV75KillZone } from './msttEngine.js';
 import { loadAlertConfig, getDerivEnvCredentials } from './_lib/cloudAlertConfig.js';
 import {
-  executeDerivMultiplierTrade,
   recordDerivTradeOutcome,
   fetchDerivAccounts,
   getDerivCircuitStatus,
@@ -102,21 +101,119 @@ function saveCronState(state: CronState) {
   }
 }
 
-// Atomic lock & claim mechanism across concurrent workers using POSIX O_EXCL / 'wx' flag
-function tryAcquireSignalLock(signalId: string): boolean {
-  const safeId = signalId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const lockPath = path.join('/tmp', `lock_${safeId}.lock`);
+export interface CronMonitorEvent {
+  source: 'cron_monitor';
+  eventType: 'SIGNAL_OBSERVED' | 'TRADE_RESOLVED' | 'REPORT_SENT' | 'ERROR';
+  signalId?: string;
+  symbol: string;
+  timeframe: string;
+  action?: 'BUY' | 'SELL';
+  entryPrice?: number;
+  autoTradeExecuted: false;
+  note: string;
+  timestamp: string;
+}
+
+interface CronMonitorStatus {
+  mode: 'MONITOR_ONLY';
+  executionAuthority: 'liveDerivDaemon';
+  autoTradeExecutionDisabled: true;
+  totalRuns: number;
+  lastRunAt: string | null;
+  lastSymbol: string | null;
+  lastTimeframe: string | null;
+  lastError: string | null;
+  recentEventsCount: number;
+}
+
+const cronMonitorState: {
+  totalRuns: number;
+  lastRunAt: string | null;
+  lastSymbol: string | null;
+  lastTimeframe: string | null;
+  lastError: string | null;
+  recentEvents: CronMonitorEvent[];
+} = {
+  totalRuns: 0,
+  lastRunAt: null,
+  lastSymbol: null,
+  lastTimeframe: null,
+  lastError: null,
+  recentEvents: [],
+};
+
+function recordCronMonitorEvent(event: CronMonitorEvent) {
+  cronMonitorState.recentEvents = [
+    event,
+    ...cronMonitorState.recentEvents.filter(
+      (e) => !(e.eventType === 'SIGNAL_OBSERVED' && e.signalId && e.signalId === event.signalId)
+    ),
+  ].slice(0, 50);
+}
+
+export function getCronMonitorStatus(): CronMonitorStatus {
+  return {
+    mode: 'MONITOR_ONLY',
+    executionAuthority: 'liveDerivDaemon',
+    autoTradeExecutionDisabled: true,
+    totalRuns: cronMonitorState.totalRuns,
+    lastRunAt: cronMonitorState.lastRunAt,
+    lastSymbol: cronMonitorState.lastSymbol,
+    lastTimeframe: cronMonitorState.lastTimeframe,
+    lastError: cronMonitorState.lastError,
+    recentEventsCount: cronMonitorState.recentEvents.length,
+  };
+}
+
+export function getCronMonitorEvents(limit = 50): CronMonitorEvent[] {
+  return cronMonitorState.recentEvents.slice(0, limit);
+}
+
+const CRON_LOCK_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+function cleanupExpiredCronLocks() {
+  try {
+    const now = Date.now();
+    const files = fs.readdirSync('/tmp').filter((f) => f.startsWith('cron_monitor_lock_') && f.endsWith('.lock'));
+    for (const file of files) {
+      const fullPath = path.join('/tmp', file);
+      try {
+        const raw = fs.readFileSync(fullPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (!parsed?.time || now - Number(parsed.time) > CRON_LOCK_RETENTION_MS) {
+          fs.unlinkSync(fullPath);
+        }
+      } catch {
+        try { fs.unlinkSync(fullPath); } catch {}
+      }
+    }
+  } catch {}
+}
+
+// Isolated monitor-only lock in /tmp (separate namespace from liveDerivDaemon's lock_*.lock)
+function tryAcquireCronMonitorLock(tag: string): boolean {
+  const safeId = tag.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const lockPath = path.join('/tmp', `cron_monitor_lock_${safeId}.lock`);
   try {
     const fd = fs.openSync(lockPath, 'wx');
-    fs.writeSync(fd, JSON.stringify({ signalId, time: Date.now() }));
+    fs.writeSync(fd, JSON.stringify({ tag, role: 'cron_monitor', pid: process.pid, time: Date.now() }));
     fs.closeSync(fd);
     return true;
   } catch (err: any) {
     if (err.code === 'EEXIST') {
-      // Already claimed and locked by another concurrent process
+      try {
+        const parsed = JSON.parse(fs.readFileSync(lockPath, 'utf-8'));
+        if (!parsed?.time || Date.now() - Number(parsed.time) > CRON_LOCK_RETENTION_MS) {
+          fs.unlinkSync(lockPath);
+          const fd = fs.openSync(lockPath, 'wx');
+          fs.writeSync(fd, JSON.stringify({ tag, role: 'cron_monitor', pid: process.pid, time: Date.now() }));
+          fs.closeSync(fd);
+          return true;
+        }
+      } catch {}
       return false;
     }
-    return true;
+    return false;
   }
 }
 
@@ -323,9 +420,8 @@ async function checkAndSendScheduledReports(
   const eatDateStr = eatDate.toISOString().slice(0, 10);
   const eatTimeFormatted = `${String(eatHour).padStart(2, '0')}:${String(eatMinutes).padStart(2, '0')} EAT`;
 
-  const derivMode = (
-    (reqQuery.mode || reqBody.mode || savedConfig.options?.derivMode) === 'real' ? 'real' : 'demo'
-  ) as 'real' | 'demo';
+  // Demo mode only
+  const derivMode: 'demo' = 'demo';
 
   const circuit = getDerivCircuitStatus();
 
@@ -355,7 +451,7 @@ async function checkAndSendScheduledReports(
   const isDailyWindow = eatHour === 6 && eatMinutes <= 5;
 
   if (isDailyWindow && state.lastDailyReportDate !== eatDateStr) {
-    const hasLock = tryAcquireSignalLock(dailyReportTag);
+    const hasLock = tryAcquireCronMonitorLock(dailyReportTag);
     if (hasLock) {
       state.lastDailyReportDate = eatDateStr;
 
@@ -379,24 +475,33 @@ async function checkAndSendScheduledReports(
         `• Losses (SL Hit): <b>${losses} ❌</b>\n` +
         `• Win Rate: <b>${winRate}%</b>\n` +
         `• Net Pips: <b>${totalPips >= 0 ? '+' : ''}${totalPips} pips</b>\n\n` +
-        `💼 <b>Deriv Status (${derivMode.toUpperCase()}):</b>\n` +
+        `💼 <b>Deriv Status (DEMO ONLY):</b>\n` +
         `• Live Balance: <b>$${balanceStr}</b>\n` +
         `• Circuit Breaker: <b>${circuit.isTripped ? '🛑 TRIPPED (Safe Stop)' : `🟢 ACTIVE (${circuit.consecutiveLosses}/${circuit.maxConsecutiveLosses} consecutive losses)`}</b>\n\n` +
         `✨ <i>Mire, discipline is key! Never revenge trade, let the 1H strategy execute cleanly!</i>\n\n` +
         `<tg-spoiler>#${dailyReportTag}</tg-spoiler>`;
 
       await sendTelegramDirect(botToken, chatId, dailyMsg).catch(() => {});
+      recordCronMonitorEvent({
+        source: 'cron_monitor',
+        eventType: 'REPORT_SENT',
+        symbol: savedConfig.symbol || 'R_75',
+        timeframe: savedConfig.timeframe || '1H',
+        autoTradeExecuted: false,
+        note: `Daily morning briefing sent (${eatDateStr})`,
+        timestamp: new Date().toISOString(),
+      });
       saveCronState(state);
     }
   }
 
   // 2. WEEKLY REPORT: Triggered once on Sunday night at 21:00 Ethiopian Time (during first 5 minutes: 21:00 - 21:05 EAT)
-  // Multi-tier cloud deduplication: local state + atomic file lock
+  // Multi-tier cloud deduplication: local state + isolated cron monitor lock
   const weeklyReportTag = `REPORT_WEEKLY_${eatDateStr}`;
   const isWeeklyWindow = eatDayOfWeek === 0 && eatHour === 21 && eatMinutes <= 5;
 
   if (isWeeklyWindow && state.lastWeeklyReportDate !== eatDateStr) {
-    const hasLock = tryAcquireSignalLock(weeklyReportTag);
+    const hasLock = tryAcquireCronMonitorLock(weeklyReportTag);
     if (hasLock) {
       state.lastWeeklyReportDate = eatDateStr;
 
@@ -449,15 +554,22 @@ export default async function handler(req: any, res: any) {
       }
     }
 
+    cleanupExpiredCronLocks();
+
     const savedConfig = loadAlertConfig();
     const botToken = (body.botToken || savedConfig.botToken || req.query?.token || req.query?.botToken || '')?.toString()?.trim();
     const chatId = (body.chatId || savedConfig.chatId || req.query?.chat || req.query?.chatId || '')?.toString()?.trim();
 
     const symbol = (body.symbol || savedConfig.symbol || req.query?.symbol || 'R_75').toString();
-    // Prioritize user's configured timeframe from Settings (savedConfig) over static query params
     const tf = (body.timeframe || body.tf || savedConfig.timeframe || req.query?.tf || req.query?.timeframe || '30M').toString();
-    const granularity = TIMEFRAME_SECONDS[tf] || 1800; // 30M default = 1800s
+    const granularity = TIMEFRAME_SECONDS[tf] || 1800;
     const symbolName = getSymbolDisplayName(symbol);
+
+    cronMonitorState.totalRuns += 1;
+    cronMonitorState.lastRunAt = new Date().toISOString();
+    cronMonitorState.lastSymbol = symbol;
+    cronMonitorState.lastTimeframe = tf;
+    cronMonitorState.lastError = null;
 
     // Prioritize user's configured SL/TP points from Settings (savedConfig) over static query params
     const slPips = Number(body.options?.pointsSl || savedConfig.options?.pointsSl || req.query?.sl || 220);
@@ -863,10 +975,9 @@ export default async function handler(req: any, res: any) {
         }
 
         if (!isLocallyAlerted && !isCloudAlerted) {
-          const acquiredLock = tryAcquireSignalLock(uniqueSignalId);
+          const acquiredLock = tryAcquireCronMonitorLock(uniqueSignalId);
 
           if (acquiredLock) {
-            // Delete older scanning heartbeat messages
             if (state.heartbeatMessageIds && state.heartbeatMessageIds.length > 0) {
               for (const msgId of state.heartbeatMessageIds) {
                 try {
@@ -881,10 +992,21 @@ export default async function handler(req: any, res: any) {
             const directionText = isBull ? '📈 Direction: BUY (Long)' : '📉 Direction: SELL (Short)';
             const entryPrice = recentMarker.entryPrice || msttResult.entryPrice || latestCandle.close;
 
-            // 20 Pips Max Slippage Guard: Skip if price already moved > 20 pips past entry!
             const pipsMoved = isBull ? (latestCandle.close - entryPrice) : (entryPrice - latestCandle.close);
             if (pipsMoved > 20) {
-              console.log(`[cron-check] ${uniqueSignalId} SKIPPED: Price moved ${pipsMoved.toFixed(1)} pips past entry (> 20 pips limit). Chasing prevented.`);
+              console.log(`[cron-check][MONITOR_ONLY] ${uniqueSignalId} observed past 20 pips limit (${pipsMoved.toFixed(1)} pips).`);
+              recordCronMonitorEvent({
+                source: 'cron_monitor',
+                eventType: 'SIGNAL_OBSERVED',
+                signalId: uniqueSignalId,
+                symbol,
+                timeframe: tf,
+                action: isBull ? 'BUY' : 'SELL',
+                entryPrice,
+                autoTradeExecuted: false,
+                note: `Observed >20 pips past entry (${pipsMoved.toFixed(1)} pips); MONITOR_ONLY (no order placed)`,
+                timestamp: new Date().toISOString(),
+              });
               state.lastAlertId = uniqueSignalId;
               if (!state.alertedIds) state.alertedIds = [];
               if (!state.alertedIds.includes(uniqueSignalId)) state.alertedIds.push(uniqueSignalId);
@@ -897,99 +1019,34 @@ export default async function handler(req: any, res: any) {
             const tp2Price = recentMarker.tp2Price || (isBull ? (entryPrice + tp2Pips) : (entryPrice - tp2Pips));
             const tp3Price = recentMarker.tp3Price || (isBull ? (entryPrice + tp3Pips) : (entryPrice - tp3Pips));
 
-            const lines: string[] = [
-              headerTitle,
-              '',
-              `🪙 Pair: ${symbolName}`,
-              directionText,
-              `⏰ Timeframe: ${tf}`,
-              '',
-              `🎯 Entry: ${entryPrice.toFixed(2)}`,
-              `✅ TP1: ${tp1Price.toFixed(2)} (+${tp1Pips} pips)`,
-            ];
+            // ARCHITECTURAL GUARANTEE:
+            // cron-check is strictly MONITOR_ONLY (Telegram reporting + TP/SL outcome tracking).
+            // liveDerivDaemon holds sole authority to execute automatic Deriv trades.
+            const derivTradeResult = {
+              ok: false,
+              executed: false,
+              skippedByArchitecture: true,
+              executionAuthority: 'liveDerivDaemon',
+              reason: 'cron-check operates in MONITOR_ONLY mode and cannot execute Deriv orders.',
+            };
 
-            if (showTp2) {
-              lines.push(`✅ TP2: ${tp2Price.toFixed(2)} (+${tp2Pips} pips)`);
-            }
-            if (showTp3) {
-              lines.push(`✅ TP3: ${tp3Price.toFixed(2)} (+${tp3Pips} pips)`);
-            }
+            recordCronMonitorEvent({
+              source: 'cron_monitor',
+              eventType: 'SIGNAL_OBSERVED',
+              signalId: uniqueSignalId,
+              symbol,
+              timeframe: tf,
+              action: isBull ? 'BUY' : 'SELL',
+              entryPrice,
+              autoTradeExecuted: false,
+              note: 'Signal tracked for TP/SL monitoring; Deriv auto-execution handled exclusively by liveDerivDaemon',
+              timestamp: new Date().toISOString(),
+            });
 
-            lines.push(`🛑 Stop Loss: ${slPrice.toFixed(2)} (-${slPips} pips)`);
-            lines.push('');
-            lines.push('⚖️ Risk: 1–2% only');
-            lines.push('');
-            lines.push('🚨 Mire this time must be comeback! Never revenge');
-            lines.push('');
-            lines.push(`<tg-spoiler>#${uniqueSignalId}</tg-spoiler>`);
-
-            const alertMessage = lines.join('\n');
-
-            let tgResult: any = { ok: false, error: 'Telegram credentials missing' };
-            if (botToken && chatId) {
-              tgResult = await sendTelegramDirect(botToken, chatId, alertMessage);
-              if (tgResult.ok && tgResult.messageId) {
-                await pinTelegramDirect(botToken, chatId, tgResult.messageId).catch(() => {});
-              }
-            }
-
-            // DERIV AUTO-TRADING MULTIPLIER EXECUTION (env-only credentials)
-            let derivTradeResult: any = null;
-            const creds = getDerivEnvCredentials();
-
-            const derivAutoTrade = Boolean(
-              savedConfig.options?.derivAutoTradeEnabled !== undefined
-                ? savedConfig.options?.derivAutoTradeEnabled
-                : (req.query?.autoTrade !== undefined ? (req.query.autoTrade === 'true' || req.query.autoTrade === '1') : true)
-            );
-
-            const derivTargetMode = (
-              (savedConfig.options?.derivMode || body?.mode || req.query?.mode) === 'real' ? 'real' : 'demo'
-            ) as 'real' | 'demo';
-
-            if (derivAutoTrade && !creds.ok) {
-              derivTradeResult = { ok: false, error: creds.error };
-              console.warn(`[cron-check] ${uniqueSignalId} skipped Deriv trade: ${creds.error}`);
-            } else if (derivAutoTrade && creds.ok) {
-              try {
-                derivTradeResult = await executeDerivMultiplierTrade({
-                  mode: derivTargetMode,
-                  action: isBull ? 'BUY' : 'SELL',
-                  symbol: symbol === '1HZ75V' || symbol === 'R_75' ? 'R_75' : symbol,
-                  stake: Number(savedConfig.options?.derivStake || 2.0),
-                  multiplier: Number(savedConfig.options?.derivMultiplier || 200),
-                  takeProfitUsd: Number(savedConfig.options?.derivTakeProfitUsd || 6.68),
-                  stopLossUsd: Number(savedConfig.options?.derivStopLossUsd || 2.0),
-                  maxConsecutiveLosses: Number(savedConfig.options?.derivMaxConsecutiveLosses || 3),
-                });
-
-                if (derivTradeResult?.ok && botToken && chatId) {
-                  const modeLabel = derivTargetMode === 'real' ? '🔴 REAL LIVE' : '🧪 DEMO VIRTUAL';
-                  const eatDate = new Date(Date.now() + 3 * 3600 * 1000);
-                  const eatTimeFormatted = `${eatDate.toISOString().replace('T', ' ').slice(0, 16)} EAT`;
-
-                  const derivMsg =
-                    `🚀 <b>DERIV AUTO-TRADE EXECUTED!</b>\n\n` +
-                    `⚖️ <b>Account:</b> ${modeLabel} (<code>${derivTradeResult.accountLabel || derivTargetMode.toUpperCase()}</code>)\n` +
-                    `🧭 <b>Action:</b> ${isBull ? '📈 BUY (MULTUP)' : '📉 SELL (MULTDOWN)'}\n` +
-                    `🪙 <b>Asset:</b> ${symbolName} (${tf})\n` +
-                    `💵 <b>Stake:</b> $${Number(savedConfig.options?.derivStake || 2.0).toFixed(2)} USD (${savedConfig.options?.derivMultiplier || 200}x Multiplier)\n` +
-                    `🎯 <b>Take Profit:</b> +$${Number(savedConfig.options?.derivTakeProfitUsd || 6.68).toFixed(2)} USD (~${tp1Pips} pips)\n` +
-                    `🛑 <b>Stop Loss:</b> -$${Number(savedConfig.options?.derivStopLossUsd || 2.0).toFixed(2)} USD (~${slPips} pips)\n` +
-                    `🆔 <b>Contract ID:</b> <code>#${derivTradeResult.contractId}</code>\n` +
-                    `💰 <b>Balance After:</b> $${derivTradeResult.balanceAfter?.toFixed(2) ?? '---'} USD\n` +
-                    `⏰ <b>Execution Time:</b> ${eatTimeFormatted}\n` +
-                    `🛡️ <b>Circuit Breaker:</b> Active (Capital Protected)`;
-
-                  await sendTelegramDirect(botToken, chatId, derivMsg).catch(() => {});
-                }
-              } catch (derivErr: any) {
-                console.error('Deriv auto-trade execution error in cron:', derivErr);
-              }
-            }
-
-            newSignalSent = Boolean(tgResult.ok || derivTradeResult?.ok);
+            newSignalSent = false;
             signalInfo = {
+              source: 'cron_monitor',
+              mode: 'MONITOR_ONLY',
               type: recentMarker.type,
               time: recentMarker.time,
               signalId: uniqueSignalId,
@@ -1002,8 +1059,8 @@ export default async function handler(req: any, res: any) {
               tp1Pips,
               tp2Pips,
               tp3Pips,
-              telegram: tgResult,
               deriv: derivTradeResult,
+              note: `${headerTitle} | ${directionText} tracked by cron monitor (auto-trade handled only by liveDerivDaemon)`,
             };
 
             state.lastAlertTime = recentMarker.time;
@@ -1054,6 +1111,10 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({
       ok: true,
+      role: 'MONITOR_ONLY',
+      executionAuthority: 'liveDerivDaemon',
+      cronExecutionDisabled: true,
+      enforcedMode: 'demo',
       timestamp: Date.now(),
       symbol,
       timeframe: tf,
@@ -1069,9 +1130,22 @@ export default async function handler(req: any, res: any) {
       heartbeatsQueued: state.heartbeatMessageIds.length,
     });
   } catch (err: any) {
+    cronMonitorState.lastError = err?.message || String(err);
+    recordCronMonitorEvent({
+      source: 'cron_monitor',
+      eventType: 'ERROR',
+      symbol: cronMonitorState.lastSymbol || 'R_75',
+      timeframe: cronMonitorState.lastTimeframe || '1H',
+      autoTradeExecuted: false,
+      note: cronMonitorState.lastError || 'Cron monitor error',
+      timestamp: new Date().toISOString(),
+    });
     console.error('Unhandled cron check error:', err);
     return res.status(200).json({
       ok: false,
+      role: 'MONITOR_ONLY',
+      executionAuthority: 'liveDerivDaemon',
+      cronExecutionDisabled: true,
       status: 'error_caught',
       error: err?.message || String(err),
     });

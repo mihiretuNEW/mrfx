@@ -24,6 +24,8 @@ export default async function handler(req: Request, res: Response) {
     const breaker = getDerivCircuitStatus();
     return res.status(200).json({
       ok: true,
+      enforcedMode: 'demo',
+      realTradingEnabled: false,
       credentialsConfigured: creds.ok,
       tokenConfigured: creds.tokenConfigured,
       appIdConfigured: creds.appIdConfigured,
@@ -31,7 +33,7 @@ export default async function handler(req: Request, res: Response) {
       derivConfig: {
         tokenConfigured: creds.tokenConfigured,
         appIdConfigured: creds.appIdConfigured,
-        mode: config?.options?.derivMode === 'real' ? 'real' : 'demo',
+        mode: 'demo',
         autoTradeEnabled: config?.options?.derivAutoTradeEnabled !== false,
         stake: config?.options?.derivStake ?? 2.0,
         multiplier: config?.options?.derivMultiplier ?? 200,
@@ -76,12 +78,14 @@ export default async function handler(req: Request, res: Response) {
 
     return res.status(200).json({
       ok: true,
-      message: `Backend Deriv credentials verified! Found ${sanitizedAccounts.length} account(s).`,
+      enforcedMode: 'demo',
+      realTradingEnabled: false,
+      message: `Backend Deriv credentials verified! Found ${sanitizedAccounts.length} account(s). Demo mode enforced.`,
       accounts: sanitizedAccounts,
     });
   }
 
-  // 3. Protected Deriv Buy Verification Endpoint (requires DERIV_TEST_SECRET header)
+  // 3. Protected Deriv Buy Verification Endpoint (requires DERIV_TEST_SECRET header, Demo mode only)
   if (action === 'protected_buy_test') {
     const expectedSecret = (process.env.DERIV_TEST_SECRET || '').trim();
     if (!expectedSecret) {
@@ -102,17 +106,18 @@ export default async function handler(req: Request, res: Response) {
       return res.status(401).json({ ok: false, error: 'Unauthorized: invalid or missing test secret.' });
     }
 
+    if (body.mode === 'real') {
+      return res.status(403).json({
+        ok: false,
+        error: 'Real trading is disabled. Demo mode only.',
+      });
+    }
+
     if (!creds.ok) {
       return res.status(400).json({ ok: false, error: creds.error });
     }
 
-    const mode = body.mode === 'real' ? 'real' : 'demo';
-    if (mode === 'real' && body.confirmReal !== true) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Real-account test execution requires explicit { confirmReal: true }.',
-      });
-    }
+    const mode: 'demo' = 'demo';
 
     const tradeRes = await executeDerivMultiplierTrade({
       mode,
@@ -131,7 +136,7 @@ export default async function handler(req: Request, res: Response) {
 
     return res.status(200).json({
       ok: true,
-      message: `Protected Deriv ${mode.toUpperCase()} buy verified cleanly!`,
+      message: 'Protected Deriv DEMO buy verified cleanly!',
       contractId: tradeRes.contractId,
       transactionId: tradeRes.transactionId,
       buyPrice: tradeRes.buyPrice,
@@ -141,13 +146,20 @@ export default async function handler(req: Request, res: Response) {
     });
   }
 
-  // 4. Execute Multiplier Trade using ONLY backend environment credentials
+  // 4. Execute Multiplier Trade using ONLY backend environment credentials (Demo mode only)
   if (action === 'execute') {
+    if (body.mode === 'real') {
+      return res.status(403).json({
+        ok: false,
+        error: 'Real trading is disabled. Demo mode only.',
+      });
+    }
+
     if (!creds.ok) {
       return res.status(400).json({ ok: false, error: creds.error });
     }
 
-    const mode = body.mode === 'real' ? 'real' : 'demo';
+    const mode: 'demo' = 'demo';
     const tradeDir = body.direction === 'SELL' ? 'SELL' : 'BUY';
     const stake = Number(body.stake) || 2.0;
     const multiplier = Number(body.multiplier) || 200;
@@ -174,7 +186,7 @@ export default async function handler(req: Request, res: Response) {
     const chatId = (getAlertConfig()?.chatId || '').trim();
 
     if (botToken && chatId) {
-      const modeEmoji = mode === 'real' ? '🔴 REAL LIVE' : '🧪 DEMO VIRTUAL';
+      const modeEmoji = '🧪 DEMO VIRTUAL';
       const dirEmoji = tradeDir === 'BUY' ? '📈 BUY (MULTUP)' : '📉 SELL (MULTDOWN)';
       const tgMsg =
         `🚀 <b>DERIV MULTIPLIER ORDER EXECUTED!</b>\n\n` +
@@ -194,7 +206,7 @@ export default async function handler(req: Request, res: Response) {
 
     return res.status(200).json({
       ok: true,
-      message: `✅ Deriv ${mode.toUpperCase()} ${tradeDir} Multiplier trade executed!`,
+      message: `✅ Deriv DEMO ${tradeDir} Multiplier trade executed!`,
       trade: tradeRes,
     });
   }

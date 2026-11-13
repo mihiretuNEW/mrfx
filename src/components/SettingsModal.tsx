@@ -130,7 +130,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleExecuteLiveDerivTrade = async (dir: 'BUY' | 'SELL') => {
-    const mode = settings.indicators.derivMode || 'demo';
+    const mode: 'demo' = 'demo';
 
     setDerivTestingTrade(true);
     setDerivTradeMsg(null);
@@ -383,7 +383,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           atrLen: ind.msttAtrLen ?? 14,
           preventLateEntry: ind.msttPreventLateEntry ?? true,
           maxBreakoutDelay: ind.msttMaxBreakoutDelay ?? 1,
-          derivMode: ind.derivMode || 'demo',
+          derivMode: 'demo',
           derivAutoTradeEnabled: ind.derivAutoTradeEnabled !== false,
           derivStake: ind.derivStake ?? 2.0,
           derivMultiplier: ind.derivMultiplier ?? 200,
@@ -8977,41 +8977,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               </span>
                             </div>
 
-                            {/* Demo vs Real Account Switch */}
-                            <div className="flex items-center bg-neutral-950 rounded-lg p-0.5 border border-neutral-800">
+                            {/* Demo Only Lock (Real Trading Disabled) */}
+                            <div className="flex items-center bg-neutral-950 rounded-lg p-0.5 border border-neutral-800 gap-1">
                               <button
                                 type="button"
                                 onClick={() => {
                                   handleUpdateIndicators('derivMode', 'demo');
                                   handleSyncCloudSettings({ ...settings.indicators, derivMode: 'demo' });
                                 }}
-                                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
-                                  (settings.indicators.derivMode || 'demo') === 'demo'
-                                    ? 'bg-amber-500/30 text-amber-300 border border-amber-500/50 shadow'
-                                    : 'text-gray-400 hover:text-gray-200'
-                                }`}
+                                className="px-2.5 py-1 text-xs font-bold rounded-md transition-all bg-amber-500/30 text-amber-300 border border-amber-500/50 shadow"
                               >
-                                🧪 DEMO
+                                🧪 DEMO ACTIVE
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  handleUpdateIndicators('derivMode', 'real');
-                                  handleSyncCloudSettings({ ...settings.indicators, derivMode: 'real' });
-                                }}
-                                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
-                                  settings.indicators.derivMode === 'real'
-                                    ? 'bg-rose-600 text-white shadow'
-                                    : 'text-gray-400 hover:text-gray-200'
-                                }`}
+                                disabled
+                                title="Real trading is disabled. Demo mode only."
+                                className="px-2.5 py-1 text-xs font-bold rounded-md transition-all text-gray-500 bg-neutral-900/60 border border-neutral-800 cursor-not-allowed opacity-60"
                               >
-                                🔴 REAL
+                                🔒 REAL LOCKED
                               </button>
                             </div>
                           </div>
 
                           <p className="text-xs text-gray-300 leading-relaxed">
-                            ያለ ምንም VPS ወይም MT5 ጭንቀት፣ አዲስ የ 1H/30M Breakout ሲግናል ሲወጣ <b>በ 200 ሚሊሰከንድ ውስጥ በቀጥታ በ Deriv Multipliers (MULTUP / MULTDOWN)</b> ትሬድ ይከፍታል!
+                            ያለ ምንም VPS ወይም MT5 ጭንቀት፣ አዲስ የ 1H/30M Breakout ሲግናል ሲወጣ <b>በ 200 ሚሊሰከንድ ውስጥ በቀጥታ በ Deriv Multipliers (MULTUP / MULTDOWN — DEMO ONLY)</b> ትሬድ ይከፍታል!
                           </p>
 
                           {/* MASTER START / STOP BUTTON */}
@@ -9028,7 +9018,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 {circuitBreakerStatus?.isTripped
                                   ? '🛑 CIRCUIT BREAKER STOPPED'
                                   : settings.indicators.derivAutoTradeEnabled
-                                  ? `🟢 ACTIVE (${(settings.indicators.derivMode || 'demo').toUpperCase()} እየሰራ ነው)`
+                                  ? '🟢 ACTIVE (DEMO ONLY እየሰራ ነው)'
                                   : '🔴 PAUSED (ቆሟል)'}
                               </span>
                             </div>
@@ -9056,7 +9046,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-lg font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98"
                                 >
                                   <span>▶️</span>
-                                  <span>AUTO-TRADING አስጀምር (Click to START Auto-Trade on {(settings.indicators.derivMode || 'demo').toUpperCase()})</span>
+                                  <span>AUTO-TRADING አስጀምር (Click to START Auto-Trade on DEMO ONLY)</span>
                                 </button>
                               )}
                             </div>
@@ -9279,7 +9269,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           {/* INSTANT LIVE TEST TRADE BUTTONS */}
                           <div className="pt-2 border-t border-neutral-800 space-y-2">
                             <span className="text-xs font-bold text-gray-300 block">
-                              🚀 የቀጥታ የሙከራ ትሬድ ክፈት (Open Live Test Trade on {(settings.indicators.derivMode || 'demo').toUpperCase()}):
+                              🚀 የቀጥታ የሙከራ ትሬድ ክፈት (Open Live Test Trade on DEMO ONLY):
                             </span>
                             <div className="grid grid-cols-2 gap-2">
                               <button

@@ -356,7 +356,7 @@ export const MsttHUD: React.FC<MsttHUDProps> = ({
           <div className="flex items-center justify-between px-2 py-1.5 bg-neutral-900/90 border border-neutral-800 rounded mt-1 text-[10.5px]">
             <div className="flex items-center gap-1.5 font-semibold text-gray-300">
               <span>⚡</span>
-              <span>Deriv {(settings.indicators.derivMode || 'demo').toUpperCase()}:</span>
+              <span>Deriv DEMO:</span>
               <span className="text-[9.5px] font-mono text-cyan-400">
                 ({settings.indicators.derivMultiplier ?? 200}x · ${settings.indicators.derivStake ?? 2})
               </span>

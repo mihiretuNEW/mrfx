@@ -3,7 +3,7 @@ import fs from "fs";
 import express from "express";
 import dotenv from "dotenv";
 import app from "./api/_app.js";
-import cronHandler from "./api/cron-check.js";
+import cronHandler, { getCronMonitorStatus, getCronMonitorEvents } from "./api/cron-check.js";
 import { liveDerivDaemon } from "./api/_lib/liveDerivDaemon.js";
 import { getDerivEnvCredentials } from "./api/_lib/cloudAlertConfig.js";
 
@@ -27,7 +27,7 @@ function startAutonomousBackgroundWorker() {
       };
       await (cronHandler as any)(mockReq, mockRes);
     } catch (err) {
-      console.error('[Autonomous Worker] Background check error:', err);
+      console.error('[Monitor Worker] Background monitor check error:', err);
     } finally {
       isRunning = false;
     }
@@ -35,10 +35,10 @@ function startAutonomousBackgroundWorker() {
 
   // Initial pass after 10 seconds
   setTimeout(runWorkerPass, 10000);
-  // Recurring 60s daemon
+  // Recurring 60s monitor & Telegram reporting worker (NO Deriv execution)
   setInterval(runWorkerPass, CHECK_INTERVAL_MS);
 
-  console.log('[Autonomous Worker] 24/7 Background Market Daemon active (running every 60s)');
+  console.log('[Monitor Worker] 60s Monitor & Telegram Reporting worker active (MONITOR_ONLY, Deriv execution disabled)');
 }
 
 async function startServer() {
@@ -50,26 +50,44 @@ async function startServer() {
   });
   app.get("/api/health", (_req, res) => {
     const creds = getDerivEnvCredentials();
+    const daemonStatus = liveDerivDaemon.getStatus();
+    const cronMonitor = getCronMonitorStatus();
     res.status(200).json({
       status: "ok",
       uptime: process.uptime(),
+      executionAuthority: "liveDerivDaemon",
+      cronExecutionDisabled: true,
+      modePolicy: {
+        enforcedMode: "demo",
+        realTradingEnabled: false,
+      },
       credentials: {
         configured: creds.ok,
         tokenConfigured: creds.tokenConfigured,
         appIdConfigured: creds.appIdConfigured,
       },
-      daemon: liveDerivDaemon.getStatus(),
+      daemon: daemonStatus,
+      cronMonitor,
     });
   });
   app.get(["/api/execution-logs", "/api/signals"], (req, res) => {
     const creds = getDerivEnvCredentials();
     const limit = Math.min(100, Math.max(1, Number(req.query?.limit || 50)));
-    const logs = liveDerivDaemon.getExecutionLogs(limit);
+    const daemonSignals = liveDerivDaemon.getExecutionLogs(limit);
+    const cronMonitorEvents = getCronMonitorEvents(limit);
     res.status(200).json({
       ok: true,
+      executionAuthority: "liveDerivDaemon",
+      cronExecutionDisabled: true,
+      modePolicy: {
+        enforcedMode: "demo",
+        realTradingEnabled: false,
+      },
       credentialsConfigured: creds.ok,
-      count: logs.length,
-      logs,
+      count: daemonSignals.length,
+      daemonSignals,
+      cronMonitorEvents,
+      logs: daemonSignals,
     });
   });
 

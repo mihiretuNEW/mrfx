@@ -281,14 +281,19 @@ export interface DerivTransportDeps {
   getOtpWsUrlFn?: typeof getAccountOtpWsUrl;
   wsBuyFn?: (
     wsUrl: string,
-    buyPayload: any
+    buyPayload: any,
+    onBuyDispatched?: () => void
   ) => Promise<{ ok: boolean; buy?: any; error?: string; retryable?: boolean; uncertain?: boolean }>;
   reconcileFn?: typeof reconcileRecentContract;
+  onBuyDispatched?: () => void;
+  /** Internal unit-test override to verify real/demo account isolation logic safely with mock transport */
+  allowRealForIsolationTest?: boolean;
 }
 
 async function defaultWsBuy(
   wsUrl: string,
-  buyPayload: any
+  buyPayload: any,
+  onBuyDispatched?: () => void
 ): Promise<{ ok: boolean; buy?: any; error?: string; retryable?: boolean; uncertain?: boolean }> {
   return new Promise((resolve) => {
     let hasResolved = false;
@@ -312,6 +317,7 @@ async function defaultWsBuy(
 
     ws.on('open', () => {
       buySent = true;
+      try { onBuyDispatched?.(); } catch {}
       ws.send(JSON.stringify(buyPayload));
     });
 
@@ -384,6 +390,15 @@ export async function executeDerivMultiplierTrade(
       retryable: false,
       uncertain: false,
       error: `Invalid execution mode "${String(params.mode)}". Must be "demo" or "real".`,
+    };
+  }
+
+  if (params.mode === 'real' && !deps.allowRealForIsolationTest) {
+    return {
+      ok: false,
+      retryable: false,
+      uncertain: false,
+      error: 'Real trading is disabled. Demo mode only.',
     };
   }
 
@@ -482,7 +497,7 @@ export async function executeDerivMultiplierTrade(
   }
 
   const dispatchEpochSec = Math.floor(Date.now() / 1000);
-  const wsRes = await wsBuyFn(otpRes.url, buyPayload);
+  const wsRes = await wsBuyFn(otpRes.url, buyPayload, deps.onBuyDispatched);
 
   if (wsRes.ok && wsRes.buy) {
     const buyData = wsRes.buy;

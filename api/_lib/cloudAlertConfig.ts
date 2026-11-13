@@ -162,6 +162,8 @@ export function loadAlertConfig(): CloudAlertConfig {
       if (mergedOptions.derivAutoTradeEnabled === undefined) {
         mergedOptions.derivAutoTradeEnabled = true;
       }
+      // Enforce Demo-only mode across the entire application
+      mergedOptions.derivMode = 'demo';
       return {
         ...DEFAULT_CONFIG,
         ...loaded,
@@ -207,6 +209,7 @@ export function saveAlertConfig(config: Partial<CloudAlertConfig>): CloudAlertCo
     options: stripSensitiveOptions({
       ...current.options,
       ...incomingOptions,
+      derivMode: 'demo',
       derivAutoTradeEnabled: finalAutoTrade,
     }),
   };
