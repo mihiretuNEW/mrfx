@@ -8,6 +8,7 @@ import {
   fetchDerivAccounts,
   getDerivCircuitStatus,
 } from './_lib/derivTrader.js';
+import { liveDerivDaemon } from './_lib/liveDerivDaemon.js';
 
 export const config = {
   maxDuration: 30,
@@ -344,19 +345,26 @@ async function deleteTelegramDirect(botToken: string, chatId: string, messageId:
 
 async function fetchDerivCandles(symbol: string, granularity: number, count = 1000): Promise<Candle[]> {
   return new Promise((resolve, reject) => {
-    const wsUrl = 'wss://api.derivws.com/trading/v1/options/ws/public?app_id=1089';
-    const WebSocketClass = (globalThis as any).WebSocket || WebSocketNode;
-    if (!WebSocketClass) {
-      return reject(new Error('WebSocket is not available in Node environment'));
-    }
+    const wsUrl = 'wss://api.derivws.com/trading/v1/options/ws/public';
+    const ws = new WebSocketNode(wsUrl, {
+      perMessageDeflate: false,
+      handshakeTimeout: 8000,
+    });
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try { ws.removeAllListeners(); } catch {}
+      try { ws.close(); } catch {}
+      fn();
+    };
 
-    const ws = new WebSocketClass(wsUrl);
     const timeout = setTimeout(() => {
-      try { ws.close(); } catch (e) {}
-      reject(new Error('Deriv WebSocket timed out after 8 seconds'));
+      finish(() => reject(new Error('Deriv WebSocket timed out after 8 seconds')));
     }, 8000);
 
-    ws.onopen = () => {
+    ws.on('open', () => {
       ws.send(JSON.stringify({
         ticks_history: symbol,
         adjust_start_time: 1,
@@ -366,13 +374,12 @@ async function fetchDerivCandles(symbol: string, granularity: number, count = 10
         style: 'candles',
         granularity: granularity,
       }));
-    };
+    });
 
-    ws.onmessage = (event: any) => {
-      clearTimeout(timeout);
+    ws.on('message', (raw: WebSocketNode.RawData) => {
       try {
-        const raw = typeof event.data === 'string' ? event.data : event.data.toString();
-        const data = JSON.parse(raw);
+        const text = typeof raw === 'string' ? raw : raw.toString();
+        const data = JSON.parse(text);
         if (data.candles && Array.isArray(data.candles)) {
           const list: Candle[] = data.candles.map((c: any) => ({
             time: Number(c.epoch),
@@ -381,23 +388,18 @@ async function fetchDerivCandles(symbol: string, granularity: number, count = 10
             low: Number(c.low),
             close: Number(c.close),
           }));
-          try { ws.close(); } catch (e) {}
-          resolve(list);
+          finish(() => resolve(list));
         } else if (data.error) {
-          try { ws.close(); } catch (e) {}
-          reject(new Error(data.error.message || 'Deriv API error'));
+          finish(() => reject(new Error(data.error.message || 'Deriv API error')));
         }
       } catch (err) {
-        try { ws.close(); } catch (e) {}
-        reject(err);
+        finish(() => reject(err));
       }
-    };
+    });
 
-    ws.onerror = (err: any) => {
-      clearTimeout(timeout);
-      try { ws.close(); } catch (e) {}
-      reject(new Error(err?.message || 'WebSocket connection error'));
-    };
+    ws.on('error', (err: any) => {
+      finish(() => reject(new Error(err?.message || 'WebSocket connection error')));
+    });
   });
 }
 
@@ -678,11 +680,11 @@ export default async function handler(req: any, res: any) {
     await checkAndSendScheduledReports(botToken, chatId, state, savedConfig, req.query, body);
 
     // =========================================================================
-    // METHOD 3: MULTI-PASS SURVEILLANCE LOOP (3 passes across ~10-12s)
-    // Minimizes latency down to seconds while staying inside serverless budget
+    // MONITOR SURVEILLANCE (Reuse liveDerivDaemon candles when active to avoid WS churn)
     // =========================================================================
-    const maxPasses = 3;
-    const passDelayMs = 3800; // 3.8s between passes
+    const liveSnapshot = liveDerivDaemon.getLiveCandlesSnapshot(symbol, tf);
+    const maxPasses = liveSnapshot ? 1 : 2;
+    const passDelayMs = 2000;
     let passesCompleted = 0;
 
     let tradeResolved = false;
@@ -699,13 +701,17 @@ export default async function handler(req: any, res: any) {
         await new Promise((resolve) => setTimeout(resolve, passDelayMs));
       }
 
-      try {
-        candles = await fetchDerivCandles(symbol, granularity, candleFetchCount);
-      } catch (err) {
-        if (pass === maxPasses - 1 && candles.length === 0) {
-          throw err;
+      if (liveSnapshot && pass === 0) {
+        candles = liveSnapshot.candles;
+      } else {
+        try {
+          candles = await fetchDerivCandles(symbol, granularity, candleFetchCount);
+        } catch (err) {
+          if (pass === maxPasses - 1 && candles.length === 0) {
+            throw err;
+          }
+          continue;
         }
-        continue;
       }
 
       if (!candles || candles.length < 20) {

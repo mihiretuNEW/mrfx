@@ -257,8 +257,12 @@ class LiveDerivDaemon {
   private lastConfigMtime = 0;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private pingTimer: NodeJS.Timeout | null = null;
+  private handshakeTimer: NodeJS.Timeout | null = null;
   private hasCompletedInitialLoad = false;
   private lastDisconnectedAtMs = 0;
+  private lastOpenedAtMs = 0;
+  private endpointIndex = 0;
+  private consecutiveQuickDrops = 0;
 
   private wsConnected = false;
   private connectAttempts = 0;
@@ -266,6 +270,7 @@ class LiveDerivDaemon {
   private lastDisconnectedAt: string | null = null;
   private lastDisconnectReason: string | null = null;
   private lastHistoryLoadedAt: string | null = null;
+  private currentEndpoint: string = 'wss://api.derivws.com/trading/v1/options/ws/public';
 
   private totalTicksReceived = 0;
   private lastTickTime: string | null = null;
@@ -520,7 +525,9 @@ class LiveDerivDaemon {
       stages: {
         wsConnection: {
           connected: wsOpen,
+          endpoint: this.currentEndpoint,
           connectAttempts: this.connectAttempts,
+          consecutiveQuickDrops: this.consecutiveQuickDrops,
           lastConnectedAt: this.lastConnectedAt,
           lastDisconnectedAt: this.lastDisconnectedAt,
           lastDisconnectReason: this.lastDisconnectReason,
@@ -555,6 +562,17 @@ class LiveDerivDaemon {
     };
   }
 
+  public getLiveCandlesSnapshot(symbol: string, timeframe: string): { candles: Candle[]; fresh: boolean } | null {
+    const wsOpen = this.wsConnected && Boolean(this.ws && this.ws.readyState === WebSocket.OPEN);
+    if (!wsOpen || !this.hasCompletedInitialLoad) return null;
+    if (this.currentSymbol !== symbol || this.currentTimeframe !== timeframe) return null;
+    if (this.candles.length < 30) return null;
+    return {
+      candles: this.candles.map((c) => ({ ...c })),
+      fresh: true,
+    };
+  }
+
   public getExecutionLogs(limit = 50): SignalExecutionLog[] {
     const combined = [...this.recentSignals];
     const persisted = readPersistedExecutionLogs();
@@ -579,37 +597,120 @@ class LiveDerivDaemon {
     return 1000;
   }
 
+  private getPublicWsEndpoints(): string[] {
+    const endpoints = [
+      'wss://api.derivws.com/trading/v1/options/ws/public',
+      'wss://api.derivws.com/trading/v1/options/ws/public?app_id=1089',
+      'wss://api.derivws.com/trading/v1/options/ws/public?app_id=36544',
+    ];
+    return endpoints;
+  }
+
+  private clearWsTimers() {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    if (this.handshakeTimer) {
+      clearTimeout(this.handshakeTimer);
+      this.handshakeTimer = null;
+    }
+  }
+
+  private disposeSocket(sock: WebSocket | null) {
+    if (!sock) return;
+    try {
+      sock.removeAllListeners();
+    } catch {}
+    try {
+      if (sock.readyState === WebSocket.OPEN) {
+        sock.close(1000, 'daemon_reconnect');
+      } else if (sock.readyState === WebSocket.CONNECTING) {
+        sock.terminate();
+      }
+    } catch {}
+  }
+
   private connect() {
     if (this.isConnecting) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.clearWsTimers();
+
+    // Dispose any prior socket cleanly with listeners detached BEFORE creating a new one
+    if (this.ws) {
+      const oldSocket = this.ws;
+      this.ws = null;
+      this.disposeSocket(oldSocket);
+    }
+
     this.isConnecting = true;
     this.connectAttempts += 1;
 
     try {
-      if (this.ws) {
-        try { this.ws.terminate(); } catch {}
-        this.ws = null;
-      }
+      const endpoints = this.getPublicWsEndpoints();
+      const wsUrl = endpoints[this.endpointIndex % endpoints.length];
+      this.currentEndpoint = wsUrl;
 
-      const wsUrl = 'wss://api.derivws.com/trading/v1/options/ws/public?app_id=1089';
-      this.ws = new WebSocket(wsUrl);
+      const socket = new WebSocket(wsUrl, {
+        perMessageDeflate: false,
+        handshakeTimeout: 10000,
+        headers: {
+          'User-Agent': 'Mire75TraderDaemon/1.0',
+        },
+      });
+      this.ws = socket;
 
-      this.ws.on('open', () => {
+      this.handshakeTimer = setTimeout(() => {
+        if (this.ws !== socket) return;
+        if (socket.readyState !== WebSocket.OPEN) {
+          console.warn(`[LiveDerivDaemon][Stage 1: WS Handshake Timeout] ${wsUrl} timed out after 10s`);
+          this.ws = null;
+          this.disposeSocket(socket);
+          this.wsConnected = false;
+          this.isConnecting = false;
+          this.lastDisconnectedAt = new Date().toISOString();
+          this.lastDisconnectedAtMs = Date.now();
+          this.lastDisconnectReason = 'handshake_timeout';
+          this.rotateEndpointAndBackoff();
+          this.scheduleReconnect();
+        }
+      }, 10500);
+
+      socket.on('open', () => {
+        if (this.ws !== socket) {
+          this.disposeSocket(socket);
+          return;
+        }
+        if (this.handshakeTimer) {
+          clearTimeout(this.handshakeTimer);
+          this.handshakeTimer = null;
+        }
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
         this.isConnecting = false;
         this.wsConnected = true;
+        this.lastOpenedAtMs = Date.now();
         this.lastConnectedAt = new Date().toISOString();
-        console.log(`[LiveDerivDaemon][Stage 1: WS Connected] Subscribing to ${this.currentSymbol} ${this.currentTimeframe} (${this.currentHistorySpan}) live ticks...`);
+        console.log(`[LiveDerivDaemon][Stage 1: WS Connected] (${wsUrl}) Subscribing to ${this.currentSymbol} ${this.currentTimeframe} (${this.currentHistorySpan}) live ticks...`);
 
         if (this.pingTimer) clearInterval(this.pingTimer);
         this.pingTimer = setInterval(() => {
+          if (this.ws !== socket) return;
           try {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-              this.ws.send(JSON.stringify({ ping: 1 }));
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.ping();
+              socket.send(JSON.stringify({ ping: 1 }));
             }
           } catch {}
-        }, 25000);
+        }, 20000);
 
         const candleCount = this.getCandleCountForSpan();
-        this.ws?.send(JSON.stringify({
+        socket.send(JSON.stringify({
           ticks_history: this.currentSymbol,
           adjust_start_time: 1,
           count: candleCount,
@@ -621,12 +722,18 @@ class LiveDerivDaemon {
         }));
       });
 
-      this.ws.on('message', (data: WebSocket.RawData) => {
+      socket.on('message', (data: WebSocket.RawData) => {
+        if (this.ws !== socket) return;
         try {
           const raw = typeof data === 'string' ? data : data.toString();
           const msg = JSON.parse(raw);
 
-          if (msg.ping === 'pong') return;
+          if (msg.ping === 'pong' || msg.msg_type === 'ping') return;
+
+          if (msg.error) {
+            console.warn('[LiveDerivDaemon] Deriv WS message error:', msg.error.message || JSON.stringify(msg.error));
+            return;
+          }
 
           if (msg.candles && Array.isArray(msg.candles)) {
             this.candles = msg.candles.map((c: any) => ({
@@ -683,6 +790,9 @@ class LiveDerivDaemon {
           }
 
           if (msg.ohlc) {
+            if (this.lastOpenedAtMs > 0 && Date.now() - this.lastOpenedAtMs > 15000) {
+              this.consecutiveQuickDrops = 0;
+            }
             const ohlc = msg.ohlc;
             const candleEpoch = Number(ohlc.open_time || ohlc.epoch);
             const open = Number(ohlc.open);
@@ -724,47 +834,91 @@ class LiveDerivDaemon {
         }
       });
 
-      this.ws.on('error', (err) => {
+      socket.on('error', (err) => {
+        if (this.ws !== socket) return;
         this.wsConnected = false;
+        this.isConnecting = false;
         this.lastDisconnectedAt = new Date().toISOString();
         this.lastDisconnectReason = err.message;
         console.error('[LiveDerivDaemon][Stage 1: WS Error]', err.message);
-        this.lastDisconnectedAtMs = Date.now();
-        this.scheduleReconnect();
       });
 
-      this.ws.on('close', (code) => {
+      socket.on('close', (code) => {
+        if (this.ws !== socket) return;
+        this.ws = null;
+        this.clearWsTimers();
         this.wsConnected = false;
+        this.isConnecting = false;
         this.lastDisconnectedAt = new Date().toISOString();
-        this.lastDisconnectReason = `closed(${code})`;
-        console.warn(`[LiveDerivDaemon][Stage 1: WS Closed] code=${code}. Reconnecting in 2s...`);
         this.lastDisconnectedAtMs = Date.now();
-        this.scheduleReconnect();
+        this.lastDisconnectReason = `closed(${code})`;
+
+        const openDurationMs = this.lastOpenedAtMs > 0 ? (Date.now() - this.lastOpenedAtMs) : 0;
+        if (openDurationMs < 15000) {
+          this.rotateEndpointAndBackoff();
+        } else {
+          this.consecutiveQuickDrops = 0;
+        }
+
+        const delayMs = this.getReconnectDelayMs();
+        console.warn(`[LiveDerivDaemon][Stage 1: WS Closed] code=${code} (open=${(openDurationMs / 1000).toFixed(1)}s). Reconnecting in ${(delayMs / 1000).toFixed(1)}s...`);
+        this.scheduleReconnect(delayMs);
       });
     } catch (e: any) {
+      this.ws = null;
+      this.clearWsTimers();
       this.wsConnected = false;
+      this.isConnecting = false;
       this.lastDisconnectReason = e.message;
       console.error('[LiveDerivDaemon] Connection failed:', e.message);
       this.lastDisconnectedAtMs = Date.now();
+      this.rotateEndpointAndBackoff();
       this.scheduleReconnect();
     }
   }
 
-  private scheduleReconnect() {
+  private rotateEndpointAndBackoff() {
+    this.consecutiveQuickDrops += 1;
+    this.endpointIndex = (this.endpointIndex + 1) % this.getPublicWsEndpoints().length;
+  }
+
+  private getReconnectDelayMs(): number {
+    if (this.consecutiveQuickDrops <= 1) return 2000;
+    if (this.consecutiveQuickDrops === 2) return 3000;
+    if (this.consecutiveQuickDrops === 3) return 5000;
+    return 10000;
+  }
+
+  private scheduleReconnect(delayMs?: number) {
     this.isConnecting = false;
-    if (this.pingTimer) {
-      clearInterval(this.pingTimer);
-      this.pingTimer = null;
+    this.clearWsTimers();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    const waitMs = delayMs ?? this.getReconnectDelayMs();
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.connect();
-    }, 2000);
+    }, waitMs);
   }
 
   private reconnect() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.clearWsTimers();
+    if (this.ws) {
+      const oldSocket = this.ws;
+      this.ws = null;
+      this.disposeSocket(oldSocket);
+    }
+    this.wsConnected = false;
+    this.isConnecting = false;
+    this.consecutiveQuickDrops = 0;
     this.candles = [];
-    this.scheduleReconnect();
+    this.scheduleReconnect(250);
   }
 
   private recordSignalLog(record: SignalExecutionLog, persistAsync = true) {

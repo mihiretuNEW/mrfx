@@ -194,7 +194,7 @@ async function run() {
     symbol: 'R_75',
     timeframe: '1H',
     clearHandledId: sigLockId,
-    overrideOptions: { useAdxFilter: false, useStructureFilter: false, useWickFilter: false, useBodyCloseFilter: false, useDisplacementFilter: false, useHtfFilter: false, derivAutoTradeEnabled: true },
+    overrideOptions: { useCandleFilter: false, breakoutBufferAtr: 0, useAdxFilter: false, useStructureFilter: false, useWickFilter: false, useBodyCloseFilter: false, useDisplacementFilter: false, useHtfFilter: false, derivAutoTradeEnabled: true },
     executor: async (_params, deps) => {
       execCalls += 1;
       deps?.onBuyDispatched?.();
@@ -216,7 +216,7 @@ async function run() {
   await liveDerivDaemon.evaluateCandlesForTest(liveSlice, {
     symbol: 'R_75',
     timeframe: '1H',
-    overrideOptions: { useAdxFilter: false, useStructureFilter: false, useWickFilter: false, useBodyCloseFilter: false, useDisplacementFilter: false, useHtfFilter: false, derivAutoTradeEnabled: true },
+    overrideOptions: { useCandleFilter: false, breakoutBufferAtr: 0, useAdxFilter: false, useStructureFilter: false, useWickFilter: false, useBodyCloseFilter: false, useDisplacementFilter: false, useHtfFilter: false, derivAutoTradeEnabled: true },
     executor: async () => {
       execCalls += 1;
       return { ok: true, contractId: 111111 };
@@ -232,7 +232,7 @@ async function run() {
     symbol: 'R_75',
     timeframe: '1H',
     clearHandledId: sigLockId,
-    overrideOptions: { useAdxFilter: false, useStructureFilter: false, useWickFilter: false, useBodyCloseFilter: false, useDisplacementFilter: false, useHtfFilter: false, derivAutoTradeEnabled: true },
+    overrideOptions: { useCandleFilter: false, breakoutBufferAtr: 0, useAdxFilter: false, useStructureFilter: false, useWickFilter: false, useBodyCloseFilter: false, useDisplacementFilter: false, useHtfFilter: false, derivAutoTradeEnabled: true },
     executor: async () => {
       lockBlockedExecCalls += 1;
       return { ok: true, contractId: 555555 };
@@ -261,7 +261,7 @@ async function run() {
     symbol: 'R_75',
     timeframe: '1H',
     clearHandledId: sigLockId,
-    overrideOptions: { useAdxFilter: false, useStructureFilter: false, useWickFilter: false, useBodyCloseFilter: false, useDisplacementFilter: false, useHtfFilter: false, derivAutoTradeEnabled: true },
+    overrideOptions: { useCandleFilter: false, breakoutBufferAtr: 0, useAdxFilter: false, useStructureFilter: false, useWickFilter: false, useBodyCloseFilter: false, useDisplacementFilter: false, useHtfFilter: false, derivAutoTradeEnabled: true },
     executor: async (_params, deps) => {
       preBuyRecoveredCalls += 1;
       deps?.onBuyDispatched?.();
@@ -291,7 +291,7 @@ async function run() {
     symbol: 'R_75',
     timeframe: '1H',
     clearHandledId: sigLockId,
-    overrideOptions: { useAdxFilter: false, useStructureFilter: false, useWickFilter: false, useBodyCloseFilter: false, useDisplacementFilter: false, useHtfFilter: false, derivAutoTradeEnabled: true },
+    overrideOptions: { useCandleFilter: false, breakoutBufferAtr: 0, useAdxFilter: false, useStructureFilter: false, useWickFilter: false, useBodyCloseFilter: false, useDisplacementFilter: false, useHtfFilter: false, derivAutoTradeEnabled: true },
     executor: async () => {
       uncertainCalls += 1;
       return { ok: true, contractId: 777777 };
@@ -325,6 +325,8 @@ async function run() {
   assert.strictEqual(healthJson.modePolicy?.realTradingEnabled, false);
   assert.ok(healthJson.daemon && typeof healthJson.daemon.autoTradingEnabled === 'boolean', '/api/health must expose daemon.autoTradingEnabled');
   assert.ok(healthJson.daemon && healthJson.daemon.stages, '/api/health must expose daemon stage telemetry');
+  assert.ok(typeof healthJson.daemon.stages.wsConnection?.endpoint === 'string', '/api/health must expose wsConnection.endpoint');
+  assert.strictEqual(typeof healthJson.daemon.stages.wsConnection?.consecutiveQuickDrops, 'number', '/api/health must expose wsConnection.consecutiveQuickDrops');
   assert.ok(healthJson.cronMonitor && healthJson.cronMonitor.mode === 'MONITOR_ONLY', '/api/health must report cronMonitor as MONITOR_ONLY');
   const healthRaw = JSON.stringify(healthJson);
   assert.ok(!healthRaw.includes('pat_') && !healthRaw.includes('DOT') && !healthRaw.includes('ROT'), '/api/health must not expose credentials or account IDs');
