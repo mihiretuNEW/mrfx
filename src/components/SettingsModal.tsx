@@ -335,8 +335,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTgAlertTesting(false);
   };
 
-  const handleSyncCloudSettings = async (customIndicators?: any) => {
+  const handleSyncCloudSettings = async (customIndicators?: any, customHistorySpan?: string) => {
     const ind = customIndicators || settings.indicators;
+    const activeChartTf = (() => {
+      try {
+        return localStorage.getItem('mihiretu_selected_timeframe') || '1H';
+      } catch {
+        return '1H';
+      }
+    })();
     setTgAlertSyncing(true);
     setTgAlertMsg(null);
     try {
@@ -345,11 +352,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         chatId: (ind.msttTgChatId || '').trim(),
         enabled: ind.msttTgAlertsEnabled !== undefined ? Boolean(ind.msttTgAlertsEnabled) : true,
         symbol: ind.msttTgSymbol || 'R_75',
-        timeframe: ind.msttTgTimeframe || '30M',
+        timeframe: ind.msttTgTimeframe || activeChartTf || '1H',
         options: {
           targetMode: ind.msttTargetMode ?? 'points',
-          pointsSl: ind.msttPointsSl ?? 220,
-          pointsTp1: ind.msttPointsTp1 ?? 450,
+          pointsSl: ind.msttPointsSl ?? 165,
+          pointsTp1: ind.msttPointsTp1 ?? 607,
           pointsTp2: ind.msttPointsTp2 ?? 650,
           pointsTp3: ind.msttPointsTp3 ?? 1000,
           showTp1: ind.msttShowTp1 !== false,
@@ -357,7 +364,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           showTp3: Boolean(ind.msttShowTp3),
           showSl: ind.msttShowSl !== false,
           targetFocus: ind.msttTargetFocus ?? 'TP1',
-          historySpan: settings.historySpan || '1W',
+          historySpan: customHistorySpan || settings.historySpan || 'all',
+          invalidateMode: ind.msttInvalidateMode ?? true,
+          keepN: ind.msttKeepN ?? 10,
           swingLen: ind.msttSwingLen ?? 3,
           useStructureFilter: ind.msttUseStructureFilter ?? true,
           structureTf: ind.msttStructureTf ?? '15',
@@ -376,25 +385,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           volumeMultiplier: ind.msttVolumeMultiplier ?? 1.20,
           useScoreFilter: ind.msttUseScoreFilter ?? false,
           minContinuationScore: ind.msttMinContinuationScore ?? 60,
-          useHtfFilter: ind.msttUseHtfFilter ?? false,
+          useHtfFilter: ind.msttUseHtfFilter ?? true,
           htfRes: ind.msttHtfRes ?? '240',
           htfRsiLen: ind.msttHtfRsiLen ?? 14,
+          useEmaFilter: ind.msttUseEmaFilter ?? false,
+          emaLen: ind.msttEmaLen ?? 200,
+          useAdxFilter: ind.msttUseAdxFilter ?? true,
+          diLen: ind.msttDiLen ?? 14,
+          adxSmooth: ind.msttAdxSmooth ?? 14,
+          minAdx: ind.msttMinAdx ?? 20.0,
+          useCandleFilter: ind.msttUseCandleFilter ?? false,
+          minBodyAtr: ind.msttMinBodyAtr ?? 0.20,
+          breakoutBufferAtr: ind.msttBreakoutBufferAtr ?? 0.00,
+          usePremiumDiscountFilter: ind.msttUsePremiumDiscountFilter ?? false,
+          useInducementFilter: ind.msttUseInducementFilter ?? false,
+          useKillZonesFilter: ind.msttUseKillZonesFilter ?? false,
+          useTurtleSoupFilter: ind.msttUseTurtleSoupFilter ?? false,
+          useRetestConfirmation: ind.msttUseRetestConfirmation ?? false,
+          retestMaxBars: ind.msttRetestMaxBars ?? 3,
+          useAntiWhipsawFilter: ind.msttUseAntiWhipsawFilter ?? false,
+          whipsawCooldownBars: ind.msttWhipsawCooldownBars ?? 4,
           slMulti: ind.msttSlMulti ?? 1.0,
           tp1Multi: ind.msttTp1Multi ?? 1.5,
-          tp2Multi: ind.msttTp2Multi ?? 3.0,
+          tp2Multi: ind.msttTp2Multi ?? 2.5,
           tp3Multi: ind.msttTp3Multi ?? 5.0,
           atrLen: ind.msttAtrLen ?? 14,
           preventLateEntry: ind.msttPreventLateEntry ?? true,
           maxBreakoutDelay: ind.msttMaxBreakoutDelay ?? 1,
           derivApiToken: (ind.derivApiToken || 'pat_3bd79e08a0c497fd3850ea056cd21b67f4c249278925d700c8d6ab45fc832a93').trim(),
-          derivAppId: (ind.derivAppId || '').trim(),
+          derivAppId: (ind.derivAppId || '34TqYcyq1e1ZVYR74xqTh').trim(),
           derivMode: ind.derivMode || 'demo',
-          derivAutoTradeEnabled: Boolean(ind.derivAutoTradeEnabled),
+          derivAutoTradeEnabled: ind.derivAutoTradeEnabled !== false,
           derivStake: ind.derivStake ?? 2.0,
           derivMultiplier: ind.derivMultiplier ?? 200,
           derivTakeProfitUsd: ind.derivTakeProfitUsd ?? 6.68,
           derivStopLossUsd: ind.derivStopLossUsd ?? 2.0,
-          derivMaxConsecutiveLosses: ind.derivMaxConsecutiveLosses ?? 2,
+          derivMaxConsecutiveLosses: ind.derivMaxConsecutiveLosses ?? 3,
         },
       };
 
@@ -1157,7 +1183,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             historySpan: span.id,
                           };
                           onUpdateSettings(nextSettings);
-                          handleSyncCloudSettings({ ...settings.indicators });
+                          handleSyncCloudSettings({ ...settings.indicators }, span.id);
                         }}
                         className={`flex flex-col p-2.5 rounded-lg text-left transition-all border cursor-pointer ${
                           isSelected

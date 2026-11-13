@@ -50,8 +50,4 @@ app.all(['/api/deriv-trade', '/api/derivTrade'], (req, res) => {
   derivTradeHandler(req, res);
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
 export default app;

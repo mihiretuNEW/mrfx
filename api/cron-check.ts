@@ -491,9 +491,9 @@ export default async function handler(req: any, res: any) {
     const useRetest = req.query?.useRetest !== undefined ? (req.query.useRetest === 'true' || req.query.useRetest === '1') : Boolean(body.options?.useRetestConfirmation ?? savedConfig.options?.useRetestConfirmation);
     const useWhip = req.query?.useWhip !== undefined ? (req.query.useWhip === 'true' || req.query.useWhip === '1') : Boolean(body.options?.useAntiWhipsawFilter ?? savedConfig.options?.useAntiWhipsawFilter);
 
-    const userHistorySpan = (body.options?.historySpan || savedConfig.options?.historySpan || '1W').toString();
-    const spanDays = userHistorySpan === '2W' ? 14 : userHistorySpan === '1M' ? 30 : 7;
-    const candleFetchCount = Math.min(1000, Math.max(120, Math.ceil((spanDays * 86400) / granularity)));
+    const userHistorySpan = (body.options?.historySpan || savedConfig.options?.historySpan || 'all').toString();
+    const spanDays = userHistorySpan === 'all' ? 60 : userHistorySpan === '1M' ? 30 : userHistorySpan === '2W' ? 14 : 7;
+    const candleFetchCount = userHistorySpan === 'all' ? 1000 : Math.min(1000, Math.max(120, Math.ceil((spanDays * 86400) / granularity)));
 
     const mergedOptions: Record<string, any> = {
       targetMode: 'points',
@@ -506,18 +506,20 @@ export default async function handler(req: any, res: any) {
       showTp3,
       targetFocus: req.query?.targetFocus || savedConfig.options?.targetFocus || 'TP1',
       swingLen: Number(body.options?.swingLen || savedConfig.options?.swingLen || 3),
-      useStructureFilter: true,
+      useStructureFilter: savedConfig.options?.useStructureFilter ?? false,
       structureTf: '15',
       filterSwingLen: Number(body.options?.filterSwingLen || savedConfig.options?.filterSwingLen || 3),
-      useWickFilter: true,
+      useWickFilter: savedConfig.options?.useWickFilter ?? false,
       maxWickRatio: 0.70,
-      useDisplacementFilter: true,
+      useDisplacementFilter: savedConfig.options?.useDisplacementFilter ?? false,
       minDisplacementAtr: 0.80,
-      useBodyCloseFilter: true,
+      useBodyCloseFilter: savedConfig.options?.useBodyCloseFilter ?? false,
       minBodyRatio: 0.50,
       useSweepFilter: false,
       sweepLookback: 10,
-      preventLateEntry: true,
+      useAdxFilter: savedConfig.options?.useAdxFilter ?? false,
+      useHtfFilter: savedConfig.options?.useHtfFilter ?? false,
+      preventLateEntry: savedConfig.options?.preventLateEntry ?? false,
       maxBreakoutDelay: 1,
       usePremiumDiscountFilter: usePd,
       useInducementFilter: useIdm,
@@ -853,10 +855,12 @@ export default async function handler(req: any, res: any) {
       const markers = msttResult.signalMarkers || [];
       const recentMarker = markers.length > 0 ? markers[markers.length - 1] : null;
 
-      // CRITICAL: Trigger if marker is on the ACTIVE forming candle OR immediately preceding completed candle
-      const isEligibleBar = recentMarker && (recentMarker.barIndex === lastCandleIdx || recentMarker.barIndex === lastCandleIdx - 1);
-      const candleAgeSec = recentMarker ? Math.floor((now - recentMarker.time * 1000) / 1000) : 999999;
-      if (recentMarker && isEligibleBar && candleAgeSec <= granularity * 1.5) {
+      // CRITICAL: Only trade active candle or candle closed <= 10 seconds ago (1-10s fresh window)
+      const isEligibleBar = recentMarker && (
+        recentMarker.barIndex === lastCandleIdx ||
+        (recentMarker.barIndex === lastCandleIdx - 1 && (Math.floor(now / 1000) - (recentMarker.time + granularity)) <= 10)
+      );
+      if (recentMarker && isEligibleBar) {
         const uniqueSignalId = `SIG_${symbol}_${tf}_${recentMarker.time}_${recentMarker.type}`;
         const isLocallyAlerted =
           state.lastAlertId === uniqueSignalId ||

@@ -48,7 +48,11 @@ async function startServer() {
     res.status(200).send("OK");
   });
   app.get("/api/health", (_req, res) => {
-    res.status(200).json({ status: "ok", uptime: process.uptime() });
+    res.status(200).json({
+      status: "ok",
+      uptime: process.uptime(),
+      daemon: liveDerivDaemon.getStatus(),
+    });
   });
 
   const distPath = path.join(process.cwd(), "dist");

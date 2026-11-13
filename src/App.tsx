@@ -498,6 +498,13 @@ const DEFAULT_SETTINGS: ChartSettings = {
     msttShowDashboard: true,
     msttDashBgColor: 'rgb(10,10,18)',
     msttDashTxtColor: 'rgb(220,220,235)',
+    derivMode: 'demo',
+    derivAutoTradeEnabled: true,
+    derivStake: 2.0,
+    derivMultiplier: 200,
+    derivTakeProfitUsd: 6.68,
+    derivStopLossUsd: 2.0,
+    derivMaxConsecutiveLosses: 3,
     // VIP Market Scanner™ (VIP Algos) - Single Pair Matrix
     showVipMarketScanner: false,
     vipScannerShowHud: false,
@@ -1355,11 +1362,18 @@ function AppContent() {
             pointsTp1: ind.msttPointsTp1 ?? 607,
             pointsTp2: ind.msttPointsTp2 ?? 650,
             pointsTp3: ind.msttPointsTp3 ?? 1000,
+            slMulti: ind.msttSlMulti ?? 1.0,
+            tp1Multi: ind.msttTp1Multi ?? 1.5,
+            tp2Multi: ind.msttTp2Multi ?? 2.5,
+            tp3Multi: ind.msttTp3Multi ?? 5.0,
+            atrLen: ind.msttAtrLen ?? 14,
             showTp1: ind.msttShowTp1 !== false,
             showTp2: Boolean(ind.msttShowTp2),
             showTp3: Boolean(ind.msttShowTp3),
             showSl: ind.msttShowSl !== false,
             targetFocus: ind.msttTargetFocus ?? 'TP1',
+            invalidateMode: ind.msttInvalidateMode ?? true,
+            keepN: ind.msttKeepN ?? 10,
             swingLen: ind.msttSwingLen ?? 3,
             filterSwingLen: ind.msttFilterSwingLen ?? 3,
             useStructureFilter: ind.msttUseStructureFilter ?? true,
@@ -1374,14 +1388,30 @@ function AppContent() {
             minDisplacementAtr: ind.msttMinDisplacementAtr ?? 0.80,
             useFvgFilter: ind.msttUseFvgFilter ?? false,
             useVolumeFilter: ind.msttUseVolumeFilter ?? false,
+            volumeLength: ind.msttVolumeLength ?? 20,
+            volumeMultiplier: ind.msttVolumeMultiplier ?? 1.20,
             useScoreFilter: ind.msttUseScoreFilter ?? false,
-            useHtfFilter: ind.msttUseHtfFilter ?? false,
+            minContinuationScore: ind.msttMinContinuationScore ?? 60,
+            useHtfFilter: ind.msttUseHtfFilter ?? true,
+            htfRes: ind.msttHtfRes ?? '240',
+            htfRsiLen: ind.msttHtfRsiLen ?? 14,
+            useEmaFilter: ind.msttUseEmaFilter ?? false,
+            emaLen: ind.msttEmaLen ?? 200,
+            useAdxFilter: ind.msttUseAdxFilter ?? true,
+            diLen: ind.msttDiLen ?? 14,
+            adxSmooth: ind.msttAdxSmooth ?? 14,
+            minAdx: ind.msttMinAdx ?? 20.0,
+            useCandleFilter: ind.msttUseCandleFilter ?? false,
+            minBodyAtr: ind.msttMinBodyAtr ?? 0.20,
+            breakoutBufferAtr: ind.msttBreakoutBufferAtr ?? 0.00,
             usePremiumDiscountFilter: ind.msttUsePremiumDiscountFilter ?? false,
             useInducementFilter: ind.msttUseInducementFilter ?? false,
             useKillZonesFilter: ind.msttUseKillZonesFilter ?? false,
             useTurtleSoupFilter: ind.msttUseTurtleSoupFilter ?? false,
             useRetestConfirmation: ind.msttUseRetestConfirmation ?? false,
+            retestMaxBars: ind.msttRetestMaxBars ?? 3,
             useAntiWhipsawFilter: ind.msttUseAntiWhipsawFilter ?? false,
+            whipsawCooldownBars: ind.msttWhipsawCooldownBars ?? 4,
             preventLateEntry: ind.msttPreventLateEntry ?? true,
             maxBreakoutDelay: ind.msttMaxBreakoutDelay ?? 1,
             derivApiToken: (ind.derivApiToken || '').trim(),
@@ -1391,8 +1421,8 @@ function AppContent() {
             derivStake: ind.derivStake ?? 2.0,
             derivMultiplier: ind.derivMultiplier ?? 200,
             derivTakeProfitUsd: ind.derivTakeProfitUsd ?? 6.68,
-            stopLossUsd: ind.derivStopLossUsd ?? 2.0,
-            derivMaxConsecutiveLosses: ind.derivMaxConsecutiveLosses ?? 2,
+            derivStopLossUsd: ind.derivStopLossUsd ?? 2.0,
+            derivMaxConsecutiveLosses: ind.derivMaxConsecutiveLosses ?? 3,
           },
         };
 
@@ -1404,13 +1434,18 @@ function AppContent() {
       } catch (e) {
         // Non-blocking network catch
       }
-    }, 1200);
+    }, 250);
 
     return () => clearTimeout(timer);
   }, [settings, selectedSymbol, selectedTimeframe]);
 
   // Initial Cloud Config Reconciliation: Load server settings on mount
   useEffect(() => {
+    let hasLocalCustom = false;
+    try {
+      hasLocalCustom = Boolean(localStorage.getItem('mihiretu_chart_settings'));
+    } catch {}
+
     fetch('/api/cloud-alert-config')
       .then((res) => res.json())
       .then((data) => {
@@ -1419,6 +1454,21 @@ function AppContent() {
           const opt = cfg.options;
           setSettings((prev) => {
             const prevInd = prev.indicators;
+            if (hasLocalCustom) {
+              // Preserve user's chart strategy customizations from localStorage, only fill missing cloud credentials/settings
+              return {
+                ...prev,
+                indicators: {
+                  ...prevInd,
+                  msttTgBotToken: prevInd.msttTgBotToken || cfg.botToken || '',
+                  msttTgChatId: prevInd.msttTgChatId || cfg.chatId || '',
+                  derivApiToken: prevInd.derivApiToken || opt.derivApiToken || '',
+                  derivAppId: prevInd.derivAppId || opt.derivAppId || '',
+                  derivMode: prevInd.derivMode || opt.derivMode || 'demo',
+                  derivAutoTradeEnabled: prevInd.derivAutoTradeEnabled !== undefined ? prevInd.derivAutoTradeEnabled : Boolean(opt.derivAutoTradeEnabled ?? true),
+                },
+              };
+            }
             return {
               ...prev,
               historySpan: (opt.historySpan || prev.historySpan || '1W') as any,
@@ -1429,14 +1479,27 @@ function AppContent() {
                 msttTgAlertsEnabled: cfg.enabled !== undefined ? Boolean(cfg.enabled) : prevInd.msttTgAlertsEnabled,
                 derivApiToken: prevInd.derivApiToken || opt.derivApiToken || '',
                 derivAppId: prevInd.derivAppId || opt.derivAppId || '',
-                derivMode: prevInd.derivMode || opt.derivMode || 'demo',
+                derivMode: opt.derivMode || prevInd.derivMode || 'demo',
                 derivAutoTradeEnabled: opt.derivAutoTradeEnabled !== undefined ? Boolean(opt.derivAutoTradeEnabled) : true,
                 derivStake: opt.derivStake !== undefined ? opt.derivStake : prevInd.derivStake,
                 derivMultiplier: opt.derivMultiplier !== undefined ? opt.derivMultiplier : prevInd.derivMultiplier,
+                derivTakeProfitUsd: opt.derivTakeProfitUsd !== undefined ? opt.derivTakeProfitUsd : prevInd.derivTakeProfitUsd,
+                derivStopLossUsd: opt.derivStopLossUsd !== undefined ? opt.derivStopLossUsd : prevInd.derivStopLossUsd,
+                derivMaxConsecutiveLosses: opt.derivMaxConsecutiveLosses !== undefined ? opt.derivMaxConsecutiveLosses : prevInd.derivMaxConsecutiveLosses,
+                msttTargetMode: opt.targetMode !== undefined ? opt.targetMode : prevInd.msttTargetMode,
                 msttPointsSl: opt.pointsSl !== undefined ? opt.pointsSl : prevInd.msttPointsSl,
                 msttPointsTp1: opt.pointsTp1 !== undefined ? opt.pointsTp1 : prevInd.msttPointsTp1,
                 msttSwingLen: opt.swingLen !== undefined ? opt.swingLen : prevInd.msttSwingLen,
                 msttFilterSwingLen: opt.filterSwingLen !== undefined ? opt.filterSwingLen : prevInd.msttFilterSwingLen,
+                msttUseStructureFilter: opt.useStructureFilter !== undefined ? opt.useStructureFilter : prevInd.msttUseStructureFilter,
+                msttUseWickFilter: opt.useWickFilter !== undefined ? opt.useWickFilter : prevInd.msttUseWickFilter,
+                msttUseDisplacementFilter: opt.useDisplacementFilter !== undefined ? opt.useDisplacementFilter : prevInd.msttUseDisplacementFilter,
+                msttUseBodyCloseFilter: opt.useBodyCloseFilter !== undefined ? opt.useBodyCloseFilter : prevInd.msttUseBodyCloseFilter,
+                msttUseAdxFilter: opt.useAdxFilter !== undefined ? opt.useAdxFilter : prevInd.msttUseAdxFilter,
+                msttUseHtfFilter: opt.useHtfFilter !== undefined ? opt.useHtfFilter : prevInd.msttUseHtfFilter,
+                msttUseAntiWhipsawFilter: opt.useAntiWhipsawFilter !== undefined ? opt.useAntiWhipsawFilter : prevInd.msttUseAntiWhipsawFilter,
+                msttPreventLateEntry: opt.preventLateEntry !== undefined ? opt.preventLateEntry : prevInd.msttPreventLateEntry,
+                msttInvalidateMode: opt.invalidateMode !== undefined ? opt.invalidateMode : prevInd.msttInvalidateMode,
               },
             };
           });
