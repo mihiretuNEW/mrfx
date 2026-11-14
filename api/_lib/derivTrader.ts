@@ -393,15 +393,6 @@ export async function executeDerivMultiplierTrade(
     };
   }
 
-  if (params.mode === 'real' && !deps.allowRealForIsolationTest) {
-    return {
-      ok: false,
-      retryable: false,
-      uncertain: false,
-      error: 'Real trading is disabled. Demo mode only.',
-    };
-  }
-
   const targetMode: 'demo' | 'real' = params.mode;
   const symbol = params.symbol || 'R_75';
   const action: 'BUY' | 'SELL' = params.action === 'SELL' ? 'SELL' : 'BUY';
@@ -438,8 +429,8 @@ export async function executeDerivMultiplierTrade(
     };
   }
 
-  const matched = accResult.accounts.find((a) => a.account_type === targetMode);
-  if (!matched) {
+  const modeAccounts = accResult.accounts.filter((a) => a.account_type === targetMode);
+  if (modeAccounts.length === 0) {
     return {
       ok: false,
       retryable: false,
@@ -448,12 +439,19 @@ export async function executeDerivMultiplierTrade(
     };
   }
 
+  const activePool = modeAccounts.filter((a) => String(a.status || 'active').toLowerCase() === 'active');
+  const pool = activePool.length > 0 ? activePool : modeAccounts;
+  const matched =
+    pool.find((a) => a.currency.toUpperCase() === 'USD' && a.balance >= stake) ||
+    pool.find((a) => a.balance >= stake) ||
+    [...pool].sort((a, b) => b.balance - a.balance)[0];
+
   if (matched.balance < stake) {
     return {
       ok: false,
       retryable: false,
       uncertain: false,
-      error: `Insufficient balance on ${targetMode.toUpperCase()} account ($${matched.balance.toFixed(2)} < $${stake.toFixed(2)}).`,
+      error: `Insufficient balance on ${targetMode.toUpperCase()} account ($${matched.balance.toFixed(2)} ${matched.currency} < $${stake.toFixed(2)}).`,
     };
   }
 

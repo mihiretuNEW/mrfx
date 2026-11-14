@@ -144,6 +144,9 @@ const DEFAULT_CONFIG: CloudAlertConfig = {
 };
 
 export function loadAlertConfig(): CloudAlertConfig {
+  const envBotToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  const envChatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
+
   try {
     let loaded: any = null;
     if (fs.existsSync(PRIMARY_CONFIG_FILE)) {
@@ -162,13 +165,17 @@ export function loadAlertConfig(): CloudAlertConfig {
       if (mergedOptions.derivAutoTradeEnabled === undefined) {
         mergedOptions.derivAutoTradeEnabled = true;
       }
-      // Enforce Demo-only mode across the entire application
-      mergedOptions.derivMode = 'demo';
+      mergedOptions.derivMode = String(mergedOptions.derivMode || '').toLowerCase() === 'real' ? 'real' : 'demo';
+      const diskBotToken = (loaded.botToken && !String(loaded.botToken).includes('...'))
+        ? String(loaded.botToken).trim()
+        : '';
+      const diskChatId = loaded.chatId ? String(loaded.chatId).trim() : '';
       return {
         ...DEFAULT_CONFIG,
         ...loaded,
-        botToken: (loaded.botToken && String(loaded.botToken).trim()) || process.env.TELEGRAM_BOT_TOKEN || '',
-        chatId: (loaded.chatId && String(loaded.chatId).trim()) || process.env.TELEGRAM_CHAT_ID || '',
+        // Backend Render Environment Variables ALWAYS take priority over cached disk JSON
+        botToken: envBotToken || diskBotToken,
+        chatId: envChatId || diskChatId,
         options: mergedOptions,
       };
     }
@@ -177,8 +184,8 @@ export function loadAlertConfig(): CloudAlertConfig {
   }
   return {
     ...DEFAULT_CONFIG,
-    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
-    chatId: process.env.TELEGRAM_CHAT_ID || '',
+    botToken: envBotToken,
+    chatId: envChatId,
   };
 }
 
@@ -187,43 +194,55 @@ export const getAlertConfig = loadAlertConfig;
 export function saveAlertConfig(config: Partial<CloudAlertConfig>): CloudAlertConfig {
   const current = loadAlertConfig();
   const incomingOptions = stripSensitiveOptions(config.options);
+  const envBotToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  const envChatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
 
-  const finalBotToken = (config.botToken && config.botToken.trim())
-    ? config.botToken.trim()
-    : (current.botToken || process.env.TELEGRAM_BOT_TOKEN || '');
+  const rawIncomingToken = typeof config.botToken === 'string' ? config.botToken.trim() : '';
+  const validIncomingToken = rawIncomingToken && !rawIncomingToken.includes('...') ? rawIncomingToken : '';
+  const rawIncomingChatId = typeof config.chatId === 'string' ? config.chatId.trim() : '';
 
-  const finalChatId = (config.chatId && config.chatId.trim())
-    ? config.chatId.trim()
-    : (current.chatId || process.env.TELEGRAM_CHAT_ID || '');
+  const finalBotToken = envBotToken || validIncomingToken || current.botToken || '';
+  const finalChatId = envChatId || rawIncomingChatId || current.chatId || '';
 
   const finalAutoTrade = incomingOptions.derivAutoTradeEnabled !== undefined
     ? Boolean(incomingOptions.derivAutoTradeEnabled)
     : (current.options?.derivAutoTradeEnabled !== undefined ? current.options.derivAutoTradeEnabled : true);
 
-  const merged: CloudAlertConfig = {
+  const rawMode = incomingOptions.derivMode ?? current.options?.derivMode;
+  const finalDerivMode: 'demo' | 'real' = String(rawMode || '').toLowerCase() === 'real' ? 'real' : 'demo';
+
+  const mergedOptions = stripSensitiveOptions({
+    ...current.options,
+    ...incomingOptions,
+    derivMode: finalDerivMode,
+    derivAutoTradeEnabled: finalAutoTrade,
+  });
+
+  // Never persist env-managed Telegram credentials onto disk where they could shadow future env changes
+  const diskRecord: CloudAlertConfig = {
     ...current,
     ...config,
-    botToken: finalBotToken,
-    chatId: finalChatId,
+    botToken: envBotToken ? '' : finalBotToken,
+    chatId: envChatId ? '' : finalChatId,
     updatedAt: Date.now(),
-    options: stripSensitiveOptions({
-      ...current.options,
-      ...incomingOptions,
-      derivMode: 'demo',
-      derivAutoTradeEnabled: finalAutoTrade,
-    }),
+    options: mergedOptions,
   };
+
   try {
-    fs.writeFileSync(PRIMARY_CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf-8');
+    fs.writeFileSync(PRIMARY_CONFIG_FILE, JSON.stringify(diskRecord, null, 2), 'utf-8');
   } catch (err) {
     // Primary might be read-only in some serverless runtimes
   }
   try {
-    fs.writeFileSync(FALLBACK_CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf-8');
+    fs.writeFileSync(FALLBACK_CONFIG_FILE, JSON.stringify(diskRecord, null, 2), 'utf-8');
   } catch (err) {
     console.error('Failed to save alert config to fallback disk:', err);
   }
-  return merged;
+  return {
+    ...diskRecord,
+    botToken: finalBotToken,
+    chatId: finalChatId,
+  };
 }
 
 export async function sendTelegramDirect(botToken: string, chatId: string, text: string) {
@@ -308,10 +327,12 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
     if (req.method === 'GET' && !action) {
       const cfg = loadAlertConfig();
       const creds = getDerivEnvCredentials();
+      const telegramEnvConfigured = Boolean((process.env.TELEGRAM_BOT_TOKEN || '').trim() && (process.env.TELEGRAM_CHAT_ID || '').trim());
       const masked = {
         ...cfg,
         botToken: cfg.botToken ? `${cfg.botToken.substring(0, 6)}...${cfg.botToken.slice(-4)}` : '',
         hasToken: Boolean(cfg.botToken),
+        telegramEnvConfigured,
         derivCredentialsConfigured: creds.ok,
         options: stripSensitiveOptions(cfg.options),
       };
@@ -320,8 +341,13 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
 
     if (req.method === 'POST') {
       if (action === 'test' || body.action === 'test') {
-        const token = body.botToken || loadAlertConfig().botToken;
-        const chat = body.chatId || loadAlertConfig().chatId;
+        const loadedCfg = loadAlertConfig();
+        const envToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+        const envChat = (process.env.TELEGRAM_CHAT_ID || '').trim();
+        const bodyToken = (typeof body.botToken === 'string' && !body.botToken.includes('...')) ? body.botToken.trim() : '';
+        const bodyChat = typeof body.chatId === 'string' ? body.chatId.trim() : '';
+        const token = envToken || bodyToken || loadedCfg.botToken;
+        const chat = envChat || bodyChat || loadedCfg.chatId;
         if (!token || !chat) {
           return res.status(400).json({ ok: false, error: 'Telegram Bot Token and Chat ID are required to send a test message.' });
         }
@@ -340,9 +366,13 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
 
       const existing = loadAlertConfig();
       const incomingOptions = stripSensitiveOptions(body.options);
+      const rawBodyToken = typeof body.botToken === 'string' ? body.botToken.trim() : '';
+      const validBodyToken = rawBodyToken && !rawBodyToken.includes('...') ? rawBodyToken : undefined;
+      const validBodyChat = typeof body.chatId === 'string' && body.chatId.trim() ? body.chatId.trim() : undefined;
+
       const saved = saveAlertConfig({
-        botToken: body.botToken !== undefined ? body.botToken : existing.botToken,
-        chatId: body.chatId !== undefined ? body.chatId : existing.chatId,
+        botToken: validBodyToken !== undefined ? validBodyToken : existing.botToken,
+        chatId: validBodyChat !== undefined ? validBodyChat : existing.chatId,
         enabled: body.enabled !== undefined ? Boolean(body.enabled) : existing.enabled,
         symbol: body.symbol || existing.symbol || 'R_75',
         timeframe: body.timeframe || existing.timeframe || '1H',
@@ -353,13 +383,15 @@ export default async function cloudAlertConfigHandler(req: any, res: any) {
       });
 
       const creds = getDerivEnvCredentials();
+      const telegramEnvConfigured = Boolean((process.env.TELEGRAM_BOT_TOKEN || '').trim() && (process.env.TELEGRAM_CHAT_ID || '').trim());
       return res.status(200).json({
         ok: true,
-        message: 'Cloud Alert settings saved! Deriv credentials remain strictly managed by backend environment variables.',
+        message: 'Cloud Alert settings saved! Deriv and Telegram credentials remain managed safely by backend environment variables when configured.',
         config: {
           ...saved,
           botToken: saved.botToken ? `${saved.botToken.substring(0, 6)}...${saved.botToken.slice(-4)}` : '',
           hasToken: Boolean(saved.botToken),
+          telegramEnvConfigured,
           derivCredentialsConfigured: creds.ok,
           options: stripSensitiveOptions(saved.options),
         },

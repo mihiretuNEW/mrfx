@@ -58,8 +58,9 @@ async function startServer() {
       executionAuthority: "liveDerivDaemon",
       cronExecutionDisabled: true,
       modePolicy: {
-        enforcedMode: "demo",
-        realTradingEnabled: false,
+        activeMode: daemonStatus.activeMode,
+        supportedModes: ["demo", "real"],
+        realTradingEnabled: true,
       },
       credentials: {
         configured: creds.ok,
@@ -72,6 +73,7 @@ async function startServer() {
   });
   app.get(["/api/execution-logs", "/api/signals"], (req, res) => {
     const creds = getDerivEnvCredentials();
+    const daemonStatus = liveDerivDaemon.getStatus();
     const limit = Math.min(100, Math.max(1, Number(req.query?.limit || 50)));
     const daemonSignals = liveDerivDaemon.getExecutionLogs(limit);
     const cronMonitorEvents = getCronMonitorEvents(limit);
@@ -80,8 +82,9 @@ async function startServer() {
       executionAuthority: "liveDerivDaemon",
       cronExecutionDisabled: true,
       modePolicy: {
-        enforcedMode: "demo",
-        realTradingEnabled: false,
+        activeMode: daemonStatus.activeMode,
+        supportedModes: ["demo", "real"],
+        realTradingEnabled: true,
       },
       credentialsConfigured: creds.ok,
       count: daemonSignals.length,

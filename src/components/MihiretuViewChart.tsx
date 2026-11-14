@@ -1173,6 +1173,9 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       showSignalLabels: settings.indicators.mrovShowSignalLabels,
       showBreakoutMarker: settings.indicators.mrovShowBreakoutMarker,
       rr: settings.indicators.mrovRR,
+      targetMode: settings.indicators.mrovTargetMode ?? 'points',
+      pointsSl: settings.indicators.mrovPointsSl ?? 165,
+      pointsTp: settings.indicators.mrovPointsTp ?? 607,
       showTradeGrid: settings.indicators.mrovShowTradeGrid,
       riskColor: settings.indicators.mrovRiskColor,
       rewardColor: settings.indicators.mrovRewardColor,
@@ -1196,6 +1199,9 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.mrovShowSignalLabels,
     settings.indicators.mrovShowBreakoutMarker,
     settings.indicators.mrovRR,
+    settings.indicators.mrovTargetMode,
+    settings.indicators.mrovPointsSl,
+    settings.indicators.mrovPointsTp,
     settings.indicators.mrovShowTradeGrid,
     settings.indicators.mrovRiskColor,
     settings.indicators.mrovRewardColor,
@@ -8737,7 +8743,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(
-          '⚠️ Mrov Trade: Incompatible timeframe. Use 1m, 2m, 3m, 5m, 15m, or 30m for NY 09:30–10:00.',
+          '⚠️ Mrov Trade: Incompatible timeframe. Use 1m, 2m, 3m, 5m, 10m, 15m, 30m, or 1H.',
           alertX + 10,
           alertY + alertH / 2
         );

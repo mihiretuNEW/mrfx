@@ -66,6 +66,9 @@ export interface MrovTradeIndicatorConfig {
   showBreakoutMarker: boolean; // Show Entry Marker
 
   rr: number; // Risk / Reward ratio (e.g. 3.0)
+  targetMode?: 'points' | 'rr'; // 'points' = written SL/TP pips (like Mark Ticker), 'rr' = candle range + R:R
+  pointsSl?: number; // Fixed Stop Loss in Points/Pips
+  pointsTp?: number; // Fixed Take Profit in Points/Pips
   showTradeGrid: boolean; // Show Trade Grid
   riskColor: string; // Risk Zone Color
   rewardColor: string; // Reward Zone Color
@@ -98,6 +101,9 @@ export const DEFAULT_MROV_CONFIG: MrovTradeIndicatorConfig = {
   showBreakoutMarker: true,
 
   rr: 3.0,
+  targetMode: 'points',
+  pointsSl: 165,
+  pointsTp: 607,
   showTradeGrid: true,
   riskColor: '#dc4155', // color.rgb(220, 65, 85)
   rewardColor: '#00a078', // color.rgb(0, 160, 120)
@@ -145,9 +151,15 @@ export function getTimeframeMinutes(timeframe: TimeframeId | string): number {
     case '2M':
     case '2m':
       return 2;
+    case '3M':
+    case '3m':
+      return 3;
     case '5M':
     case '5m':
       return 5;
+    case '10M':
+    case '10m':
+      return 10;
     case '15M':
     case '15m':
       return 15;
@@ -157,6 +169,9 @@ export function getTimeframeMinutes(timeframe: TimeframeId | string): number {
     case '1H':
     case '1h':
       return 60;
+    case '2H':
+    case '2h':
+      return 120;
     case '4H':
     case '4h':
       return 240;
@@ -169,9 +184,9 @@ export function getTimeframeMinutes(timeframe: TimeframeId | string): number {
 }
 
 /**
- * Checks if a candle is in the Opening Range Session (09:30-10:00 NY, Mon-Fri).
+ * Checks if a candle is in the Opening Range Session (09:30-10:00 NY for <=30m, or 09:00-10:00 NY for 1H, Mon-Fri).
  */
-export function isNyOpeningRange(epochSec: number): boolean {
+export function isNyOpeningRange(epochSec: number, tfMinutes = 30): boolean {
   const offset = getNewYorkOffsetSeconds(epochSec);
   const localMs = (epochSec + offset) * 1000;
   const nyDate = new Date(localMs);
@@ -181,6 +196,10 @@ export function isNyOpeningRange(epochSec: number): boolean {
   if (nyDay < 1 || nyDay > 5) return false;
 
   const nyMinutes = nyDate.getUTCHours() * 60 + nyDate.getUTCMinutes();
+  // On 1H (60m), candle open at 09:00 NY (540m) spans 09:00-10:00 NY including the 09:30 Open
+  if (tfMinutes === 60) {
+    return nyMinutes >= 540 && nyMinutes < 600;
+  }
   // 09:30 AM = 570 minutes, 10:00 AM = 600 minutes
   return nyMinutes >= 570 && nyMinutes < 600;
 }
@@ -199,7 +218,7 @@ export function calculateMrovTradeOpeningRange(
   };
 
   const tfMinutes = getTimeframeMinutes(timeframe);
-  const isValidTimeframe = tfMinutes <= 30 && 30 % tfMinutes === 0;
+  const isValidTimeframe = (tfMinutes <= 30 && 30 % tfMinutes === 0) || tfMinutes === 60;
 
   if (!isValidTimeframe || candles.length === 0) {
     return {
@@ -216,11 +235,11 @@ export function calculateMrovTradeOpeningRange(
       validTimeframe: false,
       timeframeMinutes: tfMinutes,
       errorMessage:
-        'Incompatible timeframe. Please use 1m, 2m, 5m, 15m, or 30m for the 09:30–10:00 (New York) Opening Range.',
+        'Incompatible timeframe. Please use 1m, 2m, 3m, 5m, 10m, 15m, 30m, or 1H for the NY Opening Range.',
     };
   }
 
-  const requiredRangeBars = 30 / tfMinutes;
+  const requiredRangeBars = tfMinutes >= 30 ? 1 : Math.floor(30 / tfMinutes);
 
   const ranges: MrovOpeningRangeBox[] = [];
   const trades: MrovTradeSetup[] = [];
@@ -252,7 +271,7 @@ export function calculateMrovTradeOpeningRange(
 
   for (let i = 0; i < candles.length; i++) {
     const c = candles[i];
-    const inOpeningRange = isNyOpeningRange(c.time);
+    const inOpeningRange = isNyOpeningRange(c.time, tfMinutes);
 
     const rangeStarts = inOpeningRange && !wasInOpeningRange;
     const rangeEnds = !inOpeningRange && wasInOpeningRange;
@@ -328,9 +347,10 @@ export function calculateMrovTradeOpeningRange(
           activeTradeSetup.exitPrice = tradeStop;
         } else {
           winningTrades += 1;
-          totalR += mergedConfig.rr;
+          const tradeRR = activeTradeSetup.rr || mergedConfig.rr;
+          totalR += tradeRR;
           activeTradeSetup.status = 'TP';
-          activeTradeSetup.realizedR = mergedConfig.rr;
+          activeTradeSetup.realizedR = tradeRR;
           activeTradeSetup.exitPrice = tradeTarget;
         }
 
@@ -368,14 +388,26 @@ export function calculateMrovTradeOpeningRange(
 
     if (canOpenTrade && (firstLongBreakout || firstShortBreakout)) {
       const entryDirection: 1 | -1 = firstLongBreakout ? 1 : -1;
-      const risk = entryDirection === 1 ? c.close - c.low : c.high - c.close;
+      const isPointsMode = (mergedConfig.targetMode ?? 'points') === 'points';
+      const slPts = Math.max(1, Number(mergedConfig.pointsSl) || 165);
+      const tpPts = Math.max(1, Number(mergedConfig.pointsTp) || 607);
+      const risk = isPointsMode
+        ? slPts
+        : (entryDirection === 1 ? c.close - c.low : c.high - c.close);
 
       if (risk > 0) {
         tradeActive = true;
         tradeDirection = entryDirection;
         tradeEntry = c.close;
-        tradeStop = entryDirection === 1 ? c.low : c.high;
-        tradeTarget = tradeEntry + entryDirection * risk * mergedConfig.rr;
+        tradeStop = isPointsMode
+          ? (entryDirection === 1 ? tradeEntry - slPts : tradeEntry + slPts)
+          : (entryDirection === 1 ? c.low : c.high);
+        tradeTarget = isPointsMode
+          ? (entryDirection === 1 ? tradeEntry + tpPts : tradeEntry - tpPts)
+          : (tradeEntry + entryDirection * risk * mergedConfig.rr);
+        const effectiveRR = isPointsMode
+          ? Number((tpPts / slPts).toFixed(2))
+          : mergedConfig.rr;
 
         activeTradeSetup = {
           id: `mrov-trade-${c.time}-${i}`,
@@ -386,7 +418,7 @@ export function calculateMrovTradeOpeningRange(
           stopPrice: tradeStop,
           targetPrice: tradeTarget,
           riskAmount: risk,
-          rr: mergedConfig.rr,
+          rr: effectiveRR,
           currentRightIndex: i + 1,
           status: 'ACTIVE',
         };

@@ -205,7 +205,7 @@ export interface SignalExecutionLog {
   retryAttempts?: number;
   contractId?: number;
   reconciled?: boolean;
-  mode: 'demo';
+  mode: 'demo' | 'real';
   error?: string;
   timestamp: string;
 }
@@ -251,6 +251,17 @@ class LiveDerivDaemon {
   private inFlightSignals = new Set<string>();
   private handledSignals = new Set<string>();
   private skippedLoggedIds = new Set<string>();
+  private liveSignalTriggerPrice = new Map<string, number>();
+
+  private recordLiveTriggerPrice(signalId: string, price: number) {
+    if (!this.liveSignalTriggerPrice.has(signalId)) {
+      if (this.liveSignalTriggerPrice.size >= 500) {
+        const oldestKey = this.liveSignalTriggerPrice.keys().next().value;
+        if (oldestKey) this.liveSignalTriggerPrice.delete(oldestKey);
+      }
+      this.liveSignalTriggerPrice.set(signalId, price);
+    }
+  }
 
   private reconnectTimer: NodeJS.Timeout | null = null;
   private configWatchTimer: NodeJS.Timeout | null = null;
@@ -363,10 +374,11 @@ class LiveDerivDaemon {
     const opts = this.getMergedOptions();
     const creds = getDerivEnvCredentials();
 
+    const modeLabel = opts.derivMode === 'real' ? 'REAL' : 'DEMO';
     console.log(`======================================================================`);
-    console.log(`[RENDER BACKEND] 🚀 24/7 SOLE EXECUTION DAEMON STARTED (Demo Mode Only)`);
+    console.log(`[RENDER BACKEND] 🚀 24/7 SOLE EXECUTION DAEMON STARTED (Demo & Real Switchable)`);
     console.log(
-      `[LiveDerivDaemon] Boot -> Authority: SOLE | Mode: DEMO_ONLY | Credentials: ${creds.ok ? 'ENV CONFIGURED' : 'MISSING ENV VARS'} | AutoTrade: ${opts.derivAutoTradeEnabled !== false ? 'ON' : 'OFF'} | ADX: ${opts.useAdxFilter ? 'ON' : 'OFF'}`
+      `[LiveDerivDaemon] Boot -> Authority: SOLE | Mode: ${modeLabel} | Credentials: ${creds.ok ? 'ENV CONFIGURED' : 'MISSING ENV VARS'} | AutoTrade: ${opts.derivAutoTradeEnabled !== false ? 'ON' : 'OFF'} | EMA: ${opts.useEmaFilter ? 'ON' : 'OFF'} | HTF: ${opts.useHtfFilter ? 'ON' : 'OFF'}`
     );
     console.log(`======================================================================`);
     this.syncConfig(true);
@@ -379,8 +391,9 @@ class LiveDerivDaemon {
     this.heartbeatTimer = setInterval(() => {
       const curOpts = this.getMergedOptions();
       const curCreds = getDerivEnvCredentials();
+      const curModeLabel = curOpts.derivMode === 'real' ? 'REAL' : 'DEMO';
       console.log(
-        `[LiveDerivDaemon Heartbeat] 🟢 WS:${this.wsConnected ? 'OPEN' : 'DOWN'} | ${this.currentSymbol} (${this.currentTimeframe}/${this.currentHistorySpan}) | Candles:${this.candles.length} | Ticks:${this.totalTicksReceived} | LastPrice:${this.lastTickPrice ?? '---'} | Creds:${curCreds.ok ? 'OK' : 'MISSING'} | AutoTrade:${curOpts.derivAutoTradeEnabled !== false ? 'ON' : 'PAUSED'} (DEMO ONLY)`
+        `[LiveDerivDaemon Heartbeat] 🟢 WS:${this.wsConnected ? 'OPEN' : 'DOWN'} | ${this.currentSymbol} (${this.currentTimeframe}/${this.currentHistorySpan}) | Candles:${this.candles.length} | Ticks:${this.totalTicksReceived} | LastPrice:${this.lastTickPrice ?? '---'} | Creds:${curCreds.ok ? 'OK' : 'MISSING'} | AutoTrade:${curOpts.derivAutoTradeEnabled !== false ? 'ON' : 'PAUSED'} (${curModeLabel})`
       );
     }, 60000);
   }
@@ -447,39 +460,47 @@ class LiveDerivDaemon {
       useAntiWhipsawFilter: options.useAntiWhipsawFilter ?? true,
       whipsawCooldownBars: options.whipsawCooldownBars ?? 4,
       ...options,
-      derivMode: 'demo',
+      derivMode: String(options.derivMode || '').toLowerCase() === 'real' ? 'real' : 'demo',
     };
   }
 
   private syncConfig(force: boolean) {
     try {
-      const configPath = path.join(process.cwd(), '.cloud_alert_config.json');
-      if (fs.existsSync(configPath)) {
-        const stat = fs.statSync(configPath);
-        if (force || stat.mtimeMs > this.lastConfigMtime) {
-          const wasInitial = this.lastConfigMtime === 0;
-          this.lastConfigMtime = stat.mtimeMs;
-          const config = loadAlertConfig();
-          const newSymbol = config.symbol || 'R_75';
-          const newTf = config.timeframe || '1H';
-          const opts = config.options || {};
-          const newHistorySpan = String(opts.historySpan || 'all');
+      const primaryPath = path.join(process.cwd(), '.cloud_alert_config.json');
+      const fallbackPath = path.join('/tmp', 'mcharts_cloud_alert_config.json');
+      let latestMtime = 0;
+      if (fs.existsSync(primaryPath)) {
+        latestMtime = Math.max(latestMtime, fs.statSync(primaryPath).mtimeMs);
+      }
+      if (fs.existsSync(fallbackPath)) {
+        latestMtime = Math.max(latestMtime, fs.statSync(fallbackPath).mtimeMs);
+      }
 
-          if (!wasInitial && !force) {
-            console.log(
-              `[LiveDerivDaemon] Config Synced -> AutoTrade: ${opts.derivAutoTradeEnabled !== false ? 'ON' : 'OFF'} | Mode: DEMO_ONLY | TF: ${newTf} | Span: ${newHistorySpan} | ADX: ${opts.useAdxFilter ? 'ON' : 'OFF'} | SL: ${opts.pointsSl} | TP1: ${opts.pointsTp1}`
-            );
-          }
+      if (latestMtime > 0 && (force || latestMtime > this.lastConfigMtime)) {
+        const wasInitial = this.lastConfigMtime === 0;
+        this.lastConfigMtime = latestMtime;
+        const config = loadAlertConfig();
+        const newSymbol = config.symbol || 'R_75';
+        const newTf = config.timeframe || '1H';
+        const opts = config.options || {};
+        const newHistorySpan = String(opts.historySpan || 'all');
+        const activeMode = String(opts.derivMode || '').toLowerCase() === 'real' ? 'REAL' : 'DEMO';
 
-          if (newSymbol !== this.currentSymbol || newTf !== this.currentTimeframe || newHistorySpan !== this.currentHistorySpan) {
-            console.log(`[LiveDerivDaemon] Market/History changed: ${this.currentSymbol}/${this.currentTimeframe}/${this.currentHistorySpan} -> ${newSymbol}/${newTf}/${newHistorySpan}`);
-            this.currentSymbol = newSymbol;
-            this.currentTimeframe = newTf;
-            this.currentHistorySpan = newHistorySpan;
-            this.granularity = TIMEFRAME_SECONDS[newTf] || 3600;
-            this.hasCompletedInitialLoad = false;
-            this.reconnect();
-          }
+        if (!wasInitial && !force) {
+          console.log(
+            `[LiveDerivDaemon] Config Synced -> AutoTrade: ${opts.derivAutoTradeEnabled !== false ? 'ON' : 'OFF'} | Mode: ${activeMode} | Pair: ${newSymbol} | TF: ${newTf} | Span: ${newHistorySpan} | EMA200: ${opts.useEmaFilter ? 'ON' : 'OFF'} | HTF: ${opts.useHtfFilter ? 'ON' : 'OFF'} | SL: ${opts.pointsSl} | TP1: ${opts.pointsTp1}`
+          );
+        }
+
+        const marketChanged = newSymbol !== this.currentSymbol || newTf !== this.currentTimeframe;
+        this.currentHistorySpan = newHistorySpan;
+        if (marketChanged) {
+          console.log(`[LiveDerivDaemon] Market/TF changed: ${this.currentSymbol}/${this.currentTimeframe} -> ${newSymbol}/${newTf}`);
+          this.currentSymbol = newSymbol;
+          this.currentTimeframe = newTf;
+          this.granularity = TIMEFRAME_SECONDS[newTf] || 3600;
+          this.hasCompletedInitialLoad = false;
+          this.reconnect();
         }
       }
     } catch {
@@ -490,6 +511,7 @@ class LiveDerivDaemon {
   public getStatus() {
     const creds = getDerivEnvCredentials();
     const opts = this.getMergedOptions();
+    const activeMode: 'demo' | 'real' = opts.derivMode === 'real' ? 'real' : 'demo';
     const autoTradingEnabled = opts.derivAutoTradeEnabled !== false;
     const wsOpen = this.wsConnected && Boolean(this.ws && this.ws.readyState === WebSocket.OPEN);
 
@@ -504,8 +526,9 @@ class LiveDerivDaemon {
 
     return {
       executionAuthority: 'liveDerivDaemon',
-      enforcedMode: 'demo' as const,
-      realTradingEnabled: false,
+      activeMode,
+      supportedModes: ['demo', 'real'] as const,
+      realTradingEnabled: true,
       autoTradingEnabled,
       autoTradingActive: autoTradingEnabled && creds.ok && wsOpen,
       autoTradingPausedReason,
@@ -548,7 +571,8 @@ class LiveDerivDaemon {
         },
         tradeExecution: {
           authority: 'liveDerivDaemon',
-          enforcedMode: 'demo',
+          activeMode,
+          realTradingEnabled: true,
           credentialsConfigured: creds.ok,
           autoTradingEnabled,
           attempted: this.attemptedExecutions,
@@ -585,15 +609,7 @@ class LiveDerivDaemon {
   }
 
   private getCandleCountForSpan(): number {
-    if (this.currentHistorySpan === '1W') {
-      return Math.min(1000, Math.max(168, Math.ceil((7 * 86400) / this.granularity)));
-    }
-    if (this.currentHistorySpan === '2W') {
-      return Math.min(1000, Math.max(336, Math.ceil((14 * 86400) / this.granularity)));
-    }
-    if (this.currentHistorySpan === '1M') {
-      return Math.min(1000, Math.max(720, Math.ceil((30 * 86400) / this.granularity)));
-    }
+    // Always load full 1,000 candles on backend so EMA 200, HTF 4H, and Anti-Whipsaw match chart engine 100%
     return 1000;
   }
 
@@ -748,7 +764,7 @@ class LiveDerivDaemon {
             const disconnectDurationSec = this.lastDisconnectedAtMs > 0
               ? (Date.now() - this.lastDisconnectedAtMs) / 1000
               : 9999;
-            const isFastReconnect = this.hasCompletedInitialLoad && disconnectDurationSec <= 10;
+            const isFastReconnect = this.hasCompletedInitialLoad && disconnectDurationSec <= 45;
 
             try {
               const options = this.getMergedOptions();
@@ -764,13 +780,16 @@ class LiveDerivDaemon {
                 const isCurrentBarJustOpened = m.barIndex === lastCandleIdx && (nowSec - m.time <= 10);
                 const isCurrentBarOnFastReconnect = m.barIndex === lastCandleIdx && isFastReconnect;
                 const isFresh = isJustClosed || isCurrentBarJustOpened || isCurrentBarOnFastReconnect;
+                const id = `SIG_${this.currentSymbol}_${this.currentTimeframe}_${m.time}_${m.type}`;
 
                 if (!isFresh) {
-                  const id = `SIG_${this.currentSymbol}_${this.currentTimeframe}_${m.time}_${m.type}`;
                   if (!this.handledSignals.has(id)) {
                     newlySeeded++;
                     this.handledSignals.add(id);
                   }
+                } else if (!this.liveSignalTriggerPrice.has(id)) {
+                  // Anchor signals that already existed during WS reconnect/boot to their honest engine trigger price
+                  this.recordLiveTriggerPrice(id, m.entryPrice || m.price);
                 }
               }
 
@@ -932,7 +951,7 @@ class LiveDerivDaemon {
     uniqueSignalId: string,
     status: SignalLogStatus,
     reason: string,
-    meta: { symbol: string; tf: string; action: 'BUY' | 'SELL'; entryPrice: number; slPrice: number; tpPrice: number; slippagePips: number }
+    meta: { symbol: string; tf: string; action: 'BUY' | 'SELL'; entryPrice: number; slPrice: number; tpPrice: number; slippagePips: number; mode?: 'demo' | 'real' }
   ) {
     if (!this.skippedLoggedIds.has(uniqueSignalId)) {
       this.skippedLoggedIds.add(uniqueSignalId);
@@ -950,7 +969,7 @@ class LiveDerivDaemon {
         slippagePips: Number(meta.slippagePips.toFixed(2)),
         status,
         reason,
-        mode: 'demo',
+        mode: meta.mode === 'real' ? 'real' : 'demo',
         timestamp: new Date().toISOString(),
       });
     }
@@ -986,6 +1005,7 @@ class LiveDerivDaemon {
     if (opts.clearHandledId) {
       this.handledSignals.delete(opts.clearHandledId);
       this.skippedLoggedIds.delete(opts.clearHandledId);
+      this.liveSignalTriggerPrice.delete(opts.clearHandledId);
     }
 
     try {
@@ -1036,17 +1056,32 @@ class LiveDerivDaemon {
       const tp1Pips = Number(options.pointsTp1 || 607);
       const slPrice = recentMarker.slPrice || (isBull ? entryPrice - slPips : entryPrice + slPips);
       const tpPrice = recentMarker.tp1Price || (isBull ? entryPrice + tp1Pips : entryPrice - tp1Pips);
-      const pipsMovedPastEntry = isBull ? (activeCandle.close - entryPrice) : (entryPrice - activeCandle.close);
+
+      if (
+        this.hasCompletedInitialLoad &&
+        recentMarker.barIndex === lastCandleIdx &&
+        !this.handledSignals.has(uniqueSignalId) &&
+        !this.inFlightSignals.has(uniqueSignalId) &&
+        !this.liveSignalTriggerPrice.has(uniqueSignalId)
+      ) {
+        this.recordLiveTriggerPrice(uniqueSignalId, activeCandle.close);
+      }
+
+      const triggerReferencePrice = this.liveSignalTriggerPrice.get(uniqueSignalId) ?? entryPrice;
+      const pipsMovedPastEntry = isBull ? (activeCandle.close - triggerReferencePrice) : (triggerReferencePrice - activeCandle.close);
 
       this.lastEvaluatedSignal = {
         signalId: uniqueSignalId,
         barIndex: recentMarker.barIndex,
         barTime: recentMarker.time,
         type: recentMarker.type,
-        entryPrice,
+        entryPrice: triggerReferencePrice,
         evaluatedAt: this.lastEvaluatedAt,
         outcome: this.handledSignals.has(uniqueSignalId) ? 'HANDLED' : 'EVALUATING',
       };
+
+      const isAutoTradeEnabled = options.derivAutoTradeEnabled !== false;
+      const mode: 'demo' | 'real' = String(options.derivMode || '').toLowerCase() === 'real' ? 'real' : 'demo';
 
       // Stage 5: Freshness, Slippage & Lock Guards
       if (this.handledSignals.has(uniqueSignalId) || this.inFlightSignals.has(uniqueSignalId)) {
@@ -1065,7 +1100,7 @@ class LiveDerivDaemon {
             uniqueSignalId,
             'SKIPPED_FRESHNESS',
             `Candle closed ${secondsSinceClose}s ago (> 10s fresh limit)`,
-            { symbol, tf, action, entryPrice, slPrice, tpPrice, slippagePips: pipsMovedPastEntry }
+            { symbol, tf, action, entryPrice, slPrice, tpPrice, slippagePips: pipsMovedPastEntry, mode }
           );
           this.handledSignals.add(uniqueSignalId);
           this.lastEvaluatedSignal.outcome = 'SKIPPED_FRESHNESS';
@@ -1078,7 +1113,7 @@ class LiveDerivDaemon {
           uniqueSignalId,
           'SKIPPED_SLIPPAGE',
           `Price moved ${pipsMovedPastEntry.toFixed(1)} pips past entry (> 20 pips limit)`,
-          { symbol, tf, action, entryPrice, slPrice, tpPrice, slippagePips: pipsMovedPastEntry }
+          { symbol, tf, action, entryPrice, slPrice, tpPrice, slippagePips: pipsMovedPastEntry, mode }
         );
         this.handledSignals.add(uniqueSignalId);
         this.lastEvaluatedSignal.outcome = 'SKIPPED_SLIPPAGE';
@@ -1093,23 +1128,19 @@ class LiveDerivDaemon {
           uniqueSignalId,
           'SKIPPED_BEYOND_TPSL',
           `Price ${activeCandle.close} already past TP (${tpPrice.toFixed(2)}) or SL (${slPrice.toFixed(2)})`,
-          { symbol, tf, action, entryPrice, slPrice, tpPrice, slippagePips: pipsMovedPastEntry }
+          { symbol, tf, action, entryPrice, slPrice, tpPrice, slippagePips: pipsMovedPastEntry, mode }
         );
         this.handledSignals.add(uniqueSignalId);
         this.lastEvaluatedSignal.outcome = 'SKIPPED_BEYOND_TPSL';
         return;
       }
 
-      const isAutoTradeEnabled = options.derivAutoTradeEnabled !== false;
-      // DEMO MODE ONLY: Never enable Real trading
-      const mode: 'demo' = 'demo';
-
       if (!isAutoTradeEnabled) {
         this.logSkipOnce(
           uniqueSignalId,
           'PAUSED',
           'Auto-Trade is paused in settings (derivAutoTradeEnabled=false)',
-          { symbol, tf, action, entryPrice, slPrice, tpPrice, slippagePips: pipsMovedPastEntry }
+          { symbol, tf, action, entryPrice, slPrice, tpPrice, slippagePips: pipsMovedPastEntry, mode }
         );
         this.handledSignals.add(uniqueSignalId);
         this.lastEvaluatedSignal.outcome = 'PAUSED';
@@ -1129,15 +1160,16 @@ class LiveDerivDaemon {
           uniqueSignalId,
           'SKIPPED_LOCK',
           `Execution lock prevented duplicate order (${lockAcquisition.reason})`,
-          { symbol, tf, action, entryPrice, slPrice, tpPrice, slippagePips: pipsMovedPastEntry }
+          { symbol, tf, action, entryPrice, slPrice, tpPrice, slippagePips: pipsMovedPastEntry, mode }
         );
         this.handledSignals.add(uniqueSignalId);
         this.lastEvaluatedSignal.outcome = 'SKIPPED_LOCK';
         return;
       }
 
+      const modeTag = mode === 'real' ? 'REAL' : 'DEMO';
       console.log(
-        `[LiveDerivDaemon][Stage 5 -> Stage 6] ⚡ GENUINE LIVE BREAKOUT DETECTED: ${uniqueSignalId} | DEMO ${action} @ ${activeCandle.close} (slippage: ${pipsMovedPastEntry.toFixed(1)} pips <= 20)`
+        `[LiveDerivDaemon][Stage 5 -> Stage 6] ⚡ GENUINE LIVE BREAKOUT DETECTED: ${uniqueSignalId} | ${modeTag} ${action} @ ${activeCandle.close} (slippage: ${pipsMovedPastEntry.toFixed(1)} pips <= 20)`
       );
 
       let execStatus: SignalLogStatus = 'DERIV_ERROR';
@@ -1156,13 +1188,13 @@ class LiveDerivDaemon {
           if (attempt > 1) {
             const retryCandle = this.candles[this.candles.length - 1];
             const retryNowSec = nowSecOverride ?? Math.floor(Date.now() / 1000);
-            if (recentMarker.barIndex === lastCandleIdx - 1 && (retryNowSec - (recentMarker.time + this.granularity)) > 10) {
-              execError = `${execError || 'Transient failure'} | Retry aborted: >10s freshness expired`;
+            if (recentMarker.barIndex === lastCandleIdx - 1 && (retryNowSec - (recentMarker.time + this.granularity)) > 15) {
+              execError = `${execError || 'Transient failure'} | Retry aborted: >15s freshness expired`;
               break;
             }
-            const retrySlip = isBull ? (retryCandle.close - entryPrice) : (entryPrice - retryCandle.close);
-            if (retrySlip > 20) {
-              execError = `${execError || 'Transient failure'} | Retry aborted: slippage ${retrySlip.toFixed(1)} > 20 pips`;
+            const retrySlip = isBull ? (retryCandle.close - triggerReferencePrice) : (triggerReferencePrice - retryCandle.close);
+            if (retrySlip > 30) {
+              execError = `${execError || 'Transient failure'} | Retry aborted: slippage ${retrySlip.toFixed(1)} > 30 pips`;
               break;
             }
             await new Promise((r) => setTimeout(r, 250));
@@ -1200,12 +1232,12 @@ class LiveDerivDaemon {
             });
 
             tradeExecutionReport =
-              `\n\n⚡ <b>DERIV DEMO ORDER PLACED!</b>\n` +
+              `\n\n⚡ <b>DERIV ${mode === 'real' ? 'REAL LIVE' : 'DEMO'} ORDER PLACED!</b>\n` +
               `🆔 Contract: #${tradeRes.contractId}\n` +
               `💵 Stake: $${(tradeRes.stake ?? Number(options.derivStake || 2)).toFixed(2)} USD (${tradeRes.multiplier ?? 200}x)\n` +
               `🎯 TP: +$${(tradeRes.takeProfit ?? 6.68).toFixed(2)} | 🛑 SL: -$${(tradeRes.stopLoss ?? 2.0).toFixed(2)}\n` +
               (tradeRes.balanceAfter !== undefined ? `💰 Balance After: $${tradeRes.balanceAfter.toFixed(2)} USD\n` : '');
-            console.log(`[LiveDerivDaemon][Stage 6: Deriv Confirmed] ✅ Demo Contract #${tradeRes.contractId}`);
+            console.log(`[LiveDerivDaemon][Stage 6: Deriv Confirmed] ✅ ${modeTag} Contract #${tradeRes.contractId}`);
             break;
           }
 
@@ -1271,12 +1303,12 @@ class LiveDerivDaemon {
         slippagePips: Number(pipsMovedPastEntry.toFixed(2)),
         status: execStatus,
         reason: execStatus === 'EXECUTED' || execStatus === 'RECONCILED_EXECUTED'
-          ? 'Live breakout confirmed and executed on Deriv Demo'
+          ? `Live breakout confirmed and executed on Deriv ${mode === 'real' ? 'Real' : 'Demo'}`
           : execError,
         retryAttempts: attempts,
         contractId: execContractId,
         reconciled: execReconciled || undefined,
-        mode: 'demo',
+        mode,
         error: execError,
         timestamp: new Date().toISOString(),
       };
@@ -1288,6 +1320,7 @@ class LiveDerivDaemon {
         const symbolName = getSymbolDisplayName(symbol);
         const arrow = isBull ? '🟢' : '🔴';
         const direction = isBull ? 'BUY (Long)' : 'SELL (Short)';
+        const tgModeBadge = mode === 'real' ? '🔴 REAL LIVE ACCOUNT' : '🧪 DEMO VIRTUAL';
         const msg =
           `⚡ <b>REAL-TIME MSTT BREAKOUT SIGNAL</b>\n\n` +
           `🪙 Pair: <b>${symbolName}</b>\n` +
@@ -1296,7 +1329,7 @@ class LiveDerivDaemon {
           `🎯 Entry: <b>${entryPrice.toFixed(2)}</b>\n` +
           `✅ TP: <b>${tpPrice.toFixed(2)}</b> (+${tp1Pips} pips)\n` +
           `🛑 Stop Loss: <b>${slPrice.toFixed(2)}</b> (-${slPips} pips)\n` +
-          `⚖️ Mode: <b>DEMO ONLY</b>` +
+          `⚖️ Mode: <b>${tgModeBadge}</b>` +
           tradeExecutionReport +
           `\n\n<tg-spoiler>#${uniqueSignalId}</tg-spoiler>`;
 

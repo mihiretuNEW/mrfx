@@ -627,6 +627,9 @@ const DEFAULT_SETTINGS: ChartSettings = {
     mrovShowSignalLabels: true,
     mrovShowBreakoutMarker: true,
     mrovRR: 3.0,
+    mrovTargetMode: 'points',
+    mrovPointsSl: 165,
+    mrovPointsTp: 607,
     mrovShowTradeGrid: true,
     mrovRiskColor: '#dc4155',
     mrovRewardColor: '#00a078',
@@ -673,7 +676,6 @@ const DEFAULT_SETTINGS: ChartSettings = {
       'trade_planner',
       'fib_swing',
       'mtf_ema',
-      'mrov_trade',
       'ema_50_100',
     ],
   },
@@ -1130,10 +1132,10 @@ function AppContent() {
           'auto_price_channels', 'auto_sdc', 'ma', 'gta', 'twb', 'smc', 'so', 'fvg', 'ict',
           'mstat', 'mss', 'pr', 'sr', 'echo', 'mpro2', 'master', 'hvn', 'nexus', 'session',
           'obv', 'pro_ob', 'vip_scanner', 'dynamic_tpsl', 'trade_planner', 'fib_swing',
-          'mtf_ema', 'mrov_trade', 'ema_50_100',
+          'mtf_ema', 'ema_50_100',
         ];
         if (parsed.indicators) {
-          parsed.indicators.deletedIndicators = Array.from(new Set([...(parsed.indicators.deletedIndicators || []), ...allOtherIndicators]));
+          parsed.indicators.deletedIndicators = Array.from(new Set([...(parsed.indicators.deletedIndicators || []), ...allOtherIndicators])).filter((id) => id !== 'mrov_trade');
           parsed.indicators.showAutoPriceChannels = false;
           parsed.indicators.showAutoSupplyDemandChannel = false;
           parsed.indicators.showMA = false;
@@ -1160,8 +1162,10 @@ function AppContent() {
           parsed.indicators.showTradePlanner = false;
           parsed.indicators.showFibonacciSequenceSwing = false;
           parsed.indicators.showMultiTimeframeEma = false;
-          parsed.indicators.showMrovOpeningRange = false;
           parsed.indicators.showEma50100Trend = false;
+          if (parsed.indicators.msttTgBotToken && String(parsed.indicators.msttTgBotToken).includes('...')) {
+            parsed.indicators.msttTgBotToken = '';
+          }
           if (parsed.indicators.showMarketStructureTargetTracker === undefined) {
             parsed.indicators.showMarketStructureTargetTracker = true;
           }
@@ -1359,12 +1363,14 @@ function AppContent() {
     const timer = setTimeout(async () => {
       try {
         const ind = settings.indicators || {};
+        const rawTok = (ind.msttTgBotToken || '').trim();
+        const rawChat = (ind.msttTgChatId || '').trim();
         const payload = {
-          symbol: selectedSymbol || 'R_75',
-          timeframe: selectedTimeframe || '1H',
+          symbol: ind.msttTgSymbol || selectedSymbol || 'R_75',
+          timeframe: ind.msttTgTimeframe || selectedTimeframe || '1H',
           enabled: ind.msttTgAlertsEnabled !== false,
-          botToken: (ind.msttTgBotToken || '').trim(),
-          chatId: (ind.msttTgChatId || '').trim(),
+          ...(rawTok && !rawTok.includes('...') ? { botToken: rawTok } : {}),
+          ...(rawChat ? { chatId: rawChat } : {}),
           options: {
             historySpan: settings.historySpan || '1W',
             targetMode: ind.msttTargetMode ?? 'points',
@@ -1424,7 +1430,7 @@ function AppContent() {
             whipsawCooldownBars: ind.msttWhipsawCooldownBars ?? 4,
             preventLateEntry: ind.msttPreventLateEntry ?? true,
             maxBreakoutDelay: ind.msttMaxBreakoutDelay ?? 1,
-            derivMode: 'demo',
+            derivMode: ind.derivMode === 'real' ? 'real' : 'demo',
             derivAutoTradeEnabled: ind.derivAutoTradeEnabled !== false,
             derivStake: ind.derivStake ?? 2.0,
             derivMultiplier: ind.derivMultiplier ?? 200,
@@ -1462,15 +1468,19 @@ function AppContent() {
           const opt = cfg.options;
           setSettings((prev) => {
             const prevInd = prev.indicators;
+            const safeCfgBot = (cfg.botToken && !String(cfg.botToken).includes('...')) ? String(cfg.botToken) : '';
+            const safePrevBot = (prevInd.msttTgBotToken && !String(prevInd.msttTgBotToken).includes('...')) ? prevInd.msttTgBotToken : '';
             if (hasLocalCustom) {
               // Preserve user's chart strategy customizations from localStorage, only fill missing cloud credentials/settings
               return {
                 ...prev,
                 indicators: {
                   ...prevInd,
-                  msttTgBotToken: prevInd.msttTgBotToken || cfg.botToken || '',
+                  msttTgBotToken: safePrevBot || safeCfgBot || '',
                   msttTgChatId: prevInd.msttTgChatId || cfg.chatId || '',
-                  derivMode: 'demo',
+                  derivMode: (prevInd.derivMode === 'real' || prevInd.derivMode === 'demo')
+                    ? prevInd.derivMode
+                    : (opt.derivMode === 'real' ? 'real' : 'demo'),
                   derivAutoTradeEnabled: prevInd.derivAutoTradeEnabled !== undefined ? prevInd.derivAutoTradeEnabled : Boolean(opt.derivAutoTradeEnabled ?? true),
                 },
               };
@@ -1480,10 +1490,13 @@ function AppContent() {
               historySpan: (opt.historySpan || prev.historySpan || '1W') as any,
               indicators: {
                 ...prevInd,
-                msttTgBotToken: prevInd.msttTgBotToken || cfg.botToken || '',
+                msttTgToken: undefined as any,
+                msttTgBotToken: safePrevBot || safeCfgBot || '',
                 msttTgChatId: prevInd.msttTgChatId || cfg.chatId || '',
+                msttTgSymbol: cfg.symbol || prevInd.msttTgSymbol,
+                msttTgTimeframe: cfg.timeframe || prevInd.msttTgTimeframe,
                 msttTgAlertsEnabled: cfg.enabled !== undefined ? Boolean(cfg.enabled) : prevInd.msttTgAlertsEnabled,
-                derivMode: 'demo',
+                derivMode: opt.derivMode === 'real' ? 'real' : 'demo',
                 derivAutoTradeEnabled: opt.derivAutoTradeEnabled !== undefined ? Boolean(opt.derivAutoTradeEnabled) : true,
                 derivStake: opt.derivStake !== undefined ? opt.derivStake : prevInd.derivStake,
                 derivMultiplier: opt.derivMultiplier !== undefined ? opt.derivMultiplier : prevInd.derivMultiplier,
@@ -1491,6 +1504,8 @@ function AppContent() {
                 derivStopLossUsd: opt.derivStopLossUsd !== undefined ? opt.derivStopLossUsd : prevInd.derivStopLossUsd,
                 derivMaxConsecutiveLosses: opt.derivMaxConsecutiveLosses !== undefined ? opt.derivMaxConsecutiveLosses : prevInd.derivMaxConsecutiveLosses,
                 msttTargetMode: opt.targetMode !== undefined ? opt.targetMode : prevInd.msttTargetMode,
+                msttTargetFocus: opt.targetFocus !== undefined ? opt.targetFocus : prevInd.msttTargetFocus,
+                msttKeepN: opt.keepN !== undefined ? opt.keepN : prevInd.msttKeepN,
                 msttPointsSl: opt.pointsSl !== undefined ? opt.pointsSl : prevInd.msttPointsSl,
                 msttPointsTp1: opt.pointsTp1 !== undefined ? opt.pointsTp1 : prevInd.msttPointsTp1,
                 msttSwingLen: opt.swingLen !== undefined ? opt.swingLen : prevInd.msttSwingLen,
@@ -1499,8 +1514,14 @@ function AppContent() {
                 msttUseWickFilter: opt.useWickFilter !== undefined ? opt.useWickFilter : prevInd.msttUseWickFilter,
                 msttUseDisplacementFilter: opt.useDisplacementFilter !== undefined ? opt.useDisplacementFilter : prevInd.msttUseDisplacementFilter,
                 msttUseBodyCloseFilter: opt.useBodyCloseFilter !== undefined ? opt.useBodyCloseFilter : prevInd.msttUseBodyCloseFilter,
+                msttUseEmaFilter: opt.useEmaFilter !== undefined ? opt.useEmaFilter : prevInd.msttUseEmaFilter,
+                msttEmaLen: opt.emaLen !== undefined ? opt.emaLen : prevInd.msttEmaLen,
+                msttUseCandleFilter: opt.useCandleFilter !== undefined ? opt.useCandleFilter : prevInd.msttUseCandleFilter,
+                msttMinBodyAtr: opt.minBodyAtr !== undefined ? opt.minBodyAtr : prevInd.msttMinBodyAtr,
+                msttBreakoutBufferAtr: opt.breakoutBufferAtr !== undefined ? opt.breakoutBufferAtr : prevInd.msttBreakoutBufferAtr,
                 msttUseAdxFilter: opt.useAdxFilter !== undefined ? opt.useAdxFilter : prevInd.msttUseAdxFilter,
                 msttUseHtfFilter: opt.useHtfFilter !== undefined ? opt.useHtfFilter : prevInd.msttUseHtfFilter,
+                msttHtfRes: opt.htfRes !== undefined ? opt.htfRes : prevInd.msttHtfRes,
                 msttUseAntiWhipsawFilter: opt.useAntiWhipsawFilter !== undefined ? opt.useAntiWhipsawFilter : prevInd.msttUseAntiWhipsawFilter,
                 msttPreventLateEntry: opt.preventLateEntry !== undefined ? opt.preventLateEntry : prevInd.msttPreventLateEntry,
                 msttInvalidateMode: opt.invalidateMode !== undefined ? opt.invalidateMode : prevInd.msttInvalidateMode,

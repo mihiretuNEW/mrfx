@@ -1535,6 +1535,21 @@ export function calculateMarketStructureTargetTracker(
     const adxOkBull = !useAdxFilter || (curAdx === null || (isAdxTrending && isAdxExpanding && diSpreadBull >= minDiSpread));
     const adxOkBear = !useAdxFilter || (curAdx === null || (isAdxTrending && isAdxExpanding && diSpreadBear >= minDiSpread));
 
+    const prevAdxVal = useAdxFilter && bar_index > 0 && adxSeries.length > bar_index - 1 && !isNaN(adxSeries[bar_index - 1]) ? adxSeries[bar_index - 1] : null;
+    const prev2AdxVal = useAdxFilter && bar_index > 1 && adxSeries.length > bar_index - 2 && !isNaN(adxSeries[bar_index - 2]) ? adxSeries[bar_index - 2] : prevAdxVal;
+    const prevPdiVal = useAdxFilter && bar_index > 0 && pdiSeries.length > bar_index - 1 && !isNaN(pdiSeries[bar_index - 1]) ? pdiSeries[bar_index - 1] : null;
+    const prevMdiVal = useAdxFilter && bar_index > 0 && mdiSeries.length > bar_index - 1 && !isNaN(mdiSeries[bar_index - 1]) ? mdiSeries[bar_index - 1] : null;
+    const wasAdxOkBull = !useAdxFilter || (prevAdxVal === null || (
+      prevAdxVal >= minAdx &&
+      (prevAdxVal >= 24 || (prev2AdxVal !== null && prevAdxVal >= prev2AdxVal - 0.4)) &&
+      ((prevPdiVal !== null && prevMdiVal !== null ? prevPdiVal - prevMdiVal : 0) >= minDiSpread)
+    ));
+    const wasAdxOkBear = !useAdxFilter || (prevAdxVal === null || (
+      prevAdxVal >= minAdx &&
+      (prevAdxVal >= 24 || (prev2AdxVal !== null && prevAdxVal >= prev2AdxVal - 0.4)) &&
+      ((prevPdiVal !== null && prevMdiVal !== null ? prevMdiVal - prevPdiVal : 0) >= minDiSpread)
+    ));
+
     // ── Strong Breakout Candle Filter ─────────────────────────────────────────
     const candleBodyVal = Math.abs(c.close - c.open);
     const bodyAtrOk = !useCandleFilter || (atrVal <= 0 || candleBodyVal >= atrVal * minBodyAtr);
@@ -1864,14 +1879,49 @@ export function calculateMarketStructureTargetTracker(
       totalBos += 1;
       bullBosCount += 1;
 
-      entryPrice = bosLevel! + (targetMode === 'points' ? 0 : atrLocked * 0.1);
+      // Honest real-time signal entry price (never back-dated to bosLevel when filters confirm later)
+      const needsVolumeConfirmBull = useVolumeFilter || (useScoreFilter && (bullScore - (volumeSpike ? 20 : 0)) < minContinuationScore);
+      const adxFlippedThisBarBull = useAdxFilter && !wasAdxOkBull;
+      let honestBullEntry = (useRetestConfirmation || needsVolumeConfirmBull || adxFlippedThisBarBull)
+        ? c.close
+        : Math.max(bosLevel!, c.open);
+      if (!useRetestConfirmation && !needsVolumeConfirmBull && !adxFlippedThisBarBull) {
+        if (useCandleFilter && atrVal > 0) {
+          if (minBodyAtr > 0) honestBullEntry = Math.max(honestBullEntry, c.open + atrVal * minBodyAtr);
+          if (breakoutBufferAtr > 0) honestBullEntry = Math.max(honestBullEntry, bosLevel! + atrVal * breakoutBufferAtr);
+        }
+        if (useDisplacementFilter && atrVal > 0 && minDisplacementAtr > 0) {
+          honestBullEntry = Math.max(honestBullEntry, c.open + atrVal * minDisplacementAtr);
+        }
+        if (useEmaFilter && emaVal !== null) {
+          honestBullEntry = Math.max(honestBullEntry, emaVal);
+        }
+        if (useBodyCloseFilter && minBodyRatio > 0) {
+          if (minBodyRatio >= 1) {
+            honestBullEntry = c.close;
+          } else if (c.open > c.low) {
+            const bodyCloseReq = (c.open - minBodyRatio * c.low) / (1 - minBodyRatio);
+            honestBullEntry = Math.max(honestBullEntry, bodyCloseReq);
+          }
+        }
+        if (useWickFilter && candleRange > 0) {
+          const wickReq = c.high - maxWickRatio * candleRange;
+          honestBullEntry = Math.max(honestBullEntry, wickReq);
+        }
+        if (useSweepFilter && barsSinceBullSweep === 0 && priorLow !== Infinity) {
+          honestBullEntry = Math.max(honestBullEntry, priorLow);
+        }
+        honestBullEntry = Math.min(c.close, Math.max(c.low, honestBullEntry));
+      }
+      entryPrice = honestBullEntry;
+
       if (targetMode === 'points') {
         slPrice = entryPrice - pointsSl;
         tp1Price = entryPrice + pointsTp1;
         tp2Price = entryPrice + pointsTp2;
         tp3Price = entryPrice + pointsTp3;
       } else {
-        slPrice = bosLevel! - atrLocked * slMulti;
+        slPrice = entryPrice - atrLocked * slMulti;
         tp1Price = entryPrice + atrLocked * tp1Multi;
         tp2Price = entryPrice + atrLocked * tp2Multi;
         tp3Price = entryPrice + atrLocked * tp3Multi;
@@ -1959,10 +2009,10 @@ export function calculateMarketStructureTargetTracker(
           filterFlags: currentActiveFilters || 'NONE',
         };
 
-        // Check if this breakout candle reached TP1 in the very same bar (Fast Momentum Win)
+        // Check if this breakout candle reached TP1 in the very same bar (only when SL was not touched anywhere on bar and not a delayed retest)
         const sameBarTp1 = c.high >= activeTrade.tp1Price;
         const sameBarSl = c.low <= activeTrade.slPrice;
-        if (sameBarTp1 && !sameBarSl) {
+        if (!useRetestConfirmation && sameBarTp1 && !sameBarSl) {
           const sameBarTp2 = c.high >= activeTrade.tp2Price;
           const sameBarTp3 = c.high >= activeTrade.tp3Price;
           let exitP = activeTrade.tp1Price;
@@ -2094,15 +2144,49 @@ export function calculateMarketStructureTargetTracker(
       totalBos += 1;
       bearBosCount += 1;
 
-      // Realistic entry price anchoring (if delayed entry allowed, anchor to current candle close)
-      entryPrice = bosLevel! - (targetMode === 'points' ? 0 : atrLocked * 0.1);
+      // Honest real-time signal entry price (never back-dated to bosLevel when filters confirm later)
+      const needsVolumeConfirmBear = useVolumeFilter || (useScoreFilter && (bearScore - (volumeSpike ? 20 : 0)) < minContinuationScore);
+      const adxFlippedThisBarBear = useAdxFilter && !wasAdxOkBear;
+      let honestBearEntry = (useRetestConfirmation || needsVolumeConfirmBear || adxFlippedThisBarBear)
+        ? c.close
+        : Math.min(bosLevel!, c.open);
+      if (!useRetestConfirmation && !needsVolumeConfirmBear && !adxFlippedThisBarBear) {
+        if (useCandleFilter && atrVal > 0) {
+          if (minBodyAtr > 0) honestBearEntry = Math.min(honestBearEntry, c.open - atrVal * minBodyAtr);
+          if (breakoutBufferAtr > 0) honestBearEntry = Math.min(honestBearEntry, bosLevel! - atrVal * breakoutBufferAtr);
+        }
+        if (useDisplacementFilter && atrVal > 0 && minDisplacementAtr > 0) {
+          honestBearEntry = Math.min(honestBearEntry, c.open - atrVal * minDisplacementAtr);
+        }
+        if (useEmaFilter && emaVal !== null) {
+          honestBearEntry = Math.min(honestBearEntry, emaVal);
+        }
+        if (useBodyCloseFilter && minBodyRatio > 0) {
+          if (minBodyRatio >= 1) {
+            honestBearEntry = c.close;
+          } else if (c.high > c.open) {
+            const bodyCloseReq = (c.open - minBodyRatio * c.high) / (1 - minBodyRatio);
+            honestBearEntry = Math.min(honestBearEntry, bodyCloseReq);
+          }
+        }
+        if (useWickFilter && candleRange > 0) {
+          const wickReq = c.low + maxWickRatio * candleRange;
+          honestBearEntry = Math.min(honestBearEntry, wickReq);
+        }
+        if (useSweepFilter && barsSinceBearSweep === 0 && priorHigh !== -Infinity) {
+          honestBearEntry = Math.min(honestBearEntry, priorHigh);
+        }
+        honestBearEntry = Math.max(c.close, Math.min(c.high, honestBearEntry));
+      }
+      entryPrice = honestBearEntry;
+
       if (targetMode === 'points') {
         slPrice = entryPrice + pointsSl;
         tp1Price = entryPrice - pointsTp1;
         tp2Price = entryPrice - pointsTp2;
         tp3Price = entryPrice - pointsTp3;
       } else {
-        slPrice = bosLevel! + atrLocked * slMulti;
+        slPrice = entryPrice + atrLocked * slMulti;
         tp1Price = entryPrice - atrLocked * tp1Multi;
         tp2Price = entryPrice - atrLocked * tp2Multi;
         tp3Price = entryPrice - atrLocked * tp3Multi;
@@ -2190,10 +2274,10 @@ export function calculateMarketStructureTargetTracker(
           filterFlags: currentActiveFilters || 'NONE',
         };
 
-        // Check if this breakout candle reached TP1 in the very same bar (Fast Momentum Win)
+        // Check if this breakout candle reached TP1 in the very same bar (only when SL was not touched anywhere on bar and not a delayed retest)
         const sameBarTp1 = c.low <= activeTrade.tp1Price;
         const sameBarSl = c.high >= activeTrade.slPrice;
-        if (sameBarTp1 && !sameBarSl) {
+        if (!useRetestConfirmation && sameBarTp1 && !sameBarSl) {
           const sameBarTp2 = c.low <= activeTrade.tp2Price;
           const sameBarTp3 = c.low <= activeTrade.tp3Price;
           let exitP = activeTrade.tp1Price;

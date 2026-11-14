@@ -747,6 +747,9 @@ export interface ChartSettings {
     mrovShowSignalLabels?: boolean; // Show LONG / SHORT
     mrovShowBreakoutMarker?: boolean; // Show Entry Marker
     mrovRR?: number; // Risk / Reward ratio (default 3.0)
+    mrovTargetMode?: 'points' | 'rr'; // 'points' = written SL/TP pips, 'rr' = candle range * R:R
+    mrovPointsSl?: number; // Fixed Stop Loss in Points/Pips (default: 165)
+    mrovPointsTp?: number; // Fixed Take Profit in Points/Pips (default: 607)
     mrovShowTradeGrid?: boolean; // Show Trade Grid
     mrovRiskColor?: string; // color.rgb(220, 65, 85)
     mrovRewardColor?: string; // color.rgb(0, 160, 120)

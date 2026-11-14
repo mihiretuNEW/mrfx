@@ -422,8 +422,7 @@ async function checkAndSendScheduledReports(
   const eatDateStr = eatDate.toISOString().slice(0, 10);
   const eatTimeFormatted = `${String(eatHour).padStart(2, '0')}:${String(eatMinutes).padStart(2, '0')} EAT`;
 
-  // Demo mode only
-  const derivMode: 'demo' = 'demo';
+  const derivMode: 'demo' | 'real' = String(savedConfig?.options?.derivMode || '').toLowerCase() === 'real' ? 'real' : 'demo';
 
   const circuit = getDerivCircuitStatus();
 
@@ -433,7 +432,10 @@ async function checkAndSendScheduledReports(
       try {
         const accs = await fetchDerivAccounts();
         if (accs.ok && accs.accounts) {
-          const match = accs.accounts.find((a) => a.account_type === derivMode);
+          const modePool = accs.accounts.filter((a) => a.account_type === derivMode);
+          const activePool = modePool.filter((a) => String(a.status || 'active').toLowerCase() === 'active');
+          const pool = activePool.length > 0 ? activePool : modePool;
+          const match = pool.find((a) => a.currency.toUpperCase() === 'USD') || pool[0];
           if (match) {
             return `${match.balance.toFixed(2)} ${match.currency}`;
           }
@@ -469,7 +471,7 @@ async function checkAndSendScheduledReports(
       const dailyMsg =
         `🌅 <b>DAILY MORNING BRIEFING (የዕለቱ ሪፖርት)</b>\n\n` +
         `📅 <b>Date:</b> ${eatDateStr} | ⏰ <b>${eatTimeFormatted}</b>\n` +
-        `🪙 <b>Strategy:</b> Volatility 75 Index (1H Breakout)\n` +
+        `🪙 <b>Strategy:</b> Volatility 75 Index (${savedConfig.timeframe || '1H'} Breakout)\n` +
         `🎯 <b>Risk:</b> Stake $${Number(savedConfig.options?.derivStake || 2.0).toFixed(2)} | TP +$${Number(savedConfig.options?.derivTakeProfitUsd || 6.68).toFixed(2)} | SL -$${Number(savedConfig.options?.derivStopLossUsd || 2.0).toFixed(2)}\n\n` +
         `📊 <b>24-Hour Performance:</b>\n` +
         `• Total Trades: <b>${totalTrades}</b>\n` +
@@ -477,10 +479,10 @@ async function checkAndSendScheduledReports(
         `• Losses (SL Hit): <b>${losses} ❌</b>\n` +
         `• Win Rate: <b>${winRate}%</b>\n` +
         `• Net Pips: <b>${totalPips >= 0 ? '+' : ''}${totalPips} pips</b>\n\n` +
-        `💼 <b>Deriv Status (DEMO ONLY):</b>\n` +
+        `💼 <b>Deriv Status (${derivMode === 'real' ? 'REAL LIVE' : 'DEMO'}):</b>\n` +
         `• Live Balance: <b>$${balanceStr}</b>\n` +
         `• Circuit Breaker: <b>${circuit.isTripped ? '🛑 TRIPPED (Safe Stop)' : `🟢 ACTIVE (${circuit.consecutiveLosses}/${circuit.maxConsecutiveLosses} consecutive losses)`}</b>\n\n` +
-        `✨ <i>Mire, discipline is key! Never revenge trade, let the 1H strategy execute cleanly!</i>\n\n` +
+        `✨ <i>Mire, discipline is key! Never revenge trade, let the strategy execute cleanly!</i>\n\n` +
         `<tg-spoiler>#${dailyReportTag}</tg-spoiler>`;
 
       await sendTelegramDirect(botToken, chatId, dailyMsg).catch(() => {});
@@ -559,8 +561,11 @@ export default async function handler(req: any, res: any) {
     cleanupExpiredCronLocks();
 
     const savedConfig = loadAlertConfig();
-    const botToken = (body.botToken || savedConfig.botToken || req.query?.token || req.query?.botToken || '')?.toString()?.trim();
-    const chatId = (body.chatId || savedConfig.chatId || req.query?.chat || req.query?.chatId || '')?.toString()?.trim();
+    const envBotToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+    const envChatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
+    const reqBotToken = (body.botToken && !String(body.botToken).includes('...')) ? String(body.botToken).trim() : '';
+    const botToken = (envBotToken || reqBotToken || savedConfig.botToken || req.query?.token || req.query?.botToken || '')?.toString()?.trim();
+    const chatId = (envChatId || body.chatId || savedConfig.chatId || req.query?.chat || req.query?.chatId || '')?.toString()?.trim();
 
     const symbol = (body.symbol || savedConfig.symbol || req.query?.symbol || 'R_75').toString();
     const tf = (body.timeframe || body.tf || savedConfig.timeframe || req.query?.tf || req.query?.timeframe || '30M').toString();
@@ -589,8 +594,7 @@ export default async function handler(req: any, res: any) {
     const useWhip = req.query?.useWhip !== undefined ? (req.query.useWhip === 'true' || req.query.useWhip === '1') : Boolean(body.options?.useAntiWhipsawFilter ?? savedConfig.options?.useAntiWhipsawFilter);
 
     const userHistorySpan = (body.options?.historySpan || savedConfig.options?.historySpan || 'all').toString();
-    const spanDays = userHistorySpan === 'all' ? 60 : userHistorySpan === '1M' ? 30 : userHistorySpan === '2W' ? 14 : 7;
-    const candleFetchCount = userHistorySpan === 'all' ? 1000 : Math.min(1000, Math.max(120, Math.ceil((spanDays * 86400) / granularity)));
+    const candleFetchCount = 1000;
 
     const mergedOptions: Record<string, any> = {
       targetMode: 'points',
@@ -806,7 +810,9 @@ export default async function handler(req: any, res: any) {
                 exitPrice: active.tp1Price,
                 closedAt: Date.now(),
               });
-              recordDerivTradeOutcome(true);
+              if (String(savedConfig.options?.derivMode || '').toLowerCase() === 'real') {
+                recordDerivTradeOutcome(true, Number(savedConfig.options?.derivMaxConsecutiveLosses || 3));
+              }
               state.activeTrade = null;
               await sendTelegramDirect(botToken, chatId, resolutionMessage);
               await unpinTelegramDirect(botToken, chatId);
@@ -833,7 +839,9 @@ export default async function handler(req: any, res: any) {
                 exitPrice: active.slPrice,
                 closedAt: Date.now(),
               });
-              recordDerivTradeOutcome(false, Number(savedConfig.options?.derivMaxConsecutiveLosses || 2));
+              if (String(savedConfig.options?.derivMode || '').toLowerCase() === 'real') {
+                recordDerivTradeOutcome(false, Number(savedConfig.options?.derivMaxConsecutiveLosses || 3));
+              }
               state.activeTrade = null;
               await sendTelegramDirect(botToken, chatId, resolutionMessage);
               await unpinTelegramDirect(botToken, chatId);
@@ -914,7 +922,9 @@ export default async function handler(req: any, res: any) {
                 exitPrice: active.tp1Price,
                 closedAt: Date.now(),
               });
-              recordDerivTradeOutcome(true);
+              if (String(savedConfig.options?.derivMode || '').toLowerCase() === 'real') {
+                recordDerivTradeOutcome(true, Number(savedConfig.options?.derivMaxConsecutiveLosses || 3));
+              }
               state.activeTrade = null;
               await sendTelegramDirect(botToken, chatId, resolutionMessage);
               await unpinTelegramDirect(botToken, chatId);
@@ -941,7 +951,9 @@ export default async function handler(req: any, res: any) {
                 exitPrice: active.slPrice,
                 closedAt: Date.now(),
               });
-              recordDerivTradeOutcome(false, Number(savedConfig.options?.derivMaxConsecutiveLosses || 2));
+              if (String(savedConfig.options?.derivMode || '').toLowerCase() === 'real') {
+                recordDerivTradeOutcome(false, Number(savedConfig.options?.derivMaxConsecutiveLosses || 3));
+              }
               state.activeTrade = null;
               await sendTelegramDirect(botToken, chatId, resolutionMessage);
               await unpinTelegramDirect(botToken, chatId);
@@ -1115,12 +1127,15 @@ export default async function handler(req: any, res: any) {
 
     saveCronState(state);
 
+    const activeMode: 'demo' | 'real' = String(savedConfig?.options?.derivMode || '').toLowerCase() === 'real' ? 'real' : 'demo';
+
     return res.status(200).json({
       ok: true,
       role: 'MONITOR_ONLY',
       executionAuthority: 'liveDerivDaemon',
       cronExecutionDisabled: true,
-      enforcedMode: 'demo',
+      activeMode,
+      realTradingEnabled: true,
       timestamp: Date.now(),
       symbol,
       timeframe: tf,

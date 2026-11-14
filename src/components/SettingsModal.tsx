@@ -67,6 +67,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [tgAlertMsg, setTgAlertMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showTgTokenSecret, setShowTgTokenSecret] = useState(false);
   const [cronUrlCopied, setCronUrlCopied] = useState(false);
+  const [uptimeUrlCopied, setUptimeUrlCopied] = useState(false);
+  const [renderBaseUrl, setRenderBaseUrl] = useState<string>(() => {
+    try {
+      return localStorage.getItem('mcharts_render_base_url') || '';
+    } catch {
+      return '';
+    }
+  });
 
   // ⚡ Deriv Multipliers Auto-Trading State & Handlers
   const [derivVerifying, setDerivVerifying] = useState(false);
@@ -129,8 +137,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const handleResetCircuitBreaker = async () => {
+    try {
+      const res = await fetch('/api/deriv-trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset_breaker' }),
+      });
+      const data = await res.json().catch(() => null);
+      if (data && data.ok) {
+        setDerivTradeMsg({ type: 'success', text: '🔄 Circuit Breaker ዳግም ተጀምሯል (Reset complete)!' });
+        fetchDerivStatus();
+      }
+    } catch {}
+  };
+
   const handleExecuteLiveDerivTrade = async (dir: 'BUY' | 'SELL') => {
-    const mode: 'demo' = 'demo';
+    const mode: 'demo' | 'real' = settings.indicators.derivMode === 'real' ? 'real' : 'demo';
 
     setDerivTestingTrade(true);
     setDerivTradeMsg(null);
@@ -142,7 +165,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           action: 'execute',
           mode,
           direction: dir,
-          symbol: 'R_75',
+          symbol: settings.indicators.msttTgSymbol || 'R_75',
           stake: settings.indicators.derivStake ?? 2.0,
           multiplier: settings.indicators.derivMultiplier ?? 200,
           takeProfitUsd: settings.indicators.derivTakeProfitUsd ?? 6.68,
@@ -153,9 +176,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const data = await res.json().catch(() => null);
       if (data && data.ok) {
         const trade = data.trade;
+        const modeBadge = mode === 'real' ? '🔴 REAL LIVE' : '🧪 DEMO';
         setDerivTradeMsg({
           type: 'success',
-          text: `🚀 Deriv ${mode.toUpperCase()} ${dir} Multiplier #${trade?.contractId} ተከፍቷል! ($${trade?.stake} @ ${trade?.multiplier}x | Balance: $${trade?.balanceAfter?.toFixed(2) ?? '---'})`,
+          text: `🚀 Deriv ${modeBadge} ${dir} Multiplier #${trade?.contractId} ተከፍቷል! ($${trade?.stake} @ ${trade?.multiplier}x | Balance: $${trade?.balanceAfter?.toFixed(2) ?? '---'})`,
           details: trade,
         });
         handleVerifyDerivToken();
@@ -383,7 +407,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           atrLen: ind.msttAtrLen ?? 14,
           preventLateEntry: ind.msttPreventLateEntry ?? true,
           maxBreakoutDelay: ind.msttMaxBreakoutDelay ?? 1,
-          derivMode: 'demo',
+          derivMode: ind.derivMode === 'real' ? 'real' : 'demo',
           derivAutoTradeEnabled: ind.derivAutoTradeEnabled !== false,
           derivStake: ind.derivStake ?? 2.0,
           derivMultiplier: ind.derivMultiplier ?? 200,
@@ -8902,54 +8926,97 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </div>
                         )}
 
-                        {/* Step-by-Step CRON-JOB.ORG URL Box */}
-                        <div className="p-3 bg-neutral-950/90 rounded-lg border border-neutral-800 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-gray-200 flex items-center gap-1.5">
-                              <span>🔗</span> ወደ cron-job.org የምትገለብጠው URL:
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
-                                const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
-                                const token = (settings.indicators.msttTgBotToken || '').trim();
-                                const chat = (settings.indicators.msttTgChatId || '').trim();
-                                let cronUrl = `${origin}/api/cron-check`;
-                                if (token && chat) {
-                                  cronUrl += `?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}`;
-                                }
+                        {/* Step-by-Step CRON-JOB.ORG & UPTIMEROBOT Keep-Alive URL Box */}
+                        <div className="p-3 bg-neutral-950/90 rounded-lg border border-neutral-800 space-y-3">
+                          {(() => {
+                            const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+                            const isDevPreview = currentOrigin.includes('run.app') || currentOrigin.includes('localhost');
+                            const cleanedCustom = renderBaseUrl.trim().replace(/\/+$/, '');
+                            const baseOrigin = cleanedCustom || (isDevPreview ? 'https://YOUR-APP.onrender.com' : currentOrigin);
+                            const token = (settings.indicators.msttTgBotToken || '').trim();
+                            const chat = (settings.indicators.msttTgChatId || '').trim();
+                            const cronUrl = token && chat && !token.includes('...')
+                              ? `${baseOrigin}/api/cron-check?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}`
+                              : `${baseOrigin}/api/cron-check`;
+                            const uptimeUrl = `${baseOrigin}/healthz`;
 
-                                navigator.clipboard.writeText(cronUrl);
-                                setCronUrlCopied(true);
-                                setTimeout(() => setCronUrlCopied(false), 3000);
-                              }}
-                              className="px-2 py-0.5 text-[10px] font-semibold bg-neutral-800 hover:bg-neutral-700 text-sky-400 rounded border border-neutral-700 transition-colors"
-                            >
-                              {cronUrlCopied ? '✅ ተገልብጧል (Copied)!' : 'ኮፒ አድርግ (Copy URL)'}
-                            </button>
-                          </div>
-                          <div className="p-2 bg-neutral-900 rounded border border-neutral-850 text-[11px] font-mono text-amber-300 break-all select-all">
-                            {(() => {
-                              const isDevPreview = typeof window !== 'undefined' && (window.location.origin.includes('run.app') || window.location.origin.includes('localhost'));
-                              const origin = isDevPreview ? 'https://mrvol75.vercel.app' : window.location.origin;
-                              const token = (settings.indicators.msttTgBotToken || '').trim();
-                              const chat = (settings.indicators.msttTgChatId || '').trim();
-                              let url = `${origin}/api/cron-check`;
-                              if (token && chat) {
-                                url += `?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}`;
-                              }
-                              return url;
-                            })()}
-                          </div>
-                          <div className="text-[10px] text-emerald-400/90 bg-emerald-950/40 p-1.5 rounded border border-emerald-500/20">
-                            💡 <b>Smart Sync:</b> በ Settings ውስጥ የምትቀይሩት ማንኛውም Timeframe (ለምሳሌ 1H, 15M, 30M) ወይም SL/TP በራስ-ሰር ወደ Cloud ይሰምራል፤ cron-job.org ላይ URL መቀየር አያስፈልግዎትም!
+                            return (
+                              <>
+                                {isDevPreview && (
+                                  <div className="space-y-1">
+                                    <label className="block text-[10px] font-semibold text-gray-400">
+                                      🌐 የ Render App URL (አማራጭ — Render ላይ ስትከፍተው በራሱ ይሞላል):
+                                    </label>
+                                    <input
+                                      type="url"
+                                      value={renderBaseUrl}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setRenderBaseUrl(val);
+                                        try { localStorage.setItem('mcharts_render_base_url', val); } catch {}
+                                      }}
+                                      placeholder="https://your-service.onrender.com"
+                                      className="w-full px-2.5 py-1.5 bg-neutral-900 border border-neutral-800 rounded text-[11px] font-mono text-sky-300 focus:outline-none focus:border-sky-500"
+                                    />
+                                  </div>
+                                )}
+
+                                {/* 1. cron-job.org URL */}
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs font-semibold text-gray-200 flex items-center gap-1.5">
+                                      <span>🔗</span> 1) cron-job.org URL (Every 1 min):
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(cronUrl);
+                                        setCronUrlCopied(true);
+                                        setTimeout(() => setCronUrlCopied(false), 3000);
+                                      }}
+                                      className="px-2 py-0.5 text-[10px] font-semibold bg-neutral-800 hover:bg-neutral-700 text-sky-400 rounded border border-neutral-700 transition-colors"
+                                    >
+                                      {cronUrlCopied ? '✅ ተገልብጧል (Copied)!' : 'ኮፒ (Copy Cron URL)'}
+                                    </button>
+                                  </div>
+                                  <div className="p-2 bg-neutral-900 rounded border border-neutral-800 text-[11px] font-mono text-amber-300 break-all select-all">
+                                    {cronUrl}
+                                  </div>
+                                </div>
+
+                                {/* 2. UptimeRobot URL */}
+                                <div className="space-y-1.5 pt-2 border-t border-neutral-800/80">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs font-semibold text-gray-200 flex items-center gap-1.5">
+                                      <span>🤖</span> 2) UptimeRobot URL (Every 5 min Keep-Alive):
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(uptimeUrl);
+                                        setUptimeUrlCopied(true);
+                                        setTimeout(() => setUptimeUrlCopied(false), 3000);
+                                      }}
+                                      className="px-2 py-0.5 text-[10px] font-semibold bg-neutral-800 hover:bg-neutral-700 text-emerald-400 rounded border border-neutral-700 transition-colors"
+                                    >
+                                      {uptimeUrlCopied ? '✅ ተገልብጧል (Copied)!' : 'ኮፒ (Copy Uptime URL)'}
+                                    </button>
+                                  </div>
+                                  <div className="p-2 bg-neutral-900 rounded border border-neutral-800 text-[11px] font-mono text-emerald-300 break-all select-all">
+                                    {uptimeUrl}
+                                  </div>
+                                </div>
+                              </>
+                            );
+                          })()}
+
+                          <div className="text-[10px] text-emerald-300 bg-emerald-950/40 p-2 rounded border border-emerald-500/20 space-y-1 leading-relaxed">
+                            <p>💡 <b>በሁለቱም ብጠራስ? (cron-job.org + UptimeRobot):</b> ፍጹም ችግር የለውም — <b>አብረው መስራታቸው በጣም ይመከራል!</b> UptimeRobot በየ5 ደቂቃው Render እንዳይተኛ <code>/healthz</code> ይጠራል፤ cron-job.org ደግሞ በየ1 ደቂቃው <code>/api/cron-check</code> (ሪፖርት + Monitor) ይጠራል።</p>
+                            <p>🔒 <b>ድርብ ትሬድ አይከፍትም:</b> Deriv ትሬድ የሚከፍተው 24/7 WebSocket Daemon-ኡ ብቻ ነው፤ ስለዚህ ሁለቱም ቢጠሩ duplicate trade አይፈጠርም!</p>
                           </div>
                           <div className="text-[11px] text-gray-400 space-y-1">
-                            <p><b>1.</b> በ <b>cron-job.org</b> ላይ <b>"CREATE CRONJOB"</b> የሚለውን ይጫኑ።</p>
-                            <p><b>2.</b> ከላይ ያለውን URL <b>URL</b> በሚለው ሳጥን ውስጥ paste ያድርጉ።</p>
-                            <p><b>3.</b> <b>Schedule</b> የሚለውን <b>"Every 1 minute"</b> ይምረጡ።</p>
-                            <p><b>4.</b> <b>"CREATE"</b> ይበሉ። አበቃ! ከአሁን በኋላ ስልክ ቢዘጋም 24/7 signal ይላክልዎታል!</p>
+                            <p><b>• cron-job.org:</b> "CREATE CRONJOB" → ከላይ ያለውን <b>URL 1</b> paste → Schedule <b>"Every 1 minute"</b> → CREATE።</p>
+                            <p><b>• UptimeRobot:</b> "Add New Monitor" → Monitor Type <b>HTTP(s)</b> → ከላይ ያለውን <b>URL 2 (/healthz)</b> paste → Monitoring Interval <b>"5 minutes"</b> → Create Monitor።</p>
                           </div>
                         </div>
 
@@ -8977,7 +9044,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               </span>
                             </div>
 
-                            {/* Demo Only Lock (Real Trading Disabled) */}
+                            {/* Switchable Demo / Real Live Mode Selector */}
                             <div className="flex items-center bg-neutral-950 rounded-lg p-0.5 border border-neutral-800 gap-1">
                               <button
                                 type="button"
@@ -8985,24 +9052,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   handleUpdateIndicators('derivMode', 'demo');
                                   handleSyncCloudSettings({ ...settings.indicators, derivMode: 'demo' });
                                 }}
-                                className="px-2.5 py-1 text-xs font-bold rounded-md transition-all bg-amber-500/30 text-amber-300 border border-amber-500/50 shadow"
+                                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
+                                  settings.indicators.derivMode !== 'real'
+                                    ? 'bg-amber-500/30 text-amber-300 border border-amber-500/50 shadow'
+                                    : 'text-gray-400 hover:text-gray-200 border border-transparent'
+                                }`}
                               >
-                                🧪 DEMO ACTIVE
+                                {settings.indicators.derivMode !== 'real' ? '🧪 DEMO ACTIVE' : '🧪 DEMO'}
                               </button>
                               <button
                                 type="button"
-                                disabled
-                                title="Real trading is disabled. Demo mode only."
-                                className="px-2.5 py-1 text-xs font-bold rounded-md transition-all text-gray-500 bg-neutral-900/60 border border-neutral-800 cursor-not-allowed opacity-60"
+                                onClick={() => {
+                                  handleUpdateIndicators('derivMode', 'real');
+                                  handleSyncCloudSettings({ ...settings.indicators, derivMode: 'real' });
+                                }}
+                                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
+                                  settings.indicators.derivMode === 'real'
+                                    ? 'bg-rose-600/40 text-rose-200 border border-rose-500/70 shadow'
+                                    : 'text-gray-400 hover:text-rose-300 border border-transparent'
+                                }`}
                               >
-                                🔒 REAL LOCKED
+                                {settings.indicators.derivMode === 'real' ? '🔴 REAL ACTIVE' : '🔴 REAL LIVE'}
                               </button>
                             </div>
                           </div>
 
                           <p className="text-xs text-gray-300 leading-relaxed">
-                            ያለ ምንም VPS ወይም MT5 ጭንቀት፣ አዲስ የ 1H/30M Breakout ሲግናል ሲወጣ <b>በ 200 ሚሊሰከንድ ውስጥ በቀጥታ በ Deriv Multipliers (MULTUP / MULTDOWN — DEMO ONLY)</b> ትሬድ ይከፍታል!
+                            ያለ ምንም VPS ወይም MT5 ጭንቀት፣ አዲስ የ Breakout ሲግናል ሲወጣ <b>በ 200 ሚሊሰከንድ ውስጥ በቀጥታ በ Deriv Multipliers ({settings.indicators.derivMode === 'real' ? '🔴 REAL LIVE ACCOUNT' : '🧪 DEMO ACCOUNT'})</b> ትሬድ ይከፍታል!
                           </p>
+
+                          {settings.indicators.derivMode === 'real' && (
+                            <div className="p-2.5 rounded-lg bg-rose-950/50 border border-rose-500/50 text-[11px] text-rose-200 font-medium">
+                              🔴 <b>REAL LIVE MODE በርቷል:</b> ከአሁን በኋላ የሚወጡ Auto-Trade ሲግናሎች በቀጥታ በእውነተኛ (Real USD) አካውንትህ ይከፈታሉ! ወደ Demo መመለስ ከፈለግክ ከላይ "🧪 DEMO" የሚለውን ይንኩ።
+                            </div>
+                          )}
 
                           {/* MASTER START / STOP BUTTON */}
                           <div className="p-3 rounded-lg border border-neutral-800 bg-neutral-900/90 space-y-2">
@@ -9012,13 +9095,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               </span>
                               <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded ${
                                 settings.indicators.derivAutoTradeEnabled && !circuitBreakerStatus?.isTripped
-                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                  ? (settings.indicators.derivMode === 'real'
+                                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40')
                                   : (circuitBreakerStatus?.isTripped ? 'bg-rose-500/30 text-rose-300 border border-rose-500' : 'bg-neutral-800 text-gray-400')
                               }`}>
                                 {circuitBreakerStatus?.isTripped
                                   ? '🛑 CIRCUIT BREAKER STOPPED'
                                   : settings.indicators.derivAutoTradeEnabled
-                                  ? '🟢 ACTIVE (DEMO ONLY እየሰራ ነው)'
+                                  ? (settings.indicators.derivMode === 'real' ? '🔴 ACTIVE (REAL LIVE እየሰራ ነው)' : '🟢 ACTIVE (DEMO እየሰራ ነው)')
                                   : '🔴 PAUSED (ቆሟል)'}
                               </span>
                             </div>
@@ -9046,7 +9131,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-lg font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98"
                                 >
                                   <span>▶️</span>
-                                  <span>AUTO-TRADING አስጀምር (Click to START Auto-Trade on DEMO ONLY)</span>
+                                  <span>AUTO-TRADING አስጀምር (Start Auto-Trade on {settings.indicators.derivMode === 'real' ? 'REAL LIVE' : 'DEMO'})</span>
                                 </button>
                               )}
                             </div>
@@ -9180,10 +9265,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               >
                                 <option value={20}>20x</option>
                                 <option value={40}>40x</option>
+                                <option value={50}>50x</option>
                                 <option value={60}>60x</option>
-                                <option value={100}>100x</option>
-                                <option value={200}>200x (ምርጥ)</option>
+                                <option value={100}>100x (Option 1)</option>
+                                <option value={200}>200x</option>
+                                <option value={300}>300x</option>
                                 <option value={400}>400x</option>
+                                <option value={500}>500x</option>
                               </select>
                               <span className="text-[9.5px] text-gray-500">ለ R_75 መደበኛ</span>
                             </div>
@@ -9263,13 +9351,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 className="w-16 px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-center font-mono font-bold text-amber-300 text-xs"
                               />
                               <span className="text-[10px] text-gray-400">ተከታታይ Loss</span>
+                              {circuitBreakerStatus?.isTripped && (
+                                <button
+                                  type="button"
+                                  onClick={handleResetCircuitBreaker}
+                                  className="px-2 py-1 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-200 border border-rose-500/50 text-[10px] font-bold transition-all"
+                                >
+                                  🔄 Reset Breaker
+                                </button>
+                              )}
                             </div>
                           </div>
 
                           {/* INSTANT LIVE TEST TRADE BUTTONS */}
                           <div className="pt-2 border-t border-neutral-800 space-y-2">
                             <span className="text-xs font-bold text-gray-300 block">
-                              🚀 የቀጥታ የሙከራ ትሬድ ክፈት (Open Live Test Trade on DEMO ONLY):
+                              🚀 የቀጥታ የሙከራ ትሬድ ክፈት (Open Live Test Trade on {settings.indicators.derivMode === 'real' ? '🔴 REAL LIVE' : '🧪 DEMO'}):
                             </span>
                             <div className="grid grid-cols-2 gap-2">
                               <button
@@ -9278,7 +9375,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 onClick={() => handleExecuteLiveDerivTrade('BUY')}
                                 className="py-2.5 px-3 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/50 font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-98 disabled:opacity-50"
                               >
-                                <span>{derivTestingTrade ? '⏳ እየከፈተ ነው...' : '+ BUY MULTUP ($2.00)'}</span>
+                                <span>{derivTestingTrade ? '⏳ እየከፈተ ነው...' : `+ BUY MULTUP ($${Number(settings.indicators.derivStake ?? 2.0).toFixed(2)})`}</span>
                               </button>
                               <button
                                 type="button"
@@ -9286,7 +9383,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 onClick={() => handleExecuteLiveDerivTrade('SELL')}
                                 className="py-2.5 px-3 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/50 font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-98 disabled:opacity-50"
                               >
-                                <span>{derivTestingTrade ? '⏳ እየከፈተ ነው...' : '- SELL MULTDOWN ($2.00)'}</span>
+                                <span>{derivTestingTrade ? '⏳ እየከፈተ ነው...' : `- SELL MULTDOWN ($${Number(settings.indicators.derivStake ?? 2.0).toFixed(2)})`}</span>
                               </button>
                             </div>
 
@@ -11714,7 +11811,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </span>
                         </div>
                         <p className="text-xs text-neutral-400 mt-0.5">
-                          High-precision New York 09:30–10:00 Opening Range with breakout signals, dynamic R:R trade grid &amp; real-time performance statistics
+                          NY Opening Range (works on 1M–30M &amp; 1H) with breakout signals, custom SL/TP Pips or R:R trade grid &amp; stats HUD
                         </p>
                       </div>
                     </div>
@@ -11932,12 +12029,89 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Group 3: Trade (Risk / Reward & Grid) */}
+                      {/* Group 3: Trade (SL/TP Pips & Risk/Reward Grid) */}
                       <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800/80 space-y-3">
-                        <div className="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <span>🎯</span> Group: Trade (Risk / Reward &amp; Grid)
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                            <span>🎯</span> Group: Trade (SL/TP Pips &amp; Grid)
+                          </div>
+                          <div className="flex items-center gap-1 bg-neutral-900 p-0.5 rounded-lg border border-neutral-800">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateIndicators('mrovTargetMode', 'points')}
+                              className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                                (settings.indicators.mrovTargetMode ?? 'points') === 'points'
+                                  ? 'bg-amber-600 text-white shadow'
+                                  : 'text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              Points / Pips
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateIndicators('mrovTargetMode', 'rr')}
+                              className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                                (settings.indicators.mrovTargetMode ?? 'points') === 'rr'
+                                  ? 'bg-blue-600 text-white shadow'
+                                  : 'text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              R:R (Candle)
+                            </button>
+                          </div>
                         </div>
 
+                        {(settings.indicators.mrovTargetMode ?? 'points') === 'points' ? (
+                          <div className="space-y-2 pt-1">
+                            <div className="text-[11px] text-amber-300 bg-amber-500/10 p-2 rounded border border-amber-500/20">
+                              ⚡ <strong>Written Points Mode Active:</strong> Mrov SL &amp; TP directly use the exact pip numbers entered below (like Mark Ticker).
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-rose-500/30">
+                                <span className="text-[11px] font-semibold text-rose-400">SL (Points/Pips)</span>
+                                <input
+                                  id="settings-mrov-points-sl"
+                                  type="number"
+                                  step={1}
+                                  min={1}
+                                  value={settings.indicators.mrovPointsSl ?? 165}
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    const val = raw === '' ? ('' as any) : parseFloat(raw);
+                                    handleUpdateIndicators('mrovPointsSl', val);
+                                  }}
+                                  onBlur={() => {
+                                    const cur = parseFloat(settings.indicators.mrovPointsSl as any);
+                                    const safe = !isNaN(cur) && cur >= 1 ? cur : 165;
+                                    handleUpdateIndicators('mrovPointsSl', safe);
+                                  }}
+                                  className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-rose-300 font-bold text-center font-mono focus:border-rose-500"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1 p-2.5 bg-neutral-900 rounded-lg border border-emerald-500/30">
+                                <span className="text-[11px] font-semibold text-emerald-400">TP (Points/Pips)</span>
+                                <input
+                                  id="settings-mrov-points-tp"
+                                  type="number"
+                                  step={1}
+                                  min={1}
+                                  value={settings.indicators.mrovPointsTp ?? 607}
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    const val = raw === '' ? ('' as any) : parseFloat(raw);
+                                    handleUpdateIndicators('mrovPointsTp', val);
+                                  }}
+                                  onBlur={() => {
+                                    const cur = parseFloat(settings.indicators.mrovPointsTp as any);
+                                    const safe = !isNaN(cur) && cur >= 1 ? cur : 607;
+                                    handleUpdateIndicators('mrovPointsTp', safe);
+                                  }}
+                                  className="w-full px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-xs text-emerald-300 font-bold text-center font-mono focus:border-emerald-500"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                           {/* Risk / Reward ratio */}
                           <div className="flex items-center justify-between py-1">
@@ -11973,6 +12147,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               className="w-20 px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-xs font-mono text-white text-right"
                             />
                           </div>
+                        </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
 
                           {/* Risk Zone Color */}
                           <div className="flex items-center justify-between py-1">
@@ -12088,6 +12266,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             handleUpdateIndicators('mrovShowSignalLabels', true);
                             handleUpdateIndicators('mrovShowBreakoutMarker', true);
                             handleUpdateIndicators('mrovRR', 3.0);
+                            handleUpdateIndicators('mrovTargetMode', 'points');
+                            handleUpdateIndicators('mrovPointsSl', 165);
+                            handleUpdateIndicators('mrovPointsTp', 607);
                             handleUpdateIndicators('mrovShowTradeGrid', true);
                             handleUpdateIndicators('mrovRiskColor', '#dc4155');
                             handleUpdateIndicators('mrovRewardColor', '#00a078');
