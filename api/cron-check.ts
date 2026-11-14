@@ -458,6 +458,7 @@ async function checkAndSendScheduledReports(
     const hasLock = tryAcquireCronMonitorLock(dailyReportTag);
     if (hasLock) {
       state.lastDailyReportDate = eatDateStr;
+      saveCronState(state);
 
       const oneDayAgo = now - 24 * 3600 * 1000;
       const last24hTrades = (state.tradeHistory || []).filter((t) => t.closedAt >= oneDayAgo);
@@ -508,6 +509,7 @@ async function checkAndSendScheduledReports(
     const hasLock = tryAcquireCronMonitorLock(weeklyReportTag);
     if (hasLock) {
       state.lastWeeklyReportDate = eatDateStr;
+      saveCronState(state);
 
       const sevenDaysAgo = now - 7 * 24 * 3600 * 1000;
       const weekTrades = (state.tradeHistory || []).filter((t) => t.closedAt >= sevenDaysAgo);
@@ -538,6 +540,24 @@ async function checkAndSendScheduledReports(
   }
 }
 
+const activeGetCronPromises = new Map<string, Promise<Record<string, any>>>();
+let cronExecutionMutex: Promise<void> = Promise.resolve();
+
+async function runSerializedCronPass<T>(fn: () => Promise<T>): Promise<T> {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const prev = cronExecutionMutex;
+  cronExecutionMutex = prev.then(() => gate, () => gate);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
 export default async function handler(req: any, res: any) {
   if (res.setHeader) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -548,7 +568,27 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
-  try {
+  const isGetRequest = String(req.method || 'GET').toUpperCase() === 'GET';
+  const coalesceKey = isGetRequest
+    ? [
+        String(req.query?.token || req.query?.botToken || ''),
+        String(req.query?.chat || req.query?.chatId || ''),
+        String(req.query?.symbol || ''),
+        String(req.query?.tf || req.query?.timeframe || ''),
+        String(req.query?.checkOnly || ''),
+      ].join('|')
+    : '';
+
+  if (isGetRequest) {
+    const existingPromise = activeGetCronPromises.get(coalesceKey);
+    if (existingPromise) {
+      const sharedPayload = await existingPromise;
+      return res.status(200).json({ ...sharedPayload, coalesced: true });
+    }
+  }
+
+  const execPromise = runSerializedCronPass(async (): Promise<Record<string, any>> => {
+    try {
     let body = req.body || {};
     if (typeof body === 'string') {
       try {
@@ -648,7 +688,7 @@ export default async function handler(req: any, res: any) {
         const tp1Match = pinned.match(/TP1:\s*([0-9.]+)/) || pinned.match(/TP1\):\s*<code>([0-9.]+)<\/code>/);
         const tp2Match = pinned.match(/TP2:\s*([0-9.]+)/) || pinned.match(/TP2\):\s*<code>([0-9.]+)<\/code>/);
         const tp3Match = pinned.match(/TP3:\s*([0-9.]+)/) || pinned.match(/TP3\):\s*<code>([0-9.]+)<\/code>/);
-        if (sigMatch && entryMatch && slMatch && tp1Match) {
+        if (sigMatch && entryMatch && slMatch && tp1Match && !state.tradeHistory.some((t) => t.id === sigMatch[0])) {
           const entryVal = Number(entryMatch[1]);
           const slVal = Number(slMatch[1]);
           const tp1Val = Number(tp1Match[1]);
@@ -725,10 +765,62 @@ export default async function handler(req: any, res: any) {
       const lastCandleIdx = candles.length - 1;
       latestCandle = candles[lastCandleIdx];
 
-      // 1. TRACK ACTIVE TRADE OUTCOME (TP HIT or SL HIT)
+      // 1. TRACK ACTIVE TRADE OUTCOME (TP HIT or SL HIT) - protected by atomic RESOLVE lock
       if (state.activeTrade && state.activeTrade.symbol === symbol && !tradeResolved) {
         const active = state.activeTrade;
         const checkCandles = candles.filter((c) => c.time >= active.entryCandleTime);
+
+        const commitResolution = async (
+          outcomeType: 'win' | 'loss',
+          dir: 'bull' | 'bear',
+          pipsDelta: number,
+          exitPrice: number,
+          message: string,
+          triggerCircuitRecord: boolean
+        ): Promise<boolean> => {
+          const alreadyRecorded = state.tradeHistory.some((t) => t.id === active.id);
+          if (alreadyRecorded || !tryAcquireCronMonitorLock(`RESOLVE_${active.id}`)) {
+            state.activeTrade = null;
+            saveCronState(state);
+            return false;
+          }
+
+          tradeResolved = true;
+          resolutionMessage = message;
+          state.tradeHistory.push({
+            id: active.id,
+            type: outcomeType,
+            dir,
+            pips: pipsDelta,
+            symbol: active.symbol,
+            tf: active.tf,
+            entryPrice: active.entryPrice,
+            exitPrice,
+            closedAt: Date.now(),
+          });
+          if (triggerCircuitRecord && String(savedConfig.options?.derivMode || '').toLowerCase() === 'real') {
+            recordDerivTradeOutcome(outcomeType === 'win', Number(savedConfig.options?.derivMaxConsecutiveLosses || 3));
+          }
+          state.activeTrade = null;
+          saveCronState(state);
+
+          recordCronMonitorEvent({
+            source: 'cron_monitor',
+            eventType: 'TRADE_RESOLVED',
+            signalId: active.id,
+            symbol: active.symbol,
+            timeframe: active.tf,
+            action: dir === 'bull' ? 'BUY' : 'SELL',
+            entryPrice: active.entryPrice,
+            autoTradeExecuted: false,
+            note: `${outcomeType.toUpperCase()} (${pipsDelta >= 0 ? '+' : ''}${pipsDelta} pips @ ${exitPrice.toFixed(2)})`,
+            timestamp: new Date().toISOString(),
+          });
+
+          await sendTelegramDirect(botToken, chatId, resolutionMessage);
+          await unpinTelegramDirect(botToken, chatId);
+          return true;
+        };
 
         for (const candle of checkCandles) {
           const isEntryBar = candle.time === active.entryCandleTime;
@@ -737,226 +829,94 @@ export default async function handler(req: any, res: any) {
 
           if (active.type === 'bull') {
             if (active.showTp3 && active.tp3Price && evalHigh >= active.tp3Price) {
-              tradeResolved = true;
               const pipsWon = active.tp3Pips || Math.round(active.tp3Price - active.entryPrice);
-              resolutionMessage =
-                `🎯 TAKE PROFIT 3 HIT! ✅\n\n` +
-                `🪙 Pair: ${symbolName}\n` +
-                `📈 Target: TP3 Hit (+${pipsWon} pips)\n` +
-                `💰 Exit Price: ${active.tp3Price.toFixed(2)}\n` +
-                `⏰ Timeframe: ${active.tf}\n\n` +
-                `🏆 Mire, maximum profit secured! Outstanding trade!`;
-
-              state.tradeHistory.push({
-                id: active.id,
-                type: 'win',
-                dir: 'bull',
-                pips: pipsWon,
-                symbol: active.symbol,
-                tf: active.tf,
-                entryPrice: active.entryPrice,
-                exitPrice: active.tp3Price,
-                closedAt: Date.now(),
-              });
-              state.activeTrade = null;
-              await sendTelegramDirect(botToken, chatId, resolutionMessage);
-              await unpinTelegramDirect(botToken, chatId);
+              await commitResolution(
+                'win',
+                'bull',
+                pipsWon,
+                active.tp3Price,
+                `🎯 TAKE PROFIT 3 HIT! ✅\n\n🪙 Pair: ${symbolName}\n📈 Target: TP3 Hit (+${pipsWon} pips)\n💰 Exit Price: ${active.tp3Price.toFixed(2)}\n⏰ Timeframe: ${active.tf}\n\n🏆 Mire, maximum profit secured! Outstanding trade!`,
+                false
+              );
               break;
             } else if (active.showTp2 && active.tp2Price && evalHigh >= active.tp2Price) {
-              tradeResolved = true;
               const pipsWon = active.tp2Pips || Math.round(active.tp2Price - active.entryPrice);
-              resolutionMessage =
-                `🎯 TAKE PROFIT 2 HIT! ✅\n\n` +
-                `🪙 Pair: ${symbolName}\n` +
-                `📈 Target: TP2 Hit (+${pipsWon} pips)\n` +
-                `💰 Exit Price: ${active.tp2Price.toFixed(2)}\n` +
-                `⏰ Timeframe: ${active.tf}\n\n` +
-                `🏆 Mire, TP2 secured! Great discipline!`;
-
-              state.tradeHistory.push({
-                id: active.id,
-                type: 'win',
-                dir: 'bull',
-                pips: pipsWon,
-                symbol: active.symbol,
-                tf: active.tf,
-                entryPrice: active.entryPrice,
-                exitPrice: active.tp2Price,
-                closedAt: Date.now(),
-              });
-              state.activeTrade = null;
-              await sendTelegramDirect(botToken, chatId, resolutionMessage);
-              await unpinTelegramDirect(botToken, chatId);
+              await commitResolution(
+                'win',
+                'bull',
+                pipsWon,
+                active.tp2Price,
+                `🎯 TAKE PROFIT 2 HIT! ✅\n\n🪙 Pair: ${symbolName}\n📈 Target: TP2 Hit (+${pipsWon} pips)\n💰 Exit Price: ${active.tp2Price.toFixed(2)}\n⏰ Timeframe: ${active.tf}\n\n🏆 Mire, TP2 secured! Great discipline!`,
+                false
+              );
               break;
             } else if (active.showTp1 && evalHigh >= active.tp1Price) {
-              tradeResolved = true;
               const pipsWon = active.tp1Pips;
-              resolutionMessage =
-                `🎯 TAKE PROFIT HIT! ✅\n\n` +
-                `🪙 Pair: ${symbolName}\n` +
-                `📈 Target: TP1 Hit (+${pipsWon} pips)\n` +
-                `💰 Exit Price: ${active.tp1Price.toFixed(2)}\n` +
-                `⏰ Timeframe: ${active.tf}\n\n` +
-                `🏆 Mire, profit locked in! Never give back profits!`;
-
-              state.tradeHistory.push({
-                id: active.id,
-                type: 'win',
-                dir: 'bull',
-                pips: pipsWon,
-                symbol: active.symbol,
-                tf: active.tf,
-                entryPrice: active.entryPrice,
-                exitPrice: active.tp1Price,
-                closedAt: Date.now(),
-              });
-              if (String(savedConfig.options?.derivMode || '').toLowerCase() === 'real') {
-                recordDerivTradeOutcome(true, Number(savedConfig.options?.derivMaxConsecutiveLosses || 3));
-              }
-              state.activeTrade = null;
-              await sendTelegramDirect(botToken, chatId, resolutionMessage);
-              await unpinTelegramDirect(botToken, chatId);
+              await commitResolution(
+                'win',
+                'bull',
+                pipsWon,
+                active.tp1Price,
+                `🎯 TAKE PROFIT HIT! ✅\n\n🪙 Pair: ${symbolName}\n📈 Target: TP1 Hit (+${pipsWon} pips)\n💰 Exit Price: ${active.tp1Price.toFixed(2)}\n⏰ Timeframe: ${active.tf}\n\n🏆 Mire, profit locked in! Never give back profits!`,
+                true
+              );
               break;
             } else if (evalLow <= active.slPrice) {
-              tradeResolved = true;
               const pipsLost = active.slPips;
-              resolutionMessage =
-                `🛑 STOP LOSS HIT ❌\n\n` +
-                `🪙 Pair: ${symbolName}\n` +
-                `📉 Exit Price: ${active.slPrice.toFixed(2)}\n` +
-                `⚠️ Result: SL Touched (-${pipsLost} pips)\n` +
-                `⏰ Timeframe: ${active.tf}\n\n` +
-                `🚨 Mire, stay disciplined and wait for next clean setup. Never revenge trade!`;
-
-              state.tradeHistory.push({
-                id: active.id,
-                type: 'loss',
-                dir: 'bull',
-                pips: -pipsLost,
-                symbol: active.symbol,
-                tf: active.tf,
-                entryPrice: active.entryPrice,
-                exitPrice: active.slPrice,
-                closedAt: Date.now(),
-              });
-              if (String(savedConfig.options?.derivMode || '').toLowerCase() === 'real') {
-                recordDerivTradeOutcome(false, Number(savedConfig.options?.derivMaxConsecutiveLosses || 3));
-              }
-              state.activeTrade = null;
-              await sendTelegramDirect(botToken, chatId, resolutionMessage);
-              await unpinTelegramDirect(botToken, chatId);
+              await commitResolution(
+                'loss',
+                'bull',
+                -pipsLost,
+                active.slPrice,
+                `🛑 STOP LOSS HIT ❌\n\n🪙 Pair: ${symbolName}\n📉 Exit Price: ${active.slPrice.toFixed(2)}\n⚠️ Result: SL Touched (-${pipsLost} pips)\n⏰ Timeframe: ${active.tf}\n\n🚨 Mire, stay disciplined and wait for next clean setup. Never revenge trade!`,
+                true
+              );
               break;
             }
           } else if (active.type === 'bear') {
             if (active.showTp3 && active.tp3Price && evalLow <= active.tp3Price) {
-              tradeResolved = true;
               const pipsWon = active.tp3Pips || Math.round(active.entryPrice - active.tp3Price);
-              resolutionMessage =
-                `🎯 TAKE PROFIT 3 HIT! ✅\n\n` +
-                `🪙 Pair: ${symbolName}\n` +
-                `📉 Target: TP3 Hit (+${pipsWon} pips)\n` +
-                `💰 Exit Price: ${active.tp3Price.toFixed(2)}\n` +
-                `⏰ Timeframe: ${active.tf}\n\n` +
-                `🏆 Mire, maximum profit secured! Outstanding trade!`;
-
-              state.tradeHistory.push({
-                id: active.id,
-                type: 'win',
-                dir: 'bear',
-                pips: pipsWon,
-                symbol: active.symbol,
-                tf: active.tf,
-                entryPrice: active.entryPrice,
-                exitPrice: active.tp3Price,
-                closedAt: Date.now(),
-              });
-              state.activeTrade = null;
-              await sendTelegramDirect(botToken, chatId, resolutionMessage);
-              await unpinTelegramDirect(botToken, chatId);
+              await commitResolution(
+                'win',
+                'bear',
+                pipsWon,
+                active.tp3Price,
+                `🎯 TAKE PROFIT 3 HIT! ✅\n\n🪙 Pair: ${symbolName}\n📉 Target: TP3 Hit (+${pipsWon} pips)\n💰 Exit Price: ${active.tp3Price.toFixed(2)}\n⏰ Timeframe: ${active.tf}\n\n🏆 Mire, maximum profit secured! Outstanding trade!`,
+                false
+              );
               break;
             } else if (active.showTp2 && active.tp2Price && evalLow <= active.tp2Price) {
-              tradeResolved = true;
               const pipsWon = active.tp2Pips || Math.round(active.entryPrice - active.tp2Price);
-              resolutionMessage =
-                `🎯 TAKE PROFIT 2 HIT! ✅\n\n` +
-                `🪙 Pair: ${symbolName}\n` +
-                `📉 Target: TP2 Hit (+${pipsWon} pips)\n` +
-                `💰 Exit Price: ${active.tp2Price.toFixed(2)}\n` +
-                `⏰ Timeframe: ${active.tf}\n\n` +
-                `🏆 Mire, TP2 secured! Great discipline!`;
-
-              state.tradeHistory.push({
-                id: active.id,
-                type: 'win',
-                dir: 'bear',
-                pips: pipsWon,
-                symbol: active.symbol,
-                tf: active.tf,
-                entryPrice: active.entryPrice,
-                exitPrice: active.tp2Price,
-                closedAt: Date.now(),
-              });
-              state.activeTrade = null;
-              await sendTelegramDirect(botToken, chatId, resolutionMessage);
-              await unpinTelegramDirect(botToken, chatId);
+              await commitResolution(
+                'win',
+                'bear',
+                pipsWon,
+                active.tp2Price,
+                `🎯 TAKE PROFIT 2 HIT! ✅\n\n🪙 Pair: ${symbolName}\n📉 Target: TP2 Hit (+${pipsWon} pips)\n💰 Exit Price: ${active.tp2Price.toFixed(2)}\n⏰ Timeframe: ${active.tf}\n\n🏆 Mire, TP2 secured! Great discipline!`,
+                false
+              );
               break;
             } else if (active.showTp1 && evalLow <= active.tp1Price) {
-              tradeResolved = true;
               const pipsWon = active.tp1Pips;
-              resolutionMessage =
-                `🎯 TAKE PROFIT HIT! ✅\n\n` +
-                `🪙 Pair: ${symbolName}\n` +
-                `📉 Target: TP1 Hit (+${pipsWon} pips)\n` +
-                `💰 Exit Price: ${active.tp1Price.toFixed(2)}\n` +
-                `⏰ Timeframe: ${active.tf}\n\n` +
-                `🏆 Mire, profit locked in! Never give back profits!`;
-
-              state.tradeHistory.push({
-                id: active.id,
-                type: 'win',
-                dir: 'bear',
-                pips: pipsWon,
-                symbol: active.symbol,
-                tf: active.tf,
-                entryPrice: active.entryPrice,
-                exitPrice: active.tp1Price,
-                closedAt: Date.now(),
-              });
-              if (String(savedConfig.options?.derivMode || '').toLowerCase() === 'real') {
-                recordDerivTradeOutcome(true, Number(savedConfig.options?.derivMaxConsecutiveLosses || 3));
-              }
-              state.activeTrade = null;
-              await sendTelegramDirect(botToken, chatId, resolutionMessage);
-              await unpinTelegramDirect(botToken, chatId);
+              await commitResolution(
+                'win',
+                'bear',
+                pipsWon,
+                active.tp1Price,
+                `🎯 TAKE PROFIT HIT! ✅\n\n🪙 Pair: ${symbolName}\n📉 Target: TP1 Hit (+${pipsWon} pips)\n💰 Exit Price: ${active.tp1Price.toFixed(2)}\n⏰ Timeframe: ${active.tf}\n\n🏆 Mire, profit locked in! Never give back profits!`,
+                true
+              );
               break;
             } else if (evalHigh >= active.slPrice) {
-              tradeResolved = true;
               const pipsLost = active.slPips;
-              resolutionMessage =
-                `🛑 STOP LOSS HIT ❌\n\n` +
-                `🪙 Pair: ${symbolName}\n` +
-                `📈 Exit Price: ${active.slPrice.toFixed(2)}\n` +
-                `⚠️ Result: SL Touched (-${pipsLost} pips)\n` +
-                `⏰ Timeframe: ${active.tf}\n\n` +
-                `🚨 Mire, stay disciplined and wait for next clean setup. Never revenge trade!`;
-
-              state.tradeHistory.push({
-                id: active.id,
-                type: 'loss',
-                dir: 'bear',
-                pips: -pipsLost,
-                symbol: active.symbol,
-                tf: active.tf,
-                entryPrice: active.entryPrice,
-                exitPrice: active.slPrice,
-                closedAt: Date.now(),
-              });
-              if (String(savedConfig.options?.derivMode || '').toLowerCase() === 'real') {
-                recordDerivTradeOutcome(false, Number(savedConfig.options?.derivMaxConsecutiveLosses || 3));
-              }
-              state.activeTrade = null;
-              await sendTelegramDirect(botToken, chatId, resolutionMessage);
-              await unpinTelegramDirect(botToken, chatId);
+              await commitResolution(
+                'loss',
+                'bear',
+                -pipsLost,
+                active.slPrice,
+                `🛑 STOP LOSS HIT ❌\n\n🪙 Pair: ${symbolName}\n📈 Exit Price: ${active.slPrice.toFixed(2)}\n⚠️ Result: SL Touched (-${pipsLost} pips)\n⏰ Timeframe: ${active.tf}\n\n🚨 Mire, stay disciplined and wait for next clean setup. Never revenge trade!`,
+                true
+              );
               break;
             }
           }
@@ -1129,7 +1089,7 @@ export default async function handler(req: any, res: any) {
 
     const activeMode: 'demo' | 'real' = String(savedConfig?.options?.derivMode || '').toLowerCase() === 'real' ? 'real' : 'demo';
 
-    return res.status(200).json({
+    return {
       ok: true,
       role: 'MONITOR_ONLY',
       executionAuthority: 'liveDerivDaemon',
@@ -1149,7 +1109,7 @@ export default async function handler(req: any, res: any) {
       signalDetails: signalInfo,
       totalHistoricalTrades: state.tradeHistory.length,
       heartbeatsQueued: state.heartbeatMessageIds.length,
-    });
+    };
   } catch (err: any) {
     cronMonitorState.lastError = err?.message || String(err);
     recordCronMonitorEvent({
@@ -1162,13 +1122,27 @@ export default async function handler(req: any, res: any) {
       timestamp: new Date().toISOString(),
     });
     console.error('Unhandled cron check error:', err);
-    return res.status(200).json({
+    return {
       ok: false,
       role: 'MONITOR_ONLY',
       executionAuthority: 'liveDerivDaemon',
       cronExecutionDisabled: true,
       status: 'error_caught',
       error: err?.message || String(err),
-    });
+    };
+  }
+  });
+
+  if (isGetRequest) {
+    activeGetCronPromises.set(coalesceKey, execPromise);
+  }
+
+  try {
+    const payload = await execPromise;
+    return res.status(200).json(payload);
+  } finally {
+    if (isGetRequest && activeGetCronPromises.get(coalesceKey) === execPromise) {
+      activeGetCronPromises.delete(coalesceKey);
+    }
   }
 }

@@ -3,8 +3,8 @@
   "chatId": "",
   "enabled": true,
   "symbol": "R_75",
-  "timeframe": "1H",
-  "updatedAt": 1794674476233,
+  "timeframe": "30M",
+  "updatedAt": 1794677060795,
   "options": {
     "targetMode": "points",
     "pointsSl": 388,

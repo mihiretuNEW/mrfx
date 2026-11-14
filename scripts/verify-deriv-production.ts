@@ -169,7 +169,27 @@ async function run() {
   assert.strictEqual(monitorStatus.mode, 'MONITOR_ONLY');
   assert.strictEqual(monitorStatus.autoTradeExecutionDisabled, true);
   assert.ok(monitorStatus.totalRuns >= 1);
-  console.log('PASS [3/6]: cron-check.ts confirmed strictly MONITOR_ONLY (zero trade execution capability).');
+
+  // Verify 4 concurrent callers coalesce cleanly without duplicate execution
+  const beforeConcurrentRuns = monitorStatus.totalRuns;
+  const concurrentResults: any[] = [];
+  await Promise.all(
+    [0, 1, 2, 3].map(() => {
+      const r: any = {
+        setHeader: () => {},
+        status: () => r,
+        json: (p: any) => { concurrentResults.push(p); },
+        end: () => {},
+      };
+      return cronHandler({ method: 'GET', query: {}, body: {} }, r);
+    })
+  );
+  assert.strictEqual(concurrentResults.length, 4, 'All 4 concurrent callers should receive clean 200 payloads');
+  assert.ok(concurrentResults.every((p) => p.role === 'MONITOR_ONLY' && p.cronExecutionDisabled === true));
+  const coalescedCount = concurrentResults.filter((p) => p.coalesced === true).length;
+  assert.ok(coalescedCount >= 1, `Expected concurrent identical GET callers to coalesce (got coalescedCount=${coalescedCount})`);
+  assert.strictEqual(getCronMonitorStatus().totalRuns, beforeConcurrentRuns + 1, '4 simultaneous GET callers should execute only 1 underlying monitor pass');
+  console.log('PASS [3/6]: cron-check.ts confirmed strictly MONITOR_ONLY + 4x concurrent caller coalescing verified.');
 
   console.log('=== [4/6] Testing Sole Execution Daemon Path, Safe Retry, and Single Order Lock ===');
   const candles: Candle[] = await new Promise((resolve, reject) => {

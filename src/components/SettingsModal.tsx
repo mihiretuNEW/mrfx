@@ -84,12 +84,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [derivTradeMsg, setDerivTradeMsg] = useState<{ type: 'success' | 'error'; text: string; details?: any } | null>(null);
   const [circuitBreakerStatus, setCircuitBreakerStatus] = useState<any>(null);
   const [derivEnvStatus, setDerivEnvStatus] = useState<{ credentialsConfigured: boolean; tokenConfigured: boolean; appIdConfigured: boolean } | null>(null);
+  const [telegramEnvConfigured, setTelegramEnvConfigured] = useState(false);
 
   const fetchDerivStatus = async () => {
     try {
-      const res = await fetch('/api/deriv-trade');
-      if (res.ok) {
-        const data = await res.json();
+      const [derivRes, cloudCfgRes] = await Promise.all([
+        fetch('/api/deriv-trade').catch(() => null),
+        fetch('/api/cloud-alert-config').catch(() => null),
+      ]);
+      if (derivRes && derivRes.ok) {
+        const data = await derivRes.json();
         if (data.ok) {
           if (data.circuitBreaker) setCircuitBreakerStatus(data.circuitBreaker);
           setDerivEnvStatus({
@@ -98,6 +102,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             appIdConfigured: Boolean(data.appIdConfigured),
           });
         }
+      }
+      if (cloudCfgRes && cloudCfgRes.ok) {
+        const cfgData = await cloudCfgRes.json();
+        const isTgEnv = Boolean(cfgData?.telegramEnvConfigured ?? cfgData?.config?.telegramEnvConfigured);
+        setTelegramEnvConfigured(isTgEnv);
       }
     } catch {}
   };
@@ -202,10 +211,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const userBotToken = (settings.indicators.msttTgBotToken || '').trim();
     const userChatId = (settings.indicators.msttTgChatId || '').trim();
 
-    if (!userBotToken || !userChatId) {
+    if (!telegramEnvConfigured && (!userBotToken || !userChatId)) {
       setDemoMsg({
         type: 'error',
-        text: '⚠️ እባክዎ መጀመሪያ ከታች "Telegram Bot Token" እና "Your Telegram Chat ID" ሳጥን ውስጥ የእርስዎን ትክክለኛ Bot Token እና Chat ID ያስገቡ!',
+        text: '⚠️ እባክዎ መጀመሪያ ከታች "Telegram Bot Token" እና "Your Telegram Chat ID" ሳጥን ውስጥ የእርስዎን ትክክለኛ Bot Token እና Chat ID ያስገቡ (ወይም Render Environment ላይ ያስገቡ)!',
       });
       return;
     }
@@ -258,8 +267,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleTestTgCloudAlert = async () => {
     const token = (settings.indicators.msttTgBotToken || '').trim();
     const chat = (settings.indicators.msttTgChatId || '').trim();
-    if (!token || !chat) {
-      setTgAlertMsg({ type: 'error', text: 'Bot Token እና Chat ID ሳያስገቡ መሞከር አይቻልም። እባክዎ መጀመሪያ ይሙሉ!' });
+    if (!telegramEnvConfigured && (!token || !chat)) {
+      setTgAlertMsg({ type: 'error', text: 'Bot Token እና Chat ID ሳያስገቡ መሞከር አይቻልም። እባክዎ መጀመሪያ ይሙሉ (ወይም Render Environment ላይ ያስገቡ)!' });
       return;
     }
     setTgAlertTesting(true);
@@ -8807,6 +8816,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           ስልክዎ ቢጠፋ፣ ኮምፒውተርዎ ቢዘጋ ወይም Internet ባይኖርም እንኳን <b>cron-job.org</b> ከደመና (Cloud API) ላይ Deriv candles እየፈተሸ አዲስ የ BOS Signal ሲወጣ ወዲያውኑ ወደ Telegram ቦትዎ ሙሉ SL &amp; TP መረጃ የያዘ መልእክት ይልካል።
                         </p>
 
+                        {telegramEnvConfigured && (
+                          <div className="p-2.5 rounded-lg text-xs font-medium bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 leading-relaxed">
+                            ✅ <b>Render Environment Variables (<code>TELEGRAM_BOT_TOKEN</code> &amp; <code>TELEGRAM_CHAT_ID</code>) ተገናኝተዋል!</b> ከታች ያሉትን ሳጥኖች ባዶ ብታደርጋቸውም ይሰራል፤ URL 1-ም ያለ Token በንጽህና ይታያል።
+                          </div>
+                        )}
+
                         {/* Telegram Bot Token Input */}
                         <div className="space-y-1">
                           <div className="flex items-center justify-between text-xs">
@@ -8935,7 +8950,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             const baseOrigin = cleanedCustom || (isDevPreview ? 'https://YOUR-APP.onrender.com' : currentOrigin);
                             const token = (settings.indicators.msttTgBotToken || '').trim();
                             const chat = (settings.indicators.msttTgChatId || '').trim();
-                            const cronUrl = token && chat && !token.includes('...')
+                            const cronUrl = !telegramEnvConfigured && token && chat && !token.includes('...')
                               ? `${baseOrigin}/api/cron-check?token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}`
                               : `${baseOrigin}/api/cron-check`;
                             const uptimeUrl = `${baseOrigin}/healthz`;

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "dev_p9fen5y_mvexq9ev",
+    "deviceCategory": "Mobile",
+    "deviceName": "Android Device",
+    "os": "Android",
+    "browser": "Google Chrome",
+    "ip": "151.115.98.130",
+    "location": "Amsterdam, The Netherlands",
+    "screenResolution": "393x886",
+    "language": "en-US",
+    "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36",
+    "firstSeen": 1794672122473,
+    "lastActive": 1794676510506,
+    "passPassed": true
+  },
+  {
+    "id": "dev_vsrhl6t_mvdmcnek",
+    "deviceCategory": "Desktop",
+    "deviceName": "Windows Workstation",
+    "os": "Windows 10 / 11",
+    "browser": "Google Chrome",
+    "ip": "151.115.98.130",
+    "location": "Warsaw, Poland",
+    "screenResolution": "1280x720",
+    "language": "en-US",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+    "firstSeen": 1794672306858,
+    "lastActive": 1794676700252,
+    "passPassed": true
+  }
+]

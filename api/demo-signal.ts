@@ -64,8 +64,12 @@ export default async function handler(req: any, res: any) {
     const query = req.query || {};
     const config = loadAlertConfig();
 
-    const targetBotToken = (body.botToken || body.tgBotToken || query.botToken || query.token || config.botToken || '').trim();
-    const targetChatId = (body.chatId || body.tgChatId || query.chatId || query.chat || config.chatId || '').toString().trim();
+    const envBotToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+    const envChatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
+    const rawBodyToken = String(body.botToken || body.tgBotToken || query.botToken || query.token || '').trim();
+    const safeBodyToken = rawBodyToken && !rawBodyToken.includes('...') ? rawBodyToken : '';
+    const targetBotToken = (envBotToken || safeBodyToken || config.botToken || '').trim();
+    const targetChatId = (envChatId || body.chatId || body.tgChatId || query.chatId || query.chat || config.chatId || '').toString().trim();
 
     const tf = (body.tf || body.timeframe || body.msttTgTimeframe || query.tf || query.timeframe || config.timeframe || '1H').toString();
     const slPips = Number(body.slPips || body.msttPointsSl || body.pointsSl || body.sl || query.slPips || query.sl || config.options?.pointsSl || 165);
