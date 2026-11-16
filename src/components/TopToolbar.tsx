@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { TimeframeId, SymbolInfo, ChartThemeId } from '../types';
+import { TimeframeId, SymbolInfo, ChartThemeId, DrawingType } from '../types';
 import { isDarkTheme, getThemePreset } from '../utils/themePresets';
 import { TIMEFRAMES } from '../hooks/useDerivWS';
 import {
@@ -22,6 +22,7 @@ import {
   BarChart3,
   Clock,
   Maximize2,
+  Paintbrush,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
@@ -51,6 +52,8 @@ interface TopToolbarProps {
   onChangeLayout?: (count: 1 | 2 | 4 | 6) => void;
   isChartOnly?: boolean;
   onToggleChartOnly?: () => void;
+  activeTool?: DrawingType;
+  onToggleBrush?: () => void;
 }
 
 interface TimeframeOption {
@@ -107,6 +110,8 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onToggleReplayMode,
   isChartOnly = false,
   onToggleChartOnly,
+  activeTool = 'cursor',
+  onToggleBrush,
 }) => {
   const symbolInfo = symbols.find((s) => s.symbol === selectedSymbol);
   const { logout } = useAuth();
@@ -119,7 +124,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   // Quick Risk/Reward Horizontal Bar State
   const [isQuickRrOpen, setIsQuickRrOpen] = useState(false);
   const quickRrRef = useRef<HTMLDivElement>(null);
-  const [quickRrCoords, setQuickRrCoords] = useState<{ top: number; right: number } | null>(null);
+  const [quickRrCoords, setQuickRrCoords] = useState<{ top: number; left: number } | null>(null);
 
   const [isLong, setIsLong] = useState<boolean>(() => {
     try {
@@ -153,8 +158,8 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
     if (quickRrRef.current) {
       const rect = quickRrRef.current.getBoundingClientRect();
       const top = rect.bottom + 4;
-      const right = Math.max(8, window.innerWidth - rect.right);
-      setQuickRrCoords({ top, right });
+      const left = Math.max(8, Math.min(rect.left, Math.max(8, window.innerWidth - 360)));
+      setQuickRrCoords({ top, left });
     }
   }, []);
 
@@ -250,10 +255,14 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         borderColor: isDark ? preset.borderColor : '#e2e8f0',
       }}
     >
-      {/* 1. TOP ROW: Minimalist Icons & Tools (fx, R:R Tool, |||, Clock, Fullscreen, Sun, Settings, Logout, Live dot) */}
-      <div className="flex items-center justify-between w-full h-10 px-2 sm:px-3 gap-2 border-b border-neutral-800/40">
-        {/* Left: fx (Indicators) and R:R Tool Dropdown */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+      {/* 1. TOP ROW: Horizontally scrollable icons & tools so TF, Settings, Logout are never hidden on mobile */}
+      <div
+        className="w-full h-10 border-b border-neutral-800/40 overflow-x-auto overflow-y-hidden scrollbar-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden touch-pan-x"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        <div className="flex items-center justify-between min-w-max w-full h-full px-2 sm:px-3 gap-3 whitespace-nowrap">
+          {/* Left: fx (Indicators), R:R Tool, Hand Brush, Replay */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* Indicators Trigger - Authentic fx serif style */}
           <button
             id="btn-indicators-placeholder"
@@ -303,22 +312,43 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             </div>
           )}
 
-          {/* Bar Replay Tool Toggle (LIVE ↔ REPLAY) - subtle option */}
+          {/* Hand Brush Freehand Drawing Tool Button on Dashboard */}
+          {onToggleBrush && (
+            <button
+              id="btn-top-toolbar-brush"
+              type="button"
+              onClick={onToggleBrush}
+              title={activeTool === 'brush' ? 'Hand Brush ON — Write on candles/chart (Click or Esc for Cursor)' : 'Hand Brush — Draw or write freely on candles (stays locked across timeframes)'}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-bold transition-all border cursor-pointer ${
+                activeTool === 'brush'
+                  ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/30 ring-1 ring-amber-300'
+                  : isDark
+                    ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/35 hover:border-amber-400/70'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-300 hover:border-amber-400'
+              }`}
+            >
+              <Paintbrush className="w-3.5 h-3.5 shrink-0" />
+              <span>{activeTool === 'brush' ? 'Brush ON' : 'Brush'}</span>
+            </button>
+          )}
+
+          {/* Bar Replay Tool Toggle (LIVE ↔ REPLAY) — visible across all viewports */}
           {onToggleReplayMode && (
             <button
               id="btn-bar-replay-toggle"
+              type="button"
               onClick={onToggleReplayMode}
-              title={isReplayMode ? "Bar Replay Mode ACTIVE" : "Bar Replay Tool"}
-              className={`hidden lg:flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold transition-all border ${
+              title={isReplayMode ? "Bar Replay Mode ACTIVE — Click to exit back to LIVE" : "Start Bar Replay Mode (Backtest candle-by-candle)"}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-bold transition-all border cursor-pointer ${
                 isReplayMode
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/60'
+                  ? 'bg-sky-500 text-black border-sky-400 shadow-md shadow-sky-500/30 ring-1 ring-sky-300'
                   : isDark
-                    ? 'bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
-                    : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300'
+                    ? 'bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border-sky-500/35 hover:border-sky-400/70'
+                    : 'bg-sky-50 hover:bg-sky-100 text-sky-700 border-sky-300 hover:border-sky-400'
               }`}
             >
-              <RotateCcw className={`w-3 h-3 ${isReplayMode ? 'text-amber-400 animate-spin-reverse' : 'text-neutral-400'}`} />
-              <span className="text-[9.5px]">{isReplayMode ? 'REPLAY' : 'LIVE'}</span>
+              <RotateCcw className={`w-3.5 h-3.5 shrink-0 ${isReplayMode ? 'animate-spin-reverse' : ''}`} />
+              <span>{isReplayMode ? 'Replay ON' : 'Replay'}</span>
             </button>
           )}
         </div>
@@ -337,22 +367,23 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             <BarChart3 className="w-4 h-4" />
           </button>
 
-          {/* Timeframe Clock icon trigger */}
+          {/* Timeframe Clock icon + active TF trigger */}
           <div className="relative" ref={tfDropdownRef}>
             <button
               id="btn-trigger-timeframe-dropdown"
               type="button"
               onClick={handleToggleTf}
               title={`Timeframe Interval (${activeTfOption.label}) - Click to select`}
-              className={`flex items-center gap-1 p-1.5 rounded transition-colors cursor-pointer ${
+              className={`flex items-center gap-1 px-1.5 py-1 rounded transition-colors cursor-pointer ${
                 isTfDropdownOpen
                   ? 'bg-blue-600/20 text-blue-400'
                   : isDark
-                    ? 'hover:bg-neutral-800 text-neutral-400 hover:text-white'
-                    : 'hover:bg-neutral-100 text-slate-600 hover:text-slate-900'
+                    ? 'hover:bg-neutral-800 text-neutral-300 hover:text-white'
+                    : 'hover:bg-neutral-100 text-slate-700 hover:text-slate-900'
               }`}
             >
-              <Clock className="w-4 h-4" />
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+              <span className="text-[11px] font-mono font-bold">{activeTfOption.label}</span>
             </button>
           </div>
 
@@ -421,11 +452,16 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             }`} />
           </button>
         </div>
+        </div>
       </div>
 
       {/* 2. SUB-ROW: Favorite Star, Pair Symbol, LIVE badge, and Expand icon */}
-      <div className="flex items-center justify-between w-full h-8 px-2 sm:px-3 text-xs bg-neutral-950/30">
-        <div className="flex items-center gap-2">
+      <div
+        className="w-full h-8 text-xs bg-neutral-950/30 overflow-x-auto overflow-y-hidden scrollbar-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden touch-pan-x"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        <div className="flex items-center justify-between min-w-max w-full h-full px-2 sm:px-3 gap-2 whitespace-nowrap">
+          <div className="flex items-center gap-2 shrink-0">
           {/* Favorite Star Button */}
           {onToggleFavorite && (
             <button
@@ -466,6 +502,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           >
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
+        </div>
         </div>
       </div>
 
@@ -532,10 +569,10 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           style={{
             position: 'fixed',
             top: `${quickRrCoords.top}px`,
-            right: `${quickRrCoords.right}px`,
+            left: `${quickRrCoords.left}px`,
             zIndex: 99999,
           }}
-          className={`py-1 px-2 rounded-lg shadow-2xl border flex items-center gap-2 text-xs font-mono select-none backdrop-blur-md whitespace-nowrap animate-in fade-in zoom-in-95 duration-100 ${
+          className={`py-1 px-2 rounded-lg shadow-2xl border flex items-center gap-2 text-xs font-mono select-none backdrop-blur-md whitespace-nowrap max-w-[calc(100vw-16px)] overflow-x-auto scrollbar-none animate-in fade-in zoom-in-95 duration-100 ${
             isDark
               ? 'bg-neutral-900/98 border-neutral-700 text-white shadow-black/90'
               : 'bg-white/98 border-neutral-300 text-slate-900 shadow-xl'

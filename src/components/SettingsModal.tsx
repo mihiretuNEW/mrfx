@@ -28,7 +28,35 @@ interface SettingsModalProps {
 }
 
 const INDICATOR_NAME_MAP: Record<string, string> = {
+  auto_price_channels: 'Auto Price Channels (MTF + 4H)',
+  auto_sdc: 'Auto Supply & Demand + Parallel Channel',
+  ma: 'Moving Average (MA)',
+  gta: 'Grand Trend Alignment (GTA) Filter',
+  twb: 'Trendlines with Breaks',
+  smc: 'Smart Money Concepts (SMC)',
+  so: 'Signals & Overlays',
+  fvg: 'Confluence FVG Finder',
+  ict: 'Smart Money & ICT Concepts',
+  mstat: 'Market Structure & Price Action Toolkit',
+  mss: 'Market Structure Signals',
+  pr: 'Predictive Ranges',
+  sr: 'Mpro Signals (S&R Classification)',
+  echo: 'ECHO mpro (Echo Forecast)',
+  mpro2: 'Mpro2 Signal',
+  master: 'Master Strategy System & Dashboard',
+  hvn: 'HVN Profile (Market Profile)',
+  nexus: 'NEXUS: Smart Money Suite',
+  session: 'Session Filter',
+  obv: 'Order Blocks with Volume Delta',
+  pro_ob: 'PRO Order Blocks',
   mstt: 'Market Structure Target Tracker (MSTT) [MarkitTick]',
+  vip_scanner: 'VIP Market Scanner',
+  dynamic_tpsl: 'Dynamic TP & SL Signals',
+  trade_planner: 'Trade Planner',
+  fib_swing: 'Fibonacci Sequence Swing',
+  mtf_ema: 'Multi-Timeframe EMA 15m 1H',
+  mrov_trade: 'Mrov Trade: Opening Range',
+  ema_50_100: 'EMA 50/100 + Candle Trend',
 };
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -643,11 +671,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleRestoreIndicator = (indicatorId: string) => {
     const currentDeleted = settings.indicators.deletedIndicators || [];
     const nextDeleted = currentDeleted.filter((id) => id !== indicatorId);
+    const toggleUpdates: Partial<ChartSettings['indicators']> = {
+      deletedIndicators: nextDeleted,
+    };
+
+    switch (indicatorId) {
+      case 'auto_price_channels':
+        toggleUpdates.showAutoPriceChannels = true;
+        toggleUpdates.autoPriceChannelsShowSignals = true;
+        toggleUpdates.autoPriceChannelsRestoredV3 = true;
+        break;
+      case 'auto_sdc': toggleUpdates.showAutoSupplyDemandChannel = true; break;
+      case 'ma': toggleUpdates.showMA = true; break;
+      case 'gta': toggleUpdates.showGTA = true; break;
+      case 'twb': toggleUpdates.showTrendlinesWithBreaks = true; break;
+      case 'smc': toggleUpdates.showSmartMoneyConcepts = true; break;
+      case 'so': toggleUpdates.showSignalsAndOverlays = true; break;
+      case 'fvg': toggleUpdates.showConfluenceFVG = true; break;
+      case 'ict': toggleUpdates.showIctConcepts = true; break;
+      case 'mstat': toggleUpdates.showMarketStructureToolkit = true; break;
+      case 'mss': toggleUpdates.showMarketStructureSignals = true; break;
+      case 'pr': toggleUpdates.showPredictiveRanges = true; break;
+      case 'sr': toggleUpdates.showSrClassification = true; break;
+      case 'echo': toggleUpdates.showEchoMpro = true; break;
+      case 'mpro2': toggleUpdates.showMpro2Signal = true; break;
+      case 'master': toggleUpdates.showMasterDashboard = true; break;
+      case 'hvn': toggleUpdates.showHvnProfile = true; break;
+      case 'nexus': toggleUpdates.showNexusSuite = true; break;
+      case 'session': toggleUpdates.showSessionFilter = true; break;
+      case 'obv': toggleUpdates.showOrderBlocksWithVolume = true; break;
+      case 'pro_ob': toggleUpdates.showProOrderBlocks = true; break;
+      case 'mstt': toggleUpdates.showMarketStructureTargetTracker = true; toggleUpdates.showMarketTickTwo = true; break;
+      case 'vip_scanner': toggleUpdates.showVipMarketScanner = true; break;
+      case 'dynamic_tpsl': toggleUpdates.showDynamicTpSlSignals = true; break;
+      case 'trade_planner': toggleUpdates.showTradePlanner = true; break;
+      case 'fib_swing': toggleUpdates.showFibonacciSequenceSwing = true; break;
+      case 'mtf_ema': toggleUpdates.showMultiTimeframeEma = true; break;
+      case 'mrov_trade': toggleUpdates.showMrovOpeningRange = true; break;
+      case 'ema_50_100': toggleUpdates.showEma50100Trend = true; break;
+    }
+
     onUpdateSettings({
       ...settings,
       indicators: {
         ...settings.indicators,
-        deletedIndicators: nextDeleted,
+        ...toggleUpdates,
       },
     });
   };
@@ -2101,14 +2169,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               )}
 
-              {/* Indicator 1: Auto Price Channels (4H) */}
+              {/* Indicator 1: Auto Price Channels (MTF Non-Repainting + Golden Rule Signals) */}
               {!isIndicatorDeleted('auto_price_channels') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isAutoChannelsActive) || (indicatorFilter === 'not_added' && !isAutoChannelsActive)) && (
                 <div className="p-3.5 bg-neutral-900/60 rounded-xl border border-neutral-850 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-gray-200">Auto Price Channels (4H)</span>
-                        <span className="text-[10px] bg-sky-900/60 text-sky-300 px-1.5 py-0.5 rounded font-mono font-normal">Strict 4H TF</span>
+                        <span className="text-sm font-semibold text-gray-200">Auto Price Channels (MTF + 4H)</span>
+                        <span className="text-[10px] bg-sky-900/60 text-sky-300 px-1.5 py-0.5 rounded font-mono font-normal">5M·15M·30M·1H·4H</span>
                         {isAutoChannelsActive ? (
                           <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full flex items-center gap-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Added
@@ -2119,7 +2187,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </span>
                         )}
                       </div>
-                      <span className="text-xs text-gray-500">Auto detects price channels, trend direction & breakouts (Only active on 4H)</span>
+                      <span className="text-xs text-gray-500">Non-repainting channels on 5M/15M/30M/1H/4H with background HTF touch & bounce BUY/SELL signals (5M+15M, 15M+1H, 30M+1H, 1H+4H)</span>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <input
@@ -2131,7 +2199,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       />
                       <button
                         type="button"
-                        onClick={() => setIndicatorToDelete({ id: 'auto_price_channels', name: 'Auto Price Channels (4H)' })}
+                        onClick={() => setIndicatorToDelete({ id: 'auto_price_channels', name: 'Auto Price Channels (MTF + 4H)' })}
                         title="Permanently delete indicator from platform code & settings"
                         className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
                       >
@@ -2164,6 +2232,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           value={settings.indicators.autoPriceChannelsLineWidth ?? 2}
                           onChange={(e) => handleUpdateIndicators('autoPriceChannelsLineWidth', parseInt(e.target.value) || 2)}
                           className="w-20 px-2.5 py-1 bg-neutral-950 border border-neutral-800 rounded text-sm text-white focus:outline-none focus:border-sky-500 text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show Trend Labels (Uptrend / Downtrend / Range)</span>
+                          <span className="text-xs text-gray-500">Toggle Uptrend, Downtrend &amp; Range text inside channels ON/OFF</span>
+                        </div>
+                        <input
+                          id="settings-toggle-channel-labels"
+                          type="checkbox"
+                          checked={settings.indicators.autoPriceChannelsShowLabels ?? true}
+                          onChange={(e) => handleUpdateIndicators('autoPriceChannelsShowLabels', e.target.checked)}
+                          className="w-4 h-4 text-sky-500 bg-neutral-800 rounded border-neutral-700 focus:ring-sky-500 focus:ring-2 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-850">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-300">Show MTF Touch/Bounce BUY & SELL Blocks</span>
+                          <span className="text-xs text-gray-500">Live BUY/SELL on 5M(+15M), 15M(+1H), 30M(+1H), 1H(+4H)</span>
+                        </div>
+                        <input
+                          id="settings-toggle-channel-signals"
+                          type="checkbox"
+                          checked={settings.indicators.autoPriceChannelsShowSignals ?? true}
+                          onChange={(e) => handleUpdateIndicators('autoPriceChannelsShowSignals', e.target.checked)}
+                          className="w-4 h-4 text-emerald-500 bg-neutral-800 rounded border-neutral-700 focus:ring-emerald-500 focus:ring-2 cursor-pointer"
                         />
                       </div>
 

@@ -5,8 +5,9 @@
 
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { Candle, Drawing, DrawingPoint, DrawingType, ChartSettings, RiskRewardConfig, TimeframeId, SMCInstanceConfig } from '../types';
-import { ZoomIn, ZoomOut, RotateCcw, Trash2, ArrowUpRight, ArrowDownRight, Eye, EyeOff, SlidersHorizontal, Layers, Palette, Check } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Trash2, ArrowUpRight, ArrowDownRight, Eye, EyeOff, SlidersHorizontal, Layers, Palette, Check, Paintbrush, Undo2, PlayCircle } from 'lucide-react';
 import { TIMEFRAMES } from '../hooks/useDerivWS';
+import { getCandleStepSeconds, continuousIndexToTime, timeToContinuousIndex } from '../utils/chartCoords';
 import { calculateGTATrend } from '../utils/gtaIndicator';
 import { calculateTrendlinesWithBreaks, calculateSmartMoneyConcepts, calculateSmartMoneyConceptsForInstance, calculateSignalsAndOverlays, calculateConfluenceFVG, FVGZone, calculateIctConcepts, calculateMarketStructureToolkit, calculatePureLiquiditySweeps } from '../utils/premiumIndicators';
 import { calculateAutoPriceChannels4H } from '../utils/priceChannelsIndicator';
@@ -21,7 +22,7 @@ import { calculateHvnProfile } from '../utils/hvnProfile';
 import { calculateOrderBlocksWithVolume, formatOrderBlockVolume } from '../utils/orderBlocksWithVolume';
 import { calculateProOrderBlocks, ProOrderBlock } from '../utils/proOrderBlocks';
 import { calculateSessionFilter, SessionFilterInterval } from '../utils/sessionFilterEngine';
-import { calculateMarketStructureTargetTracker, MsttResult } from '../utils/marketStructureTargetTracker';
+import { calculateMarketStructureTargetTracker, MsttResult, MsttLockedSignal } from '../utils/marketStructureTargetTracker';
 import { calculateVipMarketScanner, VipScannerResult } from '../utils/vipMarketScanner';
 import { calculatePremiumDynamicTpSlSignals, DynamicTpSlResults, DynamicSignalOperation } from '../utils/premiumDynamicTpSlSignals';
 import { calculateTradePlanner, TradePlannerResult, RecentTradeAudit, LUNQ_PALETTE } from '../utils/tradePlannerLunqFX';
@@ -107,6 +108,10 @@ interface MihiretuViewChartProps {
   onLoadMoreHistory?: () => void;
   isLoadingMoreHistory?: boolean;
   hasMoreHistory?: boolean;
+  isReplayMode?: boolean;
+  isPickingReplayBar?: boolean;
+  onPickReplayBarTime?: (time: number) => void;
+  onToggleReplayMode?: () => void;
 }
 
 export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
@@ -136,6 +141,10 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
   onLoadMoreHistory,
   isLoadingMoreHistory = false,
   hasMoreHistory = true,
+  isReplayMode = false,
+  isPickingReplayBar = false,
+  onPickReplayBarTime,
+  onToggleReplayMode,
 }) => {
   // Guarantee selectedSymbol is available as an alias for symbolName across the entire component
   const selectedSymbol = symbolName;
@@ -174,11 +183,48 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
   // Snapping state
   const [snappedPoint, setSnappedPoint] = useState<DrawingPoint | null>(null);
 
+  // Hand Brush freehand drawing style & live stroke ref (persisted across timeframes/reloads)
+  const [brushColor, setBrushColor] = useState<string>(() => {
+    try {
+      return localStorage.getItem('mihiretu_brush_color') || '#f59e0b';
+    } catch {
+      return '#f59e0b';
+    }
+  });
+  const [brushLineWidth, setBrushLineWidth] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('mihiretu_brush_width'));
+      return saved > 0 ? saved : 3;
+    } catch {
+      return 3;
+    }
+  });
+  const brushPointsRef = useRef<DrawingPoint[]>([]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('mihiretu_brush_color', brushColor);
+      localStorage.setItem('mihiretu_brush_width', String(brushLineWidth));
+    } catch {}
+  }, [brushColor, brushLineWidth]);
+
   // Trade Planner Audit Inspection Focus state
   const [selectedTradePlannerTradeId, setSelectedTradePlannerTradeId] = useState<number | null>(null);
 
   // Touch gesture refs for mobile support
-  const touchStartRef = useRef<{ startX: number; startY: number; startScrollOffset: number; isDraggingDrawing: boolean } | null>(null);
+  const touchStartRef = useRef<{
+    startX: number;
+    startY: number;
+    startScrollOffset: number;
+    isDraggingDrawing: boolean;
+    startVerticalPan?: number;
+    isDraggingScale?: boolean;
+    startPriceScaleRatio?: number;
+    isPickingReplay?: boolean;
+    moved?: boolean;
+    localX?: number;
+    localY?: number;
+  } | null>(null);
   const touchPinchRef = useRef<{ startDist: number; startCandleWidth: number; startScrollOffset: number; centerX: number; indexAtCenter: number } | null>(null);
 
   // Helper to check if an indicator has been permanently deleted
@@ -285,13 +331,21 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     return calculateIctConcepts(candles, settings.indicators);
   }, [candles, settings.indicators.deletedIndicators, settings.indicators.showIctConcepts, settings.indicators]);
 
-  // Compute Auto Price Channels (4H Breakout & Trend Indicator - Strictly 4H Timeframe Enforced)
+  // Compute Multi-TF Non-Repainting Auto Price Channels (5M, 15M, 30M, 1H, 4H)
   const priceChannelsResults = useMemo(() => {
     if (isIndicatorDeleted('auto_price_channels') || (settings.indicators.showAutoPriceChannels ?? true) === false || candles.length === 0) return null;
     return calculateAutoPriceChannels4H(candles, timeframe, {
       lineColor: settings.indicators.autoPriceChannelsColor ?? '#38bdf8',
+      showSignals: settings.indicators.autoPriceChannelsShowSignals ?? true,
     });
-  }, [candles, timeframe, settings.indicators.deletedIndicators, settings.indicators.showAutoPriceChannels, settings.indicators.autoPriceChannelsColor]);
+  }, [
+    candles,
+    timeframe,
+    settings.indicators.deletedIndicators,
+    settings.indicators.showAutoPriceChannels,
+    settings.indicators.autoPriceChannelsColor,
+    settings.indicators.autoPriceChannelsShowSignals,
+  ]);
 
   // Compute Zeiierman Market Structure & Price Action Toolkit
   const mstatResults = useMemo(() => {
@@ -745,10 +799,157 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.proObShowOnlyUnmitigated,
   ]);
 
+  // Persistent Signal Lock Registry for Market Tick Two (prevents intrabar/pullback disappearance across all timeframes)
+  const msttLockedCacheRef = useRef<Record<string, MsttLockedSignal[]>>({});
+  const [msttLockVersion, setMsttLockVersion] = useState(0);
+
+  const normalizeMsttCandleSec = useCallback((t: number) => (t > 1e11 ? Math.floor(t / 1000) : Math.floor(t)), []);
+
+  const candlesMatchTimeframe = useMemo(() => {
+    if (candles.length < 5) return false;
+    const tfSeconds = TIMEFRAMES.find((t) => t.id === timeframe)?.seconds ?? 60;
+    const diffs: number[] = [];
+    const start = Math.max(1, candles.length - 8);
+    for (let i = start; i < candles.length; i++) {
+      const dt = normalizeMsttCandleSec(candles[i].time) - normalizeMsttCandleSec(candles[i - 1].time);
+      if (dt > 0) diffs.push(dt);
+    }
+    if (diffs.length === 0) return false;
+    diffs.sort((a, b) => a - b);
+    const medianStep = diffs[Math.floor(diffs.length / 2)];
+    if (tfSeconds >= 86400) return medianStep >= 43200;
+    return Math.abs(medianStep - tfSeconds) <= Math.max(5, tfSeconds * 0.25);
+  }, [candles, timeframe, normalizeMsttCandleSec]);
+
+  const msttStrategySig = useMemo(() => {
+    const ind = settings.indicators;
+    return [
+      ind.msttSwingLen ?? 5,
+      ind.msttUseStructureFilter ?? true,
+      ind.msttStructureTf ?? '15',
+      ind.msttFilterSwingLen ?? 5,
+      ind.msttUseWickFilter ?? true,
+      ind.msttMaxWickRatio ?? 0.70,
+      ind.msttUseSweepFilter ?? false,
+      ind.msttSweepLookback ?? 10,
+      ind.msttUseBodyCloseFilter ?? true,
+      ind.msttMinBodyRatio ?? 0.50,
+      ind.msttUseDisplacementFilter ?? true,
+      ind.msttMinDisplacementAtr ?? 0.80,
+      ind.msttUseFvgFilter ?? false,
+      ind.msttUseVolumeFilter ?? false,
+      ind.msttVolumeLength ?? 20,
+      ind.msttVolumeMultiplier ?? 1.20,
+      ind.msttUseScoreFilter ?? false,
+      ind.msttMinContinuationScore ?? 60,
+      ind.msttSlMulti ?? 1.0,
+      ind.msttTp1Multi ?? 1.5,
+      ind.msttTp2Multi ?? 2.5,
+      ind.msttTp3Multi ?? 5.0,
+      ind.msttAtrLen ?? 14,
+      ind.msttHtfRes ?? '240',
+      ind.msttUseHtfFilter ?? true,
+      ind.msttHtfRsiLen ?? 14,
+      ind.msttTargetFocus ?? 'TP1',
+      ind.msttTargetMode ?? 'atr',
+      ind.msttPointsSl ?? 220,
+      ind.msttPointsTp1 ?? 1030,
+      ind.msttPointsTp2 ?? 2060,
+      ind.msttPointsTp3 ?? 3090,
+      ind.msttPreventLateEntry ?? true,
+      ind.msttMaxBreakoutDelay ?? 1,
+      ind.msttUseEmaFilter ?? false,
+      ind.msttEmaLen ?? 200,
+      ind.msttUseAdxFilter ?? true,
+      ind.msttDiLen ?? 14,
+      ind.msttAdxSmooth ?? 14,
+      ind.msttMinAdx ?? 20.0,
+      ind.msttUseCandleFilter ?? false,
+      ind.msttMinBodyAtr ?? 0.20,
+      ind.msttBreakoutBufferAtr ?? 0.00,
+      ind.msttUsePremiumDiscountFilter ?? false,
+      ind.msttUseInducementFilter ?? false,
+      ind.msttUseKillZonesFilter ?? false,
+      ind.msttUseTurtleSoupFilter ?? false,
+      ind.msttUseRetestConfirmation ?? false,
+      ind.msttRetestMaxBars ?? 3,
+      ind.msttUseAntiWhipsawFilter ?? false,
+      ind.msttWhipsawCooldownBars ?? 4,
+    ].join('|');
+  }, [settings.indicators]);
+
+  const msttLockKey = useMemo(() => {
+    const cleanSym = (symbolName || 'MARKET').replace(/[^a-zA-Z0-9_-]/g, '');
+    const prefix = isReplayMode ? 'mstt_locked_replay_v1' : 'mstt_locked_v1';
+    return `${prefix}_${cleanSym}_${timeframe}_${msttStrategySig}`;
+  }, [symbolName, timeframe, msttStrategySig, isReplayMode]);
+
+  const getMsttLockedList = useCallback((key: string, persistStorage: boolean): MsttLockedSignal[] => {
+    const existing = msttLockedCacheRef.current[key];
+    if (existing) return existing;
+    if (persistStorage) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const sanitized: MsttLockedSignal[] = [];
+            for (const item of parsed) {
+              if (!item || (item.dir !== 'BULL' && item.dir !== 'BEAR')) continue;
+              const candleTime = Number(item.candleTime);
+              const entryPrice = Number(item.entryPrice);
+              const slPrice = Number(item.slPrice);
+              const tp1Price = Number(item.tp1Price);
+              if (
+                !Number.isFinite(candleTime) ||
+                !Number.isFinite(entryPrice) ||
+                !Number.isFinite(slPrice) ||
+                !Number.isFinite(tp1Price)
+              ) {
+                continue;
+              }
+              const tp2Raw = Number(item.tp2Price);
+              const tp3Raw = Number(item.tp3Price);
+              const bosRaw = Number(item.bosLevel);
+              const tgtRaw = item.targetLevel === null || item.targetLevel === undefined ? NaN : Number(item.targetLevel);
+              const swingRaw = item.swingBarTime === null || item.swingBarTime === undefined ? NaN : Number(item.swingBarTime);
+              const lowAtLockRaw = item.lowAtLock === undefined ? NaN : Number(item.lowAtLock);
+              const highAtLockRaw = item.highAtLock === undefined ? NaN : Number(item.highAtLock);
+              const postLowRaw = item.postSignalLow === undefined ? NaN : Number(item.postSignalLow);
+              const postHighRaw = item.postSignalHigh === undefined ? NaN : Number(item.postSignalHigh);
+              sanitized.push({
+                ...item,
+                candleTime,
+                text: typeof item.text === 'string' && item.text ? item.text : 'BOS',
+                entryPrice,
+                slPrice,
+                tp1Price,
+                tp2Price: Number.isFinite(tp2Raw) ? tp2Raw : tp1Price,
+                tp3Price: Number.isFinite(tp3Raw) ? tp3Raw : (Number.isFinite(tp2Raw) ? tp2Raw : tp1Price),
+                bosLevel: Number.isFinite(bosRaw) ? bosRaw : entryPrice,
+                targetLevel: Number.isFinite(tgtRaw) ? tgtRaw : null,
+                swingBarTime: Number.isFinite(swingRaw) ? swingRaw : null,
+                lowAtLock: Number.isFinite(lowAtLockRaw) ? lowAtLockRaw : undefined,
+                highAtLock: Number.isFinite(highAtLockRaw) ? highAtLockRaw : undefined,
+                postSignalLow: Number.isFinite(postLowRaw) ? postLowRaw : undefined,
+                postSignalHigh: Number.isFinite(postHighRaw) ? postHighRaw : undefined,
+              });
+            }
+            msttLockedCacheRef.current[key] = sanitized;
+            return sanitized;
+          }
+        }
+      } catch {}
+    }
+    msttLockedCacheRef.current[key] = [];
+    return msttLockedCacheRef.current[key];
+  }, []);
+
   // Compute Market Tick Two [MarkitTick] — Enhanced Filters (Market Structure Target Tracker)
   const msttResults: MsttResult | null = useMemo(() => {
     const isMsttEnabled = !isIndicatorDeleted('mstt') && ((settings.indicators.showMarketTickTwo ?? settings.indicators.showMarketStructureTargetTracker) ?? true);
     if (!isMsttEnabled || candles.length === 0) return null;
+    const lockedSignals = candlesMatchTimeframe ? getMsttLockedList(msttLockKey, !isReplayMode) : undefined;
     return calculateMarketStructureTargetTracker(candles, {
       swingLen: settings.indicators.msttSwingLen ?? 5,
       // Enhanced Filters Edition Options
@@ -828,10 +1029,17 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       useAntiWhipsawFilter: settings.indicators.msttUseAntiWhipsawFilter ?? false,
       whipsawCooldownBars: settings.indicators.msttWhipsawCooldownBars ?? 4,
       hudSize: settings.indicators.msttHudSize ?? 'Normal',
+      lockedSignals,
     }, (symbolName || 'MARKET').replace(/^(FRX|CRY|OTC|DERIV)_?/i, ''));
   }, [
     candles,
     symbolName,
+    candlesMatchTimeframe,
+    msttLockKey,
+    msttLockVersion,
+    isReplayMode,
+    getMsttLockedList,
+    settings.indicators.deletedIndicators,
     settings.indicators.showMarketStructureTargetTracker,
     settings.indicators.showMarketTickTwo,
     settings.indicators.msttSwingLen,
@@ -909,6 +1117,149 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.msttWhipsawCooldownBars,
     settings.indicators.msttHudSize,
   ]);
+
+  // Synchronize newly triggered live/recent MSTT signals into persistent lock registry and track same-candle post-signal SL/TP1 hits
+  useEffect(() => {
+    if (!msttResults || !candlesMatchTimeframe || candles.length === 0) return;
+
+    const persistStorage = !isReplayMode;
+    let list = [...getMsttLockedList(msttLockKey, persistStorage)];
+    let changedForRender = false;
+    let changedForStorage = false;
+
+    const lastIdx = candles.length - 1;
+    const lastCandle = candles[lastIdx];
+    const lastTimeSec = normalizeMsttCandleSec(lastCandle.time);
+
+    // In Replay mode, prune locks strictly ahead of current replay cursor so stepping backward works cleanly
+    if (isReplayMode) {
+      const beforeLen = list.length;
+      list = list.filter((item) => normalizeMsttCandleSec(item.candleTime) <= lastTimeSec);
+      if (list.length !== beforeLen) {
+        changedForRender = true;
+        changedForStorage = true;
+      }
+    }
+
+    const indexByTime = new Map<number, number>();
+    list.forEach((item, idx) => {
+      indexByTime.set(normalizeMsttCandleSec(item.candleTime), idx);
+    });
+
+    // Lock any newly triggered live or recent-bucket signals (prevents disappearing on intrabar/HTF/pullback changes)
+    const minLockBarIdx = Math.max(0, lastIdx - 15);
+    for (const sig of msttResults.signalMarkers) {
+      if (sig.barIndex < minLockBarIdx) continue;
+      if (
+        !Number.isFinite(sig.entryPrice) ||
+        !Number.isFinite(sig.slPrice) ||
+        !Number.isFinite(sig.tp1Price)
+      ) continue;
+      const tSec = normalizeMsttCandleSec(sig.time);
+      if (!Number.isFinite(tSec) || indexByTime.has(tSec)) continue;
+
+      const sigCandle = candles[sig.barIndex];
+      const safeTp2 = Number.isFinite(sig.tp2Price) ? Number(sig.tp2Price) : Number(sig.tp1Price);
+      const safeTp3 = Number.isFinite(sig.tp3Price) ? Number(sig.tp3Price) : safeTp2;
+      const safeBos = Number.isFinite(sig.bosLevel) ? Number(sig.bosLevel) : Number(sig.entryPrice);
+      const newLocked: MsttLockedSignal = {
+        candleTime: tSec,
+        dir: sig.type === 'bull' ? 'BULL' : 'BEAR',
+        text: sig.text,
+        entryPrice: Number(sig.entryPrice),
+        slPrice: Number(sig.slPrice),
+        tp1Price: Number(sig.tp1Price),
+        tp2Price: safeTp2,
+        tp3Price: safeTp3,
+        bosLevel: safeBos,
+        targetLevel: sig.targetLevel !== null && sig.targetLevel !== undefined && Number.isFinite(sig.targetLevel) ? sig.targetLevel : null,
+        swingBarTime: sig.swingBarTime !== null && sig.swingBarTime !== undefined && Number.isFinite(sig.swingBarTime) ? sig.swingBarTime : null,
+        filterFlags: sig.filterFlags,
+        lowAtLock: sigCandle?.low,
+        highAtLock: sigCandle?.high,
+        postSignalLow: sigCandle ? sigCandle.close : undefined,
+        postSignalHigh: sigCandle ? sigCandle.close : undefined,
+        hitSlAfterSignal: false,
+        hitTp1AfterSignal: false,
+        firstOutcomeAfterSignal: null,
+      };
+      indexByTime.set(tSec, list.length);
+      list.push(newLocked);
+      changedForRender = true;
+      changedForStorage = true;
+    }
+
+    // Track subsequent live ticks on the active locked candle for same-candle SL / TP1 hit resolution
+    const liveIdx = indexByTime.get(lastTimeSec);
+    if (liveIdx !== undefined) {
+      const currentLocked = list[liveIdx];
+      if (currentLocked.firstOutcomeAfterSignal == null) {
+        const updatedLocked: MsttLockedSignal = { ...currentLocked };
+        const prevLow = updatedLocked.postSignalLow;
+        const prevHigh = updatedLocked.postSignalHigh;
+        const nextLow = prevLow !== undefined ? Math.min(prevLow, lastCandle.close) : lastCandle.close;
+        const nextHigh = prevHigh !== undefined ? Math.max(prevHigh, lastCandle.close) : lastCandle.close;
+        updatedLocked.postSignalLow = nextLow;
+        updatedLocked.postSignalHigh = nextHigh;
+
+        let hitSlNow = false;
+        let hitTp1Now = false;
+        if (updatedLocked.dir === 'BULL') {
+          hitSlNow =
+            lastCandle.close <= updatedLocked.slPrice ||
+            (lastCandle.low <= updatedLocked.slPrice &&
+              (updatedLocked.lowAtLock === undefined || updatedLocked.lowAtLock > updatedLocked.slPrice));
+          hitTp1Now =
+            lastCandle.close >= updatedLocked.tp1Price ||
+            (lastCandle.high >= updatedLocked.tp1Price &&
+              (updatedLocked.highAtLock === undefined || updatedLocked.highAtLock < updatedLocked.tp1Price));
+        } else {
+          hitSlNow =
+            lastCandle.close >= updatedLocked.slPrice ||
+            (lastCandle.high >= updatedLocked.slPrice &&
+              (updatedLocked.highAtLock === undefined || updatedLocked.highAtLock < updatedLocked.slPrice));
+          hitTp1Now =
+            lastCandle.close <= updatedLocked.tp1Price ||
+            (lastCandle.low <= updatedLocked.tp1Price &&
+              (updatedLocked.lowAtLock === undefined || updatedLocked.lowAtLock > updatedLocked.tp1Price));
+        }
+
+        if (hitSlNow) {
+          updatedLocked.hitSlAfterSignal = true;
+          updatedLocked.firstOutcomeAfterSignal = 'SL';
+          list[liveIdx] = updatedLocked;
+          changedForRender = true;
+          changedForStorage = true;
+        } else if (hitTp1Now) {
+          updatedLocked.hitTp1AfterSignal = true;
+          updatedLocked.firstOutcomeAfterSignal = 'TP1';
+          list[liveIdx] = updatedLocked;
+          changedForRender = true;
+          changedForStorage = true;
+        } else if (nextLow !== prevLow || nextHigh !== prevHigh) {
+          list[liveIdx] = updatedLocked;
+          changedForStorage = true;
+        }
+      }
+    }
+
+    if (changedForStorage) {
+      if (list.length > 150) {
+        list.sort((a, b) => a.candleTime - b.candleTime);
+        list = list.slice(list.length - 150);
+      }
+      msttLockedCacheRef.current[msttLockKey] = list;
+      if (persistStorage) {
+        try {
+          localStorage.setItem(msttLockKey, JSON.stringify(list));
+        } catch {}
+      }
+    }
+
+    if (changedForRender) {
+      setMsttLockVersion((v) => v + 1);
+    }
+  }, [msttResults, candles, candlesMatchTimeframe, msttLockKey, isReplayMode, getMsttLockedList, normalizeMsttCandleSec]);
 
   // Compute VIP Market Scanner™ (Single Pair Matrix Engine)
   const vipScannerResults: VipScannerResult | null = useMemo(() => {
@@ -1460,18 +1811,26 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     }
   }, [visibleRange.start, hasMoreHistory, isLoadingMoreHistory, onLoadMoreHistory, candles.length]);
 
+  const candleStepSec = useMemo(
+    () => getCandleStepSeconds(candles, timeframe),
+    [candles, timeframe]
+  );
+
   // Coordinates Mapping
   const getXFromIndex = (index: number) => {
     const paddingRight = 50;
     return chartWidth - paddingRight + scrollOffset - (candles.length - 1 - index) * candleWidth;
   };
 
-  const getIndexFromX = (x: number) => {
+  const getContinuousIndexFromX = (x: number) => {
     const paddingRight = 50;
-    // x = chartWidth - paddingRight + scrollOffset - (candles.length - 1 - index) * candleWidth
-    // (candles.length - 1 - index) * candleWidth = chartWidth - paddingRight + scrollOffset - x
-    const candlesFromRight = (chartWidth - paddingRight + scrollOffset - x) / candleWidth;
-    return Math.round(candles.length - 1 - candlesFromRight);
+    const widthPerCandle = candleWidth > 0 ? candleWidth : 8;
+    const candlesFromRight = (chartWidth - paddingRight + scrollOffset - x) / widthPerCandle;
+    return candles.length - 1 - candlesFromRight;
+  };
+
+  const getIndexFromX = (x: number) => {
+    return Math.round(getContinuousIndexFromX(x));
   };
 
   const getPriceFromY = (y: number) => {
@@ -1484,56 +1843,20 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     return ((maxPrice - price) / (maxPrice - minPrice)) * chartHeight;
   };
 
-  // Convert (time, price) space to canvas pixel coordinates
+  // Convert real-world (time, price) space to exact canvas pixel coordinates across ANY timeframe
   const getCanvasCoords = (point: DrawingPoint) => {
-    // Find index of the closest candle with this timestamp
-    let index = candles.findIndex((c) => c.time === point.time);
-    if (index === -1) {
-      // If candle timestamp is missing (e.g. gap or before/after range), interpolate index
-      if (candles.length > 0) {
-        if (point.time < candles[0].time) {
-          // Extrapolate left
-          const diffSec = candles[0].time - point.time;
-          const avgCandleSec = candles.length > 1 ? (candles[1].time - candles[0].time) : 60;
-          index = -Math.round(diffSec / avgCandleSec);
-        } else {
-          // Extrapolate right
-          const diffSec = point.time - candles[candles.length - 1].time;
-          const avgCandleSec = candles.length > 1 ? (candles[candles.length - 1].time - candles[candles.length - 2].time) : 60;
-          index = candles.length - 1 + Math.round(diffSec / avgCandleSec);
-        }
-      } else {
-        index = 0;
-      }
-    }
+    const exactIndex = timeToContinuousIndex(point.time, candles, candleStepSec);
     return {
-      x: getXFromIndex(index),
+      x: getXFromIndex(exactIndex),
       y: getYFromPrice(point.price),
     };
   };
 
-  // Convert canvas pixel coordinates to (time, price) space
+  // Convert canvas pixel coordinates to continuous real-world (time, price) space
   const getSpaceCoords = (x: number, y: number) => {
     const price = getPriceFromY(y);
-    const index = getIndexFromX(x);
-    let time = 0;
-
-    if (candles.length > 0) {
-      if (index >= 0 && index < candles.length) {
-        time = candles[index].time;
-      } else if (index < 0) {
-        const diffIndex = -index;
-        const avgCandleSec = candles.length > 1 ? (candles[1].time - candles[0].time) : 60;
-        time = candles[0].time - diffIndex * avgCandleSec;
-      } else {
-        const diffIndex = index - (candles.length - 1);
-        const avgCandleSec = candles.length > 1 ? (candles[candles.length - 1].time - candles[candles.length - 2].time) : 60;
-        time = candles[candles.length - 1].time + diffIndex * avgCandleSec;
-      }
-    } else {
-      time = Math.round(Date.now() / 1000);
-    }
-
+    const exactIndex = getContinuousIndexFromX(x);
+    const time = continuousIndexToTime(exactIndex, candles, candleStepSec);
     return { time, price };
   };
 
@@ -2184,13 +2507,15 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     }
 
     // ==========================================
-    // Render Auto Price Channels (4H Breakout & Trend Indicator)
-    // STRICT TIMEFRAME ENFORCEMENT: ONLY executes & displays on 4H
+    // Render Auto Price Channels (Non-Repainting MTF Channels + Touch/Bounce BUY/SELL Blocks)
+    // Active on 5M, 15M, 30M, 1H, and 4H
     // ==========================================
-    if ((settings.indicators.showAutoPriceChannels ?? true) && timeframe === '4H' && priceChannelsResults) {
+    if ((settings.indicators.showAutoPriceChannels ?? true) && priceChannelsResults) {
       const lineColor = settings.indicators.autoPriceChannelsColor ?? '#38bdf8';
       const lineWidth = settings.indicators.autoPriceChannelsLineWidth ?? 2;
       const showBreakouts = settings.indicators.autoPriceChannelsShowBreakouts ?? true;
+      const showChannelSignals = settings.indicators.autoPriceChannelsShowSignals ?? true;
+      const showChannelLabels = settings.indicators.autoPriceChannelsShowLabels ?? true;
       const doFill = settings.indicators.autoPriceChannelsFill ?? true;
 
       ctx.save();
@@ -2211,7 +2536,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
         // 1. Optional translucent channel shading between upper and lower lines
         if (doFill) {
-          ctx.fillStyle = 'rgba(56, 189, 248, 0.05)';
+          ctx.fillStyle = hexToRgba(lineColor, 0.05);
           ctx.beginPath();
           ctx.moveTo(x1, y1_upper);
           ctx.lineTo(x2, y2_upper);
@@ -2234,16 +2559,18 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         ctx.lineTo(x2, y2_lower);
         ctx.stroke();
 
-        // 3b. Optional Trend Angle/Slope Label on Channel Center
-        const midX = (x1 + x2) / 2;
-        const midY = (y1_upper + y2_lower) / 2;
-        if (midX >= 0 && midX <= chartWidth) {
-          ctx.font = 'bold 10px "Inter", sans-serif';
-          ctx.fillStyle = ch.trend === 'UP' ? '#38bdf8' : '#38bdf8';
-          ctx.textAlign = 'center';
-          const dirArrow = ch.trend === 'UP' ? '↗ 4H Uptrend' : ch.trend === 'DOWN' ? '↘ 4H Downtrend' : '↔ 4H Range';
-          const slopeText = ch.slopePercentage ? ` (${ch.slopePercentage.toFixed(1)}%)` : '';
-          ctx.fillText(`${dirArrow}${slopeText}`, midX, midY);
+        // 3b. Trend Angle/Slope Label on Channel Center (ON/OFF toggleable)
+        if (showChannelLabels) {
+          const midX = (x1 + x2) / 2;
+          const midY = (y1_upper + y2_lower) / 2;
+          if (midX >= 0 && midX <= chartWidth) {
+            ctx.font = 'bold 10px "Inter", sans-serif';
+            ctx.fillStyle = lineColor;
+            ctx.textAlign = 'center';
+            const dirArrow = ch.trend === 'UP' ? `↗ ${timeframe} Uptrend` : ch.trend === 'DOWN' ? `↘ ${timeframe} Downtrend` : `↔ ${timeframe} Range`;
+            const slopeText = ch.slopePercentage ? ` (${ch.slopePercentage.toFixed(1)}%)` : '';
+            ctx.fillText(`${dirArrow}${slopeText}`, midX, midY);
+          }
         }
 
         // 4. Breakout Marker (if breakout occurred)
@@ -2261,7 +2588,6 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             ctx.lineWidth = 1;
             ctx.stroke();
 
-            // Label text
             ctx.font = 'bold 9px "Inter", sans-serif';
             ctx.fillStyle = isBull ? '#34d399' : '#f87171';
             ctx.textAlign = 'center';
@@ -2270,6 +2596,75 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           }
         }
       });
+
+      // 5. Golden Rule MTF BUY / SELL Short Blocks (5M+15M, 15M+1H, 30M+1H, 1H+4H)
+      if (showChannelSignals && priceChannelsResults.signals.length > 0) {
+        priceChannelsResults.signals.forEach((sig) => {
+          if (sig.index < start - 2 || sig.index > end + 2) return;
+          const x = getXFromIndex(sig.index);
+          if (x < -30 || x > chartWidth + 30) return;
+
+          const isBuy = sig.type === 'BUY';
+          const text = isBuy ? 'BUY' : 'SELL';
+          ctx.font = 'bold 10px "JetBrains Mono", monospace';
+          const tw = ctx.measureText(text).width + 14;
+          const th = 18;
+
+          if (isBuy) {
+            const lowY = getYFromPrice(sig.low);
+            const py = lowY + 12;
+
+            ctx.fillStyle = '#00c853';
+            ctx.beginPath();
+            ctx.roundRect(x - tw / 2, py, tw, th, 4);
+            ctx.fill();
+
+            if (sig.isLive) {
+              ctx.strokeStyle = '#a7f3d0';
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+            }
+
+            ctx.beginPath();
+            ctx.moveTo(x - 5, py);
+            ctx.lineTo(x + 5, py);
+            ctx.lineTo(x, py - 5);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x, py + th / 2);
+          } else {
+            const highY = getYFromPrice(sig.high);
+            const py = highY - 12 - th;
+
+            ctx.fillStyle = '#e53935';
+            ctx.beginPath();
+            ctx.roundRect(x - tw / 2, py, tw, th, 4);
+            ctx.fill();
+
+            if (sig.isLive) {
+              ctx.strokeStyle = '#fecaca';
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+            }
+
+            ctx.beginPath();
+            ctx.moveTo(x - 5, py + th);
+            ctx.lineTo(x + 5, py + th);
+            ctx.lineTo(x, py + th + 5);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x, py + th / 2);
+          }
+        });
+      }
 
       ctx.restore();
     }
@@ -6172,21 +6567,40 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           drawHandle(ctx, p1.x, p1.y, drawing.color);
           drawHandle(ctx, p2.x, p2.y, drawing.color);
         }
-      } else if (drawing.type === 'brush' && drawing.points.length >= 2) {
-        ctx.beginPath();
-        const startP = getCanvasCoords(drawing.points[0]);
-        ctx.moveTo(startP.x, startP.y);
-        for (let i = 1; i < drawing.points.length; i++) {
-          const pt = getCanvasCoords(drawing.points[i]);
-          ctx.lineTo(pt.x, pt.y);
+      } else if (drawing.type === 'brush' && drawing.points.length >= 1) {
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        const pts = drawing.points.map((p) => getCanvasCoords(p));
+        if (pts.length === 1) {
+          ctx.fillStyle = drawing.color || '#f59e0b';
+          ctx.beginPath();
+          ctx.arc(pts[0].x, pts[0].y, Math.max(1.5, (drawing.lineWidth || 2) / 2), 0, Math.PI * 2);
+          ctx.fill();
+        } else if (pts.length === 2) {
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          ctx.lineTo(pts[1].x, pts[1].y);
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length - 1; i++) {
+            const midX = (pts[i].x + pts[i + 1].x) / 2;
+            const midY = (pts[i].y + pts[i + 1].y) / 2;
+            ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
+          }
+          ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+          ctx.stroke();
         }
-        ctx.stroke();
+        ctx.restore();
 
-        if (isSelected) {
-          // Draw start and end handles
-          const endP = getCanvasCoords(drawing.points[drawing.points.length - 1]);
-          drawHandle(ctx, startP.x, startP.y, drawing.color);
-          drawHandle(ctx, endP.x, endP.y, drawing.color);
+        if (isSelected && pts.length >= 1) {
+          const endP = pts[pts.length - 1];
+          drawHandle(ctx, pts[0].x, pts[0].y, drawing.color);
+          if (pts.length >= 2) {
+            drawHandle(ctx, endP.x, endP.y, drawing.color);
+          }
         }
       } else if (drawing.type === 'path' && drawing.points.length >= 2) {
         ctx.beginPath();
@@ -6700,16 +7114,32 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         drawHandle(ctx, p1.x, p1.y, '#818cf8');
         drawHandle(ctx, p2.x, p2.y, '#818cf8');
       } else if (activeTool === 'brush') {
-        ctx.strokeStyle = '#f59e0b';
-        ctx.beginPath();
-        const startP = getCanvasCoords(newDrawingPoints[0]);
-        ctx.moveTo(startP.x, startP.y);
-        for (let i = 1; i < newDrawingPoints.length; i++) {
-          const pt = getCanvasCoords(newDrawingPoints[i]);
-          ctx.lineTo(pt.x, pt.y);
+        const activePts = brushPointsRef.current.length > 0 ? brushPointsRef.current : newDrawingPoints;
+        const pts = activePts.map((p) => getCanvasCoords(p));
+        if (pts.length > 0) {
+          ctx.save();
+          ctx.strokeStyle = brushColor;
+          ctx.fillStyle = brushColor;
+          ctx.lineWidth = brushLineWidth;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          if (pts.length === 1) {
+            ctx.beginPath();
+            ctx.arc(pts[0].x, pts[0].y, Math.max(1.5, brushLineWidth / 2), 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.beginPath();
+            ctx.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length - 1; i++) {
+              const midX = (pts[i].x + pts[i + 1].x) / 2;
+              const midY = (pts[i].y + pts[i + 1].y) / 2;
+              ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
+            }
+            ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+            ctx.stroke();
+          }
+          ctx.restore();
         }
-        ctx.lineTo(mousePos.x, mousePos.y);
-        ctx.stroke();
       } else if (activeTool === 'path') {
         ctx.strokeStyle = '#06b6d4';
         ctx.fillStyle = '#06b6d4';
@@ -7241,8 +7671,10 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         tradesToRender.forEach((tr) => {
           const startX = getXFromIndex(tr.entryBar);
           const endX = getXFromIndex(tr.endBar);
-          const renderX1 = Math.max(0, startX);
-          const renderX2 = Math.min(chartWidth, endX);
+          const isSameBarTrade = tr.endBar <= tr.entryBar;
+          const halfSingleBarW = Math.max(candleWidth * 0.48, 7);
+          const renderX1 = Math.max(0, isSameBarTrade ? startX - halfSingleBarW : startX);
+          const renderX2 = Math.min(chartWidth, isSameBarTrade ? startX + halfSingleBarW : endX);
           if (renderX2 <= renderX1) return;
 
           const yEntry = getYFromPrice(tr.entryPrice);
@@ -7338,9 +7770,10 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
           // 4c. R:R Outcome Badge on Historical Trade Box
           if (showRrBadge && renderX2 - renderX1 >= 24) {
-            const riskPts = Math.abs(tr.entryPrice - tr.slPrice);
-            const rewardPts = Math.abs(tr.tp1Price - tr.entryPrice);
-            const tradeRr = riskPts > 0 ? (rewardPts / riskPts).toFixed(1) : '1.5';
+            const riskPts = Math.abs(Number(tr.entryPrice) - Number(tr.slPrice));
+            const rewardPts = Math.abs(Number(tr.tp1Price) - Number(tr.entryPrice));
+            const rawRatio = riskPts > 0 ? rewardPts / riskPts : NaN;
+            const tradeRr = Number.isFinite(rawRatio) ? rawRatio.toFixed(1) : '1.5';
             const dirIcon = tr.dir === 'BULL' ? '▲ BUY' : '▼ SELL';
             const badgeText = tr.isWin ? `${dirIcon} +${tradeRr}R WIN` : `${dirIcon} -1.0R LOSS`;
             ctx.save();
@@ -9459,6 +9892,46 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       }
     }
 
+    // Replay Bar-Cut Selector Line Overlay
+    if (isPickingReplayBar && candles.length > 0 && mousePos.x >= 0 && mousePos.x <= chartWidth && mousePos.y >= 0 && mousePos.y <= chartHeight) {
+      const hoverIdx = Math.max(Math.min(5, candles.length - 1), Math.min(candles.length - 1, getIndexFromX(mousePos.x)));
+      const cutX = getXFromIndex(hoverIdx);
+
+      ctx.save();
+      if (cutX < chartWidth) {
+        ctx.fillStyle = 'rgba(14, 165, 233, 0.12)';
+        ctx.fillRect(cutX, 0, chartWidth - cutX, chartHeight);
+      }
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(cutX, 0);
+      ctx.lineTo(cutX, chartHeight);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const labelText = '✂ Drag to scroll • Tap candle to cut';
+      ctx.font = 'bold 11px "Inter", sans-serif';
+      const tw = ctx.measureText(labelText).width;
+      const boxW = tw + 16;
+      const boxH = 22;
+      const boxX = Math.max(8, Math.min(chartWidth - boxW - 8, cutX - boxW / 2));
+      ctx.fillStyle = 'rgba(2, 132, 199, 0.95)';
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(boxX, 12, boxW, boxH, 6);
+      } else {
+        ctx.rect(boxX, 12, boxW, boxH);
+      }
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(labelText, boxX + boxW / 2, 12 + boxH / 2);
+      ctx.restore();
+    }
+
     // 11. Draw mire75 TRADER Watermark
     ctx.save();
     ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)';
@@ -9492,6 +9965,9 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     mtfEmaResults,
     mrovTradeResults,
     ema50100Results,
+    brushColor,
+    brushLineWidth,
+    isPickingReplayBar,
   ]);
 
   // Helper: Get nice tick interval for price grid
@@ -9624,18 +10100,19 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     setHoveredPrice(getPriceFromY(y));
     setHoveredTime(getSpaceCoords(x, y).time);
 
-    // Dynamic Magnet snapping on mouse move
-    const snap = calculateSnapping(x, y);
+    // Dynamic Magnet snapping on mouse move (disabled during freehand brush strokes)
+    const snap = activeTool === 'brush' ? null : calculateSnapping(x, y);
     setSnappedPoint(snap);
 
-    // Drawing-in-progress trendline/arrow/brush/path tracking
-    if (isDrawingInProgress && activeTool === 'brush' && newDrawingPoints.length > 0) {
-      // Append continuous space coordinate points when dragging brush
+    // Drawing-in-progress freehand brush tracking (pixel-distance gated for all symbols & TFs)
+    if (isDrawingInProgress && activeTool === 'brush' && brushPointsRef.current.length > 0) {
       const currentCoord = getSpaceCoords(x, y);
-      const lastPoint = newDrawingPoints[newDrawingPoints.length - 1];
-      // Only append if moved slightly to save point density
-      if (lastPoint && (Math.abs(currentCoord.price - lastPoint.price) > 0.0001 || currentCoord.time !== lastPoint.time)) {
-        setNewDrawingPoints((prev) => [...prev, currentCoord]);
+      const lastPoint = brushPointsRef.current[brushPointsRef.current.length - 1];
+      const lastCanvas = getCanvasCoords(lastPoint);
+      if (Math.hypot(x - lastCanvas.x, y - lastCanvas.y) >= 2.5) {
+        const nextPts = [...brushPointsRef.current, currentCoord];
+        brushPointsRef.current = nextPts;
+        setNewDrawingPoints(nextPts);
       }
     }
 
@@ -9646,7 +10123,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       if (drawingIdx !== -1) {
         const drawing = drawingList[drawingIdx];
         if (!drawing || !Array.isArray(drawing.points)) return;
-        const currentCoord = snap || getSpaceCoords(x, y);
+        const currentCoord = drawing.type === 'brush' ? getSpaceCoords(x, y) : (snap || getSpaceCoords(x, y));
 
         if (draggedHandleIndex !== null && draggedHandleIndex >= 0) {
           // RESIZING A SPECIFIC HANDLE
@@ -9735,23 +10212,12 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             }];
           } else if (drawing.type === 'trend' || drawing.type === 'arrow' || drawing.type === 'brush' || drawing.type === 'path' || drawing.type === 'rectangle' || drawing.type === 'fixed_range_volume_profile') {
             const deltaPrice = currentCoord.price - dragOffset.price;
-            const targetTimeIndex = candles.findIndex(c => c.time === currentCoord.time);
-            const sourceTimeIndex = candles.findIndex(c => c.time === dragOffset.time);
-            
-            let deltaIndex = 0;
-            if (targetTimeIndex !== -1 && sourceTimeIndex !== -1) {
-              deltaIndex = targetTimeIndex - sourceTimeIndex;
-            }
+            const deltaTime = currentCoord.time - dragOffset.time;
 
-            const updatedPoints = drawing.points.map((p) => {
-              let pIdx = candles.findIndex(c => c.time === p.time);
-              if (pIdx === -1) pIdx = 0;
-              const newIdx = Math.max(0, Math.min(candles.length - 1, pIdx + deltaIndex));
-              return {
-                time: candles[newIdx].time,
-                price: p.price + deltaPrice,
-              };
-            });
+            const updatedPoints = drawing.points.map((p) => ({
+              time: p.time + deltaTime,
+              price: p.price + deltaPrice,
+            }));
 
             updatedDrawing.points = updatedPoints;
             setDragOffset({ time: currentCoord.time, price: currentCoord.price });
@@ -9853,7 +10319,58 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
     if (y > chartHeight) return; // User clicked bottom time scale
 
-    const snap = calculateSnapping(x, y);
+    // -1. REPLAY BAR CUT PICKER (allow drag scrolling; cut only on clean click without drag)
+    if (isPickingReplayBar && onPickReplayBarTime && candles.length > 0) {
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startOffset = scrollOffset;
+      const startVerticalPan = verticalPanPixels;
+      let moved = false;
+
+      const handlePickPanMouseMove = (moveEvent: MouseEvent) => {
+        const deltaX = moveEvent.clientX - startX;
+        const deltaY = moveEvent.clientY - startY;
+
+        if (Math.hypot(deltaX, deltaY) > 5) {
+          moved = true;
+          hasDraggedRef.current = true;
+        }
+
+        const maxScroll = (candles.length + (hasMoreHistory ? 100 : 0)) * candleWidth;
+        const minScroll = -chartWidth * 0.6;
+        setScrollOffset(Math.max(minScroll, Math.min(maxScroll, startOffset + deltaX)));
+        setVerticalPanPixels(startVerticalPan + deltaY);
+
+        if (canvasRef.current) {
+          const r = canvasRef.current.getBoundingClientRect();
+          setMousePos({ x: moveEvent.clientX - r.left, y: moveEvent.clientY - r.top });
+        }
+      };
+
+      const handlePickPanMouseUp = (upEvent: MouseEvent) => {
+        window.removeEventListener('mousemove', handlePickPanMouseMove);
+        window.removeEventListener('mouseup', handlePickPanMouseUp);
+        setTimeout(() => {
+          hasDraggedRef.current = false;
+        }, 60);
+
+        if (!moved && canvasRef.current) {
+          const r = canvasRef.current.getBoundingClientRect();
+          const upX = upEvent.clientX - r.left;
+          const upY = upEvent.clientY - r.top;
+          if (upX >= 0 && upX <= chartWidth && upY >= 0 && upY <= chartHeight) {
+            const idx = Math.max(Math.min(5, candles.length - 1), Math.min(candles.length - 1, getIndexFromX(upX)));
+            onPickReplayBarTime(candles[idx].time);
+          }
+        }
+      };
+
+      window.addEventListener('mousemove', handlePickPanMouseMove);
+      window.addEventListener('mouseup', handlePickPanMouseUp);
+      return;
+    }
+
+    const snap = activeTool === 'brush' ? null : calculateSnapping(x, y);
     const spaceCoord = snap || getSpaceCoords(x, y);
 
     // 0. QUICK RISK/REWARD TAP-TO-PLACE MODE ("tap anywhere on chart" to draw immediately)
@@ -9955,9 +10472,12 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           setActiveTool('cursor');
         }
       } else if (activeTool === 'brush') {
-        // Start Brush freehand drawing
+        // Start continuous Hand Brush freehand drawing directly on candles/chart
+        const freeCoord = getSpaceCoords(x, y);
+        brushPointsRef.current = [freeCoord];
+        setSelectedDrawingId(null);
         setIsDrawingInProgress(true);
-        setNewDrawingPoints([spaceCoord]);
+        setNewDrawingPoints([freeCoord]);
       } else if (activeTool === 'path') {
         // Path (Polyline with arrowhead at end)
         if (!isDrawingInProgress) {
@@ -10292,21 +10812,28 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           foundBody = true;
           break;
         }
-      } else if ((d.type === 'brush' || d.type === 'path') && d.points.length >= 2) {
+      } else if ((d.type === 'brush' || d.type === 'path') && d.points.length >= 1) {
         let isHit = false;
-        for (let i = 0; i < d.points.length - 1; i++) {
-          const p1 = getCanvasCoords(d.points[i]);
-          const p2 = getCanvasCoords(d.points[i + 1]);
-          if (distToSegment({ x, y }, p1, p2) < 10) {
+        if (d.points.length === 1) {
+          const p0 = getCanvasCoords(d.points[0]);
+          if (Math.hypot(x - p0.x, y - p0.y) < 12) {
             isHit = true;
-            break;
+          }
+        } else {
+          for (let j = 0; j < d.points.length - 1; j++) {
+            const p1 = getCanvasCoords(d.points[j]);
+            const p2 = getCanvasCoords(d.points[j + 1]);
+            if (distToSegment({ x, y }, p1, p2) < 10) {
+              isHit = true;
+              break;
+            }
           }
         }
         if (isHit) {
           setSelectedDrawingId(d.id);
           setDraggedDrawingId(d.id);
           setDraggedHandleIndex(null);
-          setDragOffset(spaceCoord);
+          setDragOffset(d.type === 'brush' ? getSpaceCoords(x, y) : spaceCoord);
           foundBody = true;
           break;
         }
@@ -10420,22 +10947,36 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     window.addEventListener('mouseup', handlePanMouseUp);
   };
 
+  const commitBrushStroke = useCallback(() => {
+    const pts = brushPointsRef.current;
+    if (pts.length >= 1) {
+      const newDrawing: Drawing = {
+        id: 'drawing_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        type: 'brush',
+        points: [...pts],
+        color: brushColor,
+        lineWidth: brushLineWidth,
+      };
+      setDrawings((prev) => [...prev, newDrawing]);
+    }
+    brushPointsRef.current = [];
+    setIsDrawingInProgress(false);
+    setNewDrawingPoints([]);
+  }, [brushColor, brushLineWidth, setDrawings]);
+
+  useEffect(() => {
+    if (!isDrawingInProgress || activeTool !== 'brush') return;
+    const handleWindowMouseUp = () => {
+      commitBrushStroke();
+    };
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => window.removeEventListener('mouseup', handleWindowMouseUp);
+  }, [isDrawingInProgress, activeTool, commitBrushStroke]);
+
   const handleMouseUp = () => {
-    // If we were drawing freehand with the brush, commit it upon mouse release
+    // Commit freehand brush stroke on release and keep Hand Brush active for multi-stroke writing
     if (isDrawingInProgress && activeTool === 'brush') {
-      if (newDrawingPoints.length >= 2) {
-        const newDrawing: Drawing = {
-          id: 'drawing_' + Date.now(),
-          type: 'brush',
-          points: newDrawingPoints,
-          color: '#f59e0b',
-          lineWidth: 2,
-        };
-        setDrawings((prev) => [...prev, newDrawing]);
-      }
-      setIsDrawingInProgress(false);
-      setNewDrawingPoints([]);
-      setActiveTool('cursor');
+      commitBrushStroke();
     }
 
     if (draggedDrawingId) {
@@ -10488,7 +11029,23 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
       if (y > chartHeight) return; // ignore bottom scale
 
-      const snap = calculateSnapping(x, y);
+      if (isPickingReplayBar && onPickReplayBarTime && candles.length > 0) {
+        touchStartRef.current = {
+          startX: touch.clientX,
+          startY: touch.clientY,
+          startScrollOffset: scrollOffset,
+          startVerticalPan: verticalPanPixels,
+          isDraggingDrawing: false,
+          isPickingReplay: true,
+          moved: false,
+          localX: x,
+          localY: y,
+        };
+        setMousePos({ x, y });
+        return;
+      }
+
+      const snap = activeTool === 'brush' ? null : calculateSnapping(x, y);
       const spaceCoord = snap || getSpaceCoords(x, y);
 
       // 0. QUICK RISK/REWARD TAP-TO-PLACE MODE ("tap anywhere on chart" to draw immediately)
@@ -10536,8 +11093,17 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             setActiveTool('cursor');
           }
         } else if (activeTool === 'brush') {
+          const freeCoord = getSpaceCoords(x, y);
+          brushPointsRef.current = [freeCoord];
+          setSelectedDrawingId(null);
           setIsDrawingInProgress(true);
-          setNewDrawingPoints([spaceCoord]);
+          setNewDrawingPoints([freeCoord]);
+          touchStartRef.current = {
+            startX: touch.clientX,
+            startY: touch.clientY,
+            startScrollOffset: scrollOffset,
+            isDraggingDrawing: false,
+          };
         } else if (activeTool === 'path') {
           if (!isDrawingInProgress) {
             setIsDrawingInProgress(true);
@@ -10831,6 +11397,29 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             foundBody = true;
             break;
           }
+        } else if ((d.type === 'brush' || d.type === 'path') && d.points.length >= 1) {
+          let isHit = false;
+          if (d.points.length === 1) {
+            const p0 = getCanvasCoords(d.points[0]);
+            if (Math.hypot(x - p0.x, y - p0.y) < 20) isHit = true;
+          } else {
+            for (let j = 0; j < d.points.length - 1; j++) {
+              const p1 = getCanvasCoords(d.points[j]);
+              const p2 = getCanvasCoords(d.points[j + 1]);
+              if (distToSegment({ x, y }, p1, p2) < 18) {
+                isHit = true;
+                break;
+              }
+            }
+          }
+          if (isHit) {
+            setSelectedDrawingId(d.id);
+            setDraggedDrawingId(d.id);
+            setDraggedHandleIndex(null);
+            setDragOffset(d.type === 'brush' ? getSpaceCoords(x, y) : spaceCoord);
+            foundBody = true;
+            break;
+          }
         } else if (d.type === 'risk_reward' && d.riskReward) {
           const config = d.riskReward;
           const entryY = getYFromPrice(config.entryPrice);
@@ -10878,7 +11467,11 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       setHoveredTime(getSpaceCoords(x, y).time);
       setMousePos({ x, y });
     } else if (e.touches.length === 2) {
-      // Pinch to Zoom
+      // Pinch to Zoom (cancel any pending single-tap replay cut so pinching never cuts)
+      if (touchStartRef.current) {
+        touchStartRef.current.isPickingReplay = false;
+        touchStartRef.current.moved = true;
+      }
       const t1 = e.touches[0];
       const t2 = e.touches[1];
       const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
@@ -10918,6 +11511,19 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
       const { startX, startScrollOffset, isDraggingDrawing } = touchStartRef.current;
 
+      if (activeTool === 'brush' && isDrawingInProgress && brushPointsRef.current.length > 0) {
+        const currentCoord = getSpaceCoords(x, y);
+        const lastPoint = brushPointsRef.current[brushPointsRef.current.length - 1];
+        const lastCanvas = getCanvasCoords(lastPoint);
+        if (Math.hypot(x - lastCanvas.x, y - lastCanvas.y) >= 2.5) {
+          const nextPts = [...brushPointsRef.current, currentCoord];
+          brushPointsRef.current = nextPts;
+          setNewDrawingPoints(nextPts);
+        }
+        setMousePos({ x, y });
+        return;
+      }
+
       if (isDraggingDrawing) {
         const snap = calculateSnapping(x, y);
         const currentCoord = snap || getSpaceCoords(x, y);
@@ -10926,6 +11532,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           const drawingIdx = drawings.findIndex((d) => d.id === draggedDrawingId);
           if (drawingIdx !== -1) {
             const drawing = drawings[drawingIdx];
+            const activeCoord = drawing.type === 'brush' ? getSpaceCoords(x, y) : currentCoord;
 
             if (draggedHandleIndex !== null && draggedHandleIndex >= 0) {
               const updatedDrawings = [...drawings];
@@ -10933,48 +11540,48 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
               const updatedPoints = [...updatedDrawing.points];
 
               if (drawing.type === 'trend' && draggedHandleIndex < 2) {
-                updatedPoints[draggedHandleIndex] = currentCoord;
+                updatedPoints[draggedHandleIndex] = activeCoord;
               } else if (drawing.type === 'risk_reward' && drawing.riskReward) {
                 const config = { ...drawing.riskReward };
                 const isLong = config.targetPrice >= config.entryPrice;
 
                 if (draggedHandleIndex === 0) {
                   // Target level handle
-                  config.targetPrice = currentCoord.price;
+                  config.targetPrice = activeCoord.price;
                 } else if (draggedHandleIndex === 1) {
                   // Entry level handle
-                  config.entryPrice = currentCoord.price;
+                  config.entryPrice = activeCoord.price;
                   if (updatedPoints[0]) updatedPoints[0] = { time: updatedPoints[0].time, price: config.entryPrice };
                   if (updatedPoints[1]) updatedPoints[1] = { time: updatedPoints[1].time, price: config.entryPrice };
                 } else if (draggedHandleIndex === 2) {
                   // Stop loss level handle
-                  config.stopPrice = currentCoord.price;
+                  config.stopPrice = activeCoord.price;
                 } else if (draggedHandleIndex === 3) {
                   // Right width handle (stretch box to right)
-                  updatedPoints[1] = { time: currentCoord.time, price: config.entryPrice };
+                  updatedPoints[1] = { time: activeCoord.time, price: config.entryPrice };
                 } else if (draggedHandleIndex === 4) {
                   // Left width handle (stretch box to left)
-                  updatedPoints[0] = { time: currentCoord.time, price: config.entryPrice };
+                  updatedPoints[0] = { time: activeCoord.time, price: config.entryPrice };
                 } else if (draggedHandleIndex === 5) {
                   // Top-Right Corner
-                  updatedPoints[1] = { time: currentCoord.time, price: config.entryPrice };
-                  if (isLong) config.targetPrice = currentCoord.price;
-                  else config.stopPrice = currentCoord.price;
+                  updatedPoints[1] = { time: activeCoord.time, price: config.entryPrice };
+                  if (isLong) config.targetPrice = activeCoord.price;
+                  else config.stopPrice = activeCoord.price;
                 } else if (draggedHandleIndex === 6) {
                   // Top-Left Corner
-                  updatedPoints[0] = { time: currentCoord.time, price: config.entryPrice };
-                  if (isLong) config.targetPrice = currentCoord.price;
-                  else config.stopPrice = currentCoord.price;
+                  updatedPoints[0] = { time: activeCoord.time, price: config.entryPrice };
+                  if (isLong) config.targetPrice = activeCoord.price;
+                  else config.stopPrice = activeCoord.price;
                 } else if (draggedHandleIndex === 7) {
                   // Bottom-Right Corner
-                  updatedPoints[1] = { time: currentCoord.time, price: config.entryPrice };
-                  if (isLong) config.stopPrice = currentCoord.price;
-                  else config.targetPrice = currentCoord.price;
+                  updatedPoints[1] = { time: activeCoord.time, price: config.entryPrice };
+                  if (isLong) config.stopPrice = activeCoord.price;
+                  else config.targetPrice = activeCoord.price;
                 } else if (draggedHandleIndex === 8) {
                   // Bottom-Left Corner
-                  updatedPoints[0] = { time: currentCoord.time, price: config.entryPrice };
-                  if (isLong) config.stopPrice = currentCoord.price;
-                  else config.targetPrice = currentCoord.price;
+                  updatedPoints[0] = { time: activeCoord.time, price: config.entryPrice };
+                  if (isLong) config.stopPrice = activeCoord.price;
+                  else config.targetPrice = activeCoord.price;
                 }
 
                 updatedDrawing.riskReward = config;
@@ -10989,34 +11596,23 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
               if (drawing.type === 'horizontal') {
                 updatedDrawing.points = [{
-                  time: currentCoord.time,
-                  price: currentCoord.price,
+                  time: activeCoord.time,
+                  price: activeCoord.price,
                 }];
-              } else if (drawing.type === 'trend') {
-                const deltaPrice = currentCoord.price - dragOffset.price;
-                const targetTimeIndex = candles.findIndex(c => c.time === currentCoord.time);
-                const sourceTimeIndex = candles.findIndex(c => c.time === dragOffset.time);
-                
-                let deltaIndex = 0;
-                if (targetTimeIndex !== -1 && sourceTimeIndex !== -1) {
-                  deltaIndex = targetTimeIndex - sourceTimeIndex;
-                }
+              } else if (drawing.type === 'trend' || drawing.type === 'arrow' || drawing.type === 'brush' || drawing.type === 'path' || drawing.type === 'rectangle' || drawing.type === 'fixed_range_volume_profile') {
+                const deltaPrice = activeCoord.price - dragOffset.price;
+                const deltaTime = activeCoord.time - dragOffset.time;
 
-                const updatedPoints = drawing.points.map((p) => {
-                  let pIdx = candles.findIndex(c => c.time === p.time);
-                  if (pIdx === -1) pIdx = 0;
-                  const newIdx = Math.max(0, Math.min(candles.length - 1, pIdx + deltaIndex));
-                  return {
-                    time: candles[newIdx].time,
-                    price: p.price + deltaPrice,
-                  };
-                });
+                const updatedPoints = drawing.points.map((p) => ({
+                  time: p.time + deltaTime,
+                  price: p.price + deltaPrice,
+                }));
 
                 updatedDrawing.points = updatedPoints;
-                setDragOffset({ time: currentCoord.time, price: currentCoord.price });
+                setDragOffset({ time: activeCoord.time, price: activeCoord.price });
               } else if (drawing.type === 'risk_reward' && drawing.riskReward) {
-                const deltaTime = currentCoord.time - dragOffset.time;
-                const deltaPrice = currentCoord.price - dragOffset.price;
+                const deltaTime = activeCoord.time - dragOffset.time;
+                const deltaPrice = activeCoord.price - dragOffset.price;
                 const config = { ...drawing.riskReward };
                 config.entryPrice += deltaPrice;
                 config.targetPrice += deltaPrice;
@@ -11029,7 +11625,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
                 updatedDrawing.points = movedPoints;
                 updatedDrawing.riskReward = config;
-                setDragOffset(currentCoord);
+                setDragOffset(activeCoord);
               }
 
               updatedDrawings[drawingIdx] = updatedDrawing;
@@ -11040,10 +11636,13 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       } else {
         const deltaX = touch.clientX - startX;
         const deltaY = touch.clientY - (touchStartRef.current.startY || 0);
+        if (Math.hypot(deltaX, deltaY) > 6) {
+          touchStartRef.current.moved = true;
+        }
         const maxScroll = (candles.length + (hasMoreHistory ? 100 : 0)) * candleWidth;
         const minScroll = -chartWidth * 0.6;
         setScrollOffset(Math.max(minScroll, Math.min(maxScroll, startScrollOffset + deltaX)));
-        setVerticalPanPixels(((touchStartRef.current as any).startVerticalPan || 0) + deltaY);
+        setVerticalPanPixels((touchStartRef.current.startVerticalPan || 0) + deltaY);
       }
 
       setMousePos({ x, y });
@@ -11055,7 +11654,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       }
       setHoveredPrice(getPriceFromY(y));
       setHoveredTime(getSpaceCoords(x, y).time);
-      const snap = calculateSnapping(x, y);
+      const snap = activeTool === 'brush' ? null : calculateSnapping(x, y);
       setSnappedPoint(snap);
     } else if (e.touches.length === 2 && touchPinchRef.current) {
       const t1 = e.touches[0];
@@ -11077,7 +11676,13 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     }
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (isDrawingInProgress && activeTool === 'brush') {
+      commitBrushStroke();
+    }
+    const prevTouchStart = touchStartRef.current;
+    const wasPinching = Boolean(touchPinchRef.current);
+
     touchStartRef.current = null;
     touchPinchRef.current = null;
     if (draggedDrawingId) {
@@ -11085,6 +11690,20 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       setDraggedHandleIndex(null);
       setDragOffset(null);
       saveDrawingsToLocalStorage();
+    }
+
+    if (
+      isPickingReplayBar &&
+      onPickReplayBarTime &&
+      prevTouchStart?.isPickingReplay &&
+      !prevTouchStart.moved &&
+      !wasPinching &&
+      e.touches.length === 0 &&
+      candles.length > 0 &&
+      typeof prevTouchStart.localX === 'number'
+    ) {
+      const idx = Math.max(Math.min(5, candles.length - 1), Math.min(candles.length - 1, getIndexFromX(prevTouchStart.localX)));
+      onPickReplayBarTime(candles[idx].time);
     }
   };
 
@@ -11914,8 +12533,161 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         </div>
       )}
 
+      {/* Floating Hand Brush Bar when Hand Brush tool is active */}
+      {activeTool === 'brush' && (
+        <div
+          id="hand-brush-floating-bar"
+          className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-neutral-950/95 border border-amber-500/50 shadow-2xl backdrop-blur-md text-xs text-white select-none flex-wrap max-w-[96%]"
+        >
+          <div className="flex items-center gap-1.5 pr-2 border-r border-neutral-800">
+            <Paintbrush className="w-3.5 h-3.5 text-amber-400" />
+            <span className="font-bold text-amber-300 text-[11px] whitespace-nowrap">Hand Brush</span>
+          </div>
+
+          {/* Color Swatches */}
+          <div className="flex items-center gap-1">
+            {['#f59e0b', '#38bdf8', '#22c55e', '#f43f5e', '#ffffff', '#a855f7'].map((col) => (
+              <button
+                key={col}
+                type="button"
+                onClick={() => setBrushColor(col)}
+                title={`Color ${col}`}
+                className={`w-4 h-4 rounded-full border transition-transform cursor-pointer ${
+                  brushColor.toLowerCase() === col.toLowerCase()
+                    ? 'scale-125 border-white ring-2 ring-amber-400/70'
+                    : 'border-neutral-700 hover:scale-110'
+                }`}
+                style={{ backgroundColor: col }}
+              />
+            ))}
+          </div>
+
+          {/* Stroke Width */}
+          <div className="flex items-center gap-1 pl-2 border-l border-neutral-800">
+            {[
+              { label: 'S', w: 2 },
+              { label: 'M', w: 3.5 },
+              { label: 'L', w: 5 },
+            ].map((sz) => (
+              <button
+                key={sz.label}
+                type="button"
+                onClick={() => setBrushLineWidth(sz.w)}
+                title={`Stroke width ${sz.w}px`}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                  Math.abs(brushLineWidth - sz.w) < 0.6
+                    ? 'bg-amber-500 text-black'
+                    : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300'
+                }`}
+              >
+                {sz.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Undo Last Brush Stroke */}
+          <button
+            type="button"
+            onClick={() => {
+              setDrawings((prev) => {
+                const idx = [...prev].reverse().findIndex((d) => d.type === 'brush');
+                if (idx === -1) return prev;
+                const realIdx = prev.length - 1 - idx;
+                return prev.filter((_, i) => i !== realIdx);
+              });
+            }}
+            disabled={!drawings.some((d) => d.type === 'brush')}
+            title="Undo Last Brush Stroke"
+            className="p-1 rounded bg-neutral-800 hover:bg-neutral-700 disabled:opacity-35 text-neutral-200 transition-colors cursor-pointer"
+          >
+            <Undo2 className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Clear All Brush Strokes */}
+          {drawings.some((d) => d.type === 'brush') && (
+            <button
+              type="button"
+              onClick={() => {
+                setDrawings((prev) => prev.filter((d) => d.type !== 'brush'));
+              }}
+              title="Clear All Brush Writing"
+              className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 border border-rose-500/40 text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Clear</span>
+            </button>
+          )}
+
+          {/* Switch back to Pan/Cursor */}
+          <button
+            type="button"
+            onClick={() => setActiveTool('cursor')}
+            title="Switch to Cursor / Pan (Esc)"
+            className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold transition-colors cursor-pointer"
+          >
+            Done (Esc)
+          </button>
+        </div>
+      )}
+
+      {/* Selected Non-R:R Drawing Quick Delete Pill (Touch/Mouse friendly) */}
+      {selectedDrawingId && !selectedRiskRewardDrawing && activeTool === 'cursor' && (
+        <div
+          id="selected-drawing-actions"
+          className="absolute bottom-12 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-neutral-950/95 border border-neutral-700 shadow-2xl backdrop-blur-md text-xs text-white select-none"
+        >
+          <span className="text-[11px] text-neutral-300 font-medium">Selected Drawing</span>
+          <button
+            type="button"
+            onClick={() => {
+              setDrawings((prev) => prev.filter((d) => d.id !== selectedDrawingId));
+              setSelectedDrawingId(null);
+            }}
+            className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+          >
+            <Trash2 className="w-3 h-3" />
+            <span>Delete</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedDrawingId(null)}
+            className="px-1.5 py-0.5 text-neutral-400 hover:text-white cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Floating Bottom Scale Utility Actions (TradingView style controls) */}
       <div id="chart-controls" className="absolute bottom-3 right-24 z-20 flex items-center gap-1 p-1 bg-black/30 hover:bg-black/70 border border-neutral-800/40 rounded-lg shadow backdrop-blur-[2px] opacity-90 hover:opacity-100 transition-all">
+        {onToggleReplayMode && (
+          <button
+            id="btn-chart-replay"
+            type="button"
+            onClick={onToggleReplayMode}
+            title={isReplayMode ? 'Replay Mode ON (Click to return to LIVE)' : 'Start Bar Replay Mode'}
+            className={`p-1.5 rounded transition-colors cursor-pointer ${
+              isReplayMode
+                ? 'bg-sky-500 text-black shadow-sm'
+                : 'hover:bg-neutral-800 text-sky-400 hover:text-sky-300'
+            }`}
+          >
+            <PlayCircle className="w-4 h-4" />
+          </button>
+        )}
+        <button
+          id="btn-chart-hand-brush"
+          type="button"
+          onClick={() => setActiveTool(activeTool === 'brush' ? 'cursor' : 'brush')}
+          title={activeTool === 'brush' ? 'Hand Brush ON (Click or Esc for Cursor)' : 'Hand Brush (Write on candles/chart)'}
+          className={`p-1.5 rounded transition-colors cursor-pointer ${
+            activeTool === 'brush'
+              ? 'bg-amber-500 text-black shadow-sm'
+              : 'hover:bg-neutral-800 text-amber-400 hover:text-amber-300'
+          }`}
+        >
+          <Paintbrush className="w-4 h-4" />
+        </button>
         {(verticalPanPixels !== 0 || priceScaleRatio !== 1.0) && (
           <button
             id="btn-auto-fit-price"

@@ -107,6 +107,30 @@ export interface MsttOptions {
   useCandleFilter?: boolean; // Strong Breakout Candle (default: false)
   minBodyAtr?: number; // Minimum Candle Body (ATR) (default: 0.20)
   breakoutBufferAtr?: number; // Breakout Buffer (ATR) (default: 0.00)
+  // Persistent locked signals to prevent intrabar/pullback disappearance across all timeframes
+  lockedSignals?: MsttLockedSignal[];
+}
+
+export interface MsttLockedSignal {
+  candleTime: number;
+  dir: 'BULL' | 'BEAR';
+  text: 'BOS' | 'CHoCH';
+  entryPrice: number;
+  slPrice: number;
+  tp1Price: number;
+  tp2Price: number;
+  tp3Price: number;
+  bosLevel: number;
+  targetLevel: number | null;
+  swingBarTime?: number | null;
+  filterFlags?: string;
+  lowAtLock?: number;
+  highAtLock?: number;
+  postSignalLow?: number;
+  postSignalHigh?: number;
+  hitSlAfterSignal?: boolean;
+  hitTp1AfterSignal?: boolean;
+  firstOutcomeAfterSignal?: 'SL' | 'TP1' | null;
 }
 
 export interface MsttLine {
@@ -149,6 +173,10 @@ export interface MsttSignalMarker {
   tp1Price?: number;
   tp2Price?: number;
   tp3Price?: number;
+  bosLevel?: number;
+  targetLevel?: number | null;
+  swingBarTime?: number | null;
+  filterFlags?: string;
   isKillZone?: boolean;
   confidenceBadge?: string;
 }
@@ -711,9 +739,27 @@ function f_blockColor(rawVal: number, lo: number, mid: number, hi: number): stri
     : 'rgb(110, 110, 110)';
 }
 
-function formatPrice(val: number | null | undefined, minTickPrecision = 2): string {
-  if (val === null || val === undefined || isNaN(val)) return '—';
-  return val.toFixed(minTickPrecision);
+function safeFiniteNum(val: unknown, fallback: number): number {
+  if (val === null || val === undefined || typeof val === 'boolean') return fallback;
+  if (typeof val === 'string' && val.trim() === '') return fallback;
+  const n = typeof val === 'number' ? val : Number(val);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function safeOptionalFiniteNum(val: unknown): number | undefined {
+  if (val === null || val === undefined || typeof val === 'boolean') return undefined;
+  if (typeof val === 'string' && val.trim() === '') return undefined;
+  const n = typeof val === 'number' ? val : Number(val);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function formatPrice(val: unknown, minTickPrecision = 2): string {
+  if (val === null || val === undefined || typeof val === 'boolean') return '—';
+  if (typeof val === 'string' && val.trim() === '') return '—';
+  const num = typeof val === 'number' ? val : Number(val);
+  if (!Number.isFinite(num)) return '—';
+  const prec = Math.max(0, Math.min(10, Math.round(safeFiniteNum(minTickPrecision, 2))));
+  return num.toFixed(prec);
 }
 
 /**
@@ -725,7 +771,7 @@ export function calculateMarketStructureTargetTracker(
   cleanTicker = 'MARKET'
 ): MsttResult {
   // Input Groups
-  const swingLen = Math.max(3, Math.min(50, Math.round(options.swingLen ?? 5)));
+  const swingLen = Math.max(3, Math.min(50, Math.round(safeFiniteNum(options.swingLen, 5))));
   const showBosLine = options.showBosLine ?? true;
   const showLabel = options.showLabel ?? true;
   const invalidateMode = options.invalidateMode ?? true;
@@ -737,15 +783,15 @@ export function calculateMarketStructureTargetTracker(
   // SL/TP
   const showTpSl = options.showTpSl ?? true;
   const targetMode = options.targetMode ?? 'atr';
-  const slMulti = options.slMulti ?? 1.0;
-  const tp1Multi = options.tp1Multi ?? 1.5;
-  const tp2Multi = options.tp2Multi ?? 2.5;
-  const tp3Multi = options.tp3Multi ?? 5.0;
-  const pointsSl = options.pointsSl ?? 220;
-  const pointsTp1 = options.pointsTp1 ?? 1030;
-  const pointsTp2 = options.pointsTp2 ?? 2060;
-  const pointsTp3 = options.pointsTp3 ?? 3090;
-  const atrLen = Math.max(1, Math.min(50, Math.round(options.atrLen ?? 14)));
+  const slMulti = Math.max(0.01, safeFiniteNum(options.slMulti, 1.0));
+  const tp1Multi = Math.max(0.01, safeFiniteNum(options.tp1Multi, 1.5));
+  const tp2Multi = Math.max(0.01, safeFiniteNum(options.tp2Multi, 2.5));
+  const tp3Multi = Math.max(0.01, safeFiniteNum(options.tp3Multi, 5.0));
+  const pointsSl = Math.max(0.00001, safeFiniteNum(options.pointsSl, 220));
+  const pointsTp1 = Math.max(0.00001, safeFiniteNum(options.pointsTp1, 1030));
+  const pointsTp2 = Math.max(0.00001, safeFiniteNum(options.pointsTp2, 2060));
+  const pointsTp3 = Math.max(0.00001, safeFiniteNum(options.pointsTp3, 3090));
+  const atrLen = Math.max(1, Math.min(50, Math.round(safeFiniteNum(options.atrLen, 14))));
   const colEntry = options.colEntry ?? 'rgb(100, 180, 255)';
   const colSl = options.colSl ?? 'rgb(255, 60, 60)';
   const colTp1 = options.colTp1 ?? 'rgb(0, 220, 130)';
@@ -775,7 +821,7 @@ export function calculateMarketStructureTargetTracker(
   // HTF Regime Filter (Default true to block chop / counter-trend fakeouts)
   const htfRes = options.htfRes ?? '240';
   const useHtfFilter = options.useHtfFilter ?? true;
-  const htfRsiLen = Math.max(2, Math.round(options.htfRsiLen ?? 14));
+  const htfRsiLen = Math.max(2, Math.round(safeFiniteNum(options.htfRsiLen, 14)));
 
   // Alerts
   const alertBos = options.alertBos ?? true;
@@ -784,25 +830,25 @@ export function calculateMarketStructureTargetTracker(
   // Advanced Filters (Enhanced Filters Edition)
   const useStructureFilter = options.useStructureFilter ?? true;
   const structureTf = options.structureTf ?? '15';
-  const filterSwingLen = Math.max(2, Math.min(20, Math.round(options.filterSwingLen ?? 5)));
+  const filterSwingLen = Math.max(2, Math.min(20, Math.round(safeFiniteNum(options.filterSwingLen, 5))));
   const useWickFilter = options.useWickFilter ?? true;
-  const maxWickRatio = options.maxWickRatio ?? 0.70;
+  const maxWickRatio = safeFiniteNum(options.maxWickRatio, 0.70);
   const useSweepFilter = options.useSweepFilter ?? false;
-  const sweepLookback = Math.max(1, Math.min(50, Math.round(options.sweepLookback ?? 10)));
+  const sweepLookback = Math.max(1, Math.min(50, Math.round(safeFiniteNum(options.sweepLookback, 10))));
   // New Enhanced Filters v2 Edition
   const useBodyCloseFilter = options.useBodyCloseFilter ?? true;
-  const minBodyRatio = options.minBodyRatio ?? 0.50;
+  const minBodyRatio = safeFiniteNum(options.minBodyRatio, 0.50);
   const useDisplacementFilter = options.useDisplacementFilter ?? true;
-  const minDisplacementAtr = options.minDisplacementAtr ?? 0.80;
+  const minDisplacementAtr = safeFiniteNum(options.minDisplacementAtr, 0.80);
   const useFvgFilter = options.useFvgFilter ?? false;
   const useVolumeFilter = options.useVolumeFilter ?? false;
-  const volumeLength = Math.max(2, Math.min(100, Math.round(options.volumeLength ?? 20)));
-  const volumeMultiplier = options.volumeMultiplier ?? 1.20;
+  const volumeLength = Math.max(2, Math.min(100, Math.round(safeFiniteNum(options.volumeLength, 20))));
+  const volumeMultiplier = safeFiniteNum(options.volumeMultiplier, 1.20);
   const useScoreFilter = options.useScoreFilter ?? false;
-  const minContinuationScore = Math.max(20, Math.min(100, Math.round(options.minContinuationScore ?? 60)));
-  const keepN = Math.max(0, Math.min(1000, Math.round(options.keepN ?? 10)));
+  const minContinuationScore = Math.max(20, Math.min(100, Math.round(safeFiniteNum(options.minContinuationScore, 60))));
+  const keepN = Math.max(0, Math.min(1000, Math.round(safeFiniteNum(options.keepN, 10))));
   const preventLateEntry = options.preventLateEntry ?? true;
-  const maxBreakoutDelay = Math.max(0, Math.min(3, Math.round(options.maxBreakoutDelay ?? 1)));
+  const maxBreakoutDelay = Math.max(0, Math.min(3, Math.round(safeFiniteNum(options.maxBreakoutDelay, 1))));
 
   // New Algorithmic Filters: Premium/Discount, Inducement (IDM), V75 Kill Zones, Turtle Soup, Retest Confirmation, Anti-Whipsaw
   const usePremiumDiscountFilter = options.usePremiumDiscountFilter ?? false;
@@ -810,20 +856,20 @@ export function calculateMarketStructureTargetTracker(
   const useKillZonesFilter = options.useKillZonesFilter ?? false;
   const useTurtleSoupFilter = options.useTurtleSoupFilter ?? false;
   const useRetestConfirmation = options.useRetestConfirmation ?? false;
-  const retestMaxBars = Math.max(1, Math.min(6, Math.round(options.retestMaxBars ?? 3)));
+  const retestMaxBars = Math.max(1, Math.min(6, Math.round(safeFiniteNum(options.retestMaxBars, 3))));
   const useAntiWhipsawFilter = options.useAntiWhipsawFilter ?? false;
-  const whipsawCooldownBars = Math.max(2, Math.min(10, Math.round(options.whipsawCooldownBars ?? 4)));
+  const whipsawCooldownBars = Math.max(2, Math.min(10, Math.round(safeFiniteNum(options.whipsawCooldownBars, 4))));
 
   // Signal Quality Filters (EMA, ADX + DI Regime Engine, Strong Breakout Candle)
   const useEmaFilter = options.useEmaFilter ?? false;
-  const emaLen = Math.max(20, Math.min(500, Math.round(options.emaLen ?? 200)));
+  const emaLen = Math.max(20, Math.min(500, Math.round(safeFiniteNum(options.emaLen, 200))));
   const useAdxFilter = options.useAdxFilter ?? true;
-  const diLen = Math.max(2, Math.min(50, Math.round(options.diLen ?? 14)));
-  const adxSmooth = Math.max(2, Math.min(50, Math.round(options.adxSmooth ?? 14)));
-  const minAdx = options.minAdx ?? 20.0;
+  const diLen = Math.max(2, Math.min(50, Math.round(safeFiniteNum(options.diLen, 14))));
+  const adxSmooth = Math.max(2, Math.min(50, Math.round(safeFiniteNum(options.adxSmooth, 14))));
+  const minAdx = safeFiniteNum(options.minAdx, 20.0);
   const useCandleFilter = options.useCandleFilter ?? false;
-  const minBodyAtr = options.minBodyAtr ?? 0.20;
-  const breakoutBufferAtr = options.breakoutBufferAtr ?? 0.00;
+  const minBodyAtr = safeFiniteNum(options.minBodyAtr, 0.20);
+  const breakoutBufferAtr = safeFiniteNum(options.breakoutBufferAtr, 0.00);
 
   const n = candles.length;
   if (n === 0) {
@@ -1044,6 +1090,45 @@ export function calculateMarketStructureTargetTracker(
   const signalMarkers: MsttSignalMarker[] = [];
   let lastBosAlert: string | null = null;
   let lastTargetAlert: string | null = null;
+
+  const normalizeMsttTimeSec = (t: number): number => (t > 1e11 ? Math.floor(t / 1000) : Math.floor(t));
+  const lockedByTime = new Map<number, MsttLockedSignal>();
+  if (Array.isArray(options.lockedSignals)) {
+    for (const ls of options.lockedSignals) {
+      if (!ls || (ls.dir !== 'BULL' && ls.dir !== 'BEAR')) continue;
+      const cTime = safeOptionalFiniteNum(ls.candleTime);
+      const ePrice = safeOptionalFiniteNum(ls.entryPrice);
+      const sPrice = safeOptionalFiniteNum(ls.slPrice);
+      const t1Price = safeOptionalFiniteNum(ls.tp1Price);
+      if (cTime === undefined || ePrice === undefined || sPrice === undefined || t1Price === undefined) continue;
+      const t2Price = safeFiniteNum(ls.tp2Price, t1Price);
+      const t3Price = safeFiniteNum(ls.tp3Price, t2Price);
+      const bLevel = safeFiniteNum(ls.bosLevel, ePrice);
+      const tgtLevel = safeOptionalFiniteNum(ls.targetLevel) ?? null;
+      const swTime = safeOptionalFiniteNum(ls.swingBarTime) ?? null;
+      lockedByTime.set(normalizeMsttTimeSec(cTime), {
+        ...ls,
+        candleTime: normalizeMsttTimeSec(cTime),
+        text: typeof ls.text === 'string' && ls.text ? ls.text : 'BOS',
+        entryPrice: ePrice,
+        slPrice: sPrice,
+        tp1Price: t1Price,
+        tp2Price: t2Price,
+        tp3Price: t3Price,
+        bosLevel: bLevel,
+        targetLevel: tgtLevel,
+        swingBarTime: swTime,
+        lowAtLock: safeOptionalFiniteNum(ls.lowAtLock),
+        highAtLock: safeOptionalFiniteNum(ls.highAtLock),
+        postSignalLow: safeOptionalFiniteNum(ls.postSignalLow),
+        postSignalHigh: safeOptionalFiniteNum(ls.postSignalHigh),
+      });
+    }
+  }
+  const barTimeToIndex = new Map<number, number>();
+  for (let i = 0; i < n; i++) {
+    barTimeToIndex.set(normalizeMsttTimeSec(candles[i].time), i);
+  }
 
   // ── Sequential Bar Execution (1:1 with Pine Script execution engine) ────────
   for (let bar_index = 0; bar_index < n; bar_index++) {
@@ -1863,14 +1948,23 @@ export function calculateMarketStructureTargetTracker(
       bosBear = candidateBosBear;
     }
 
+    // ── Locked Signal Override (Never disappears once triggered on any bar/TF) ──
+    const lockedForBar = lockedByTime.get(normalizeMsttTimeSec(c.time)) ?? null;
+    if (lockedForBar) {
+      bosBull = lockedForBar.dir === 'BULL';
+      bosBear = lockedForBar.dir === 'BEAR';
+      pendingRetest = null;
+    }
+
     // ── Bullish BOS/CHoCH Handler ─────────────────────────────────────────────
     if (bosBull) {
+      const lockedBull = lockedForBar && lockedForBar.dir === 'BULL' ? lockedForBar : null;
       lastProcessedHighBar = lastSwingHighBar;
       firstBreakHighBar = null;
-      const _lbl = trend === 1 ? 'BOS' : 'CHoCH';
+      const _lbl = lockedBull ? lockedBull.text : (trend === 1 ? 'BOS' : 'CHoCH');
       trend = 1;
-      bosLevel = lastSwingHigh;
-      targetLevel = prevSwingHigh;
+      bosLevel = lockedBull ? lockedBull.bosLevel : lastSwingHigh;
+      targetLevel = lockedBull ? lockedBull.targetLevel : prevSwingHigh;
       bosBar = bar_index;
       bosBarTime = c.time;
       bosIsBull = true;
@@ -1879,76 +1973,67 @@ export function calculateMarketStructureTargetTracker(
       totalBos += 1;
       bullBosCount += 1;
 
-      // Honest real-time signal entry price (never back-dated to bosLevel when filters confirm later)
-      const needsVolumeConfirmBull = useVolumeFilter || (useScoreFilter && (bullScore - (volumeSpike ? 20 : 0)) < minContinuationScore);
-      const adxFlippedThisBarBull = useAdxFilter && !wasAdxOkBull;
-      let honestBullEntry = (useRetestConfirmation || needsVolumeConfirmBull || adxFlippedThisBarBull)
-        ? c.close
-        : Math.max(bosLevel!, c.open);
-      if (!useRetestConfirmation && !needsVolumeConfirmBull && !adxFlippedThisBarBull) {
-        if (useCandleFilter && atrVal > 0) {
-          if (minBodyAtr > 0) honestBullEntry = Math.max(honestBullEntry, c.open + atrVal * minBodyAtr);
-          if (breakoutBufferAtr > 0) honestBullEntry = Math.max(honestBullEntry, bosLevel! + atrVal * breakoutBufferAtr);
-        }
-        if (useDisplacementFilter && atrVal > 0 && minDisplacementAtr > 0) {
-          honestBullEntry = Math.max(honestBullEntry, c.open + atrVal * minDisplacementAtr);
-        }
-        if (useEmaFilter && emaVal !== null) {
-          honestBullEntry = Math.max(honestBullEntry, emaVal);
-        }
-        if (useBodyCloseFilter && minBodyRatio > 0) {
-          if (minBodyRatio >= 1) {
-            honestBullEntry = c.close;
-          } else if (c.open > c.low) {
-            const bodyCloseReq = (c.open - minBodyRatio * c.low) / (1 - minBodyRatio);
-            honestBullEntry = Math.max(honestBullEntry, bodyCloseReq);
-          }
-        }
-        if (useWickFilter && candleRange > 0) {
-          const wickReq = c.high - maxWickRatio * candleRange;
-          honestBullEntry = Math.max(honestBullEntry, wickReq);
-        }
-        if (useSweepFilter && barsSinceBullSweep === 0 && priorLow !== Infinity) {
-          honestBullEntry = Math.max(honestBullEntry, priorLow);
-        }
-        honestBullEntry = Math.min(c.close, Math.max(c.low, honestBullEntry));
-      }
-      entryPrice = honestBullEntry;
-
-      if (targetMode === 'points') {
-        slPrice = entryPrice - pointsSl;
-        tp1Price = entryPrice + pointsTp1;
-        tp2Price = entryPrice + pointsTp2;
-        tp3Price = entryPrice + pointsTp3;
+      if (lockedBull) {
+        entryPrice = lockedBull.entryPrice;
+        slPrice = lockedBull.slPrice;
+        tp1Price = lockedBull.tp1Price;
+        tp2Price = lockedBull.tp2Price;
+        tp3Price = lockedBull.tp3Price;
       } else {
-        slPrice = entryPrice - atrLocked * slMulti;
-        tp1Price = entryPrice + atrLocked * tp1Multi;
-        tp2Price = entryPrice + atrLocked * tp2Multi;
-        tp3Price = entryPrice + atrLocked * tp3Multi;
+        // Honest real-time signal entry price (never back-dated to bosLevel when filters confirm later)
+        const needsVolumeConfirmBull = useVolumeFilter || (useScoreFilter && (bullScore - (volumeSpike ? 20 : 0)) < minContinuationScore);
+        const adxFlippedThisBarBull = useAdxFilter && !wasAdxOkBull;
+        let honestBullEntry = (useRetestConfirmation || needsVolumeConfirmBull || adxFlippedThisBarBull)
+          ? c.close
+          : Math.max(bosLevel!, c.open);
+        if (!useRetestConfirmation && !needsVolumeConfirmBull && !adxFlippedThisBarBull) {
+          if (useCandleFilter && atrVal > 0) {
+            if (minBodyAtr > 0) honestBullEntry = Math.max(honestBullEntry, c.open + atrVal * minBodyAtr);
+            if (breakoutBufferAtr > 0) honestBullEntry = Math.max(honestBullEntry, bosLevel! + atrVal * breakoutBufferAtr);
+          }
+          if (useDisplacementFilter && atrVal > 0 && minDisplacementAtr > 0) {
+            honestBullEntry = Math.max(honestBullEntry, c.open + atrVal * minDisplacementAtr);
+          }
+          if (useEmaFilter && emaVal !== null) {
+            honestBullEntry = Math.max(honestBullEntry, emaVal);
+          }
+          if (useBodyCloseFilter && minBodyRatio > 0) {
+            if (minBodyRatio >= 1) {
+              honestBullEntry = c.close;
+            } else if (c.open > c.low) {
+              const bodyCloseReq = (c.open - minBodyRatio * c.low) / (1 - minBodyRatio);
+              honestBullEntry = Math.max(honestBullEntry, bodyCloseReq);
+            }
+          }
+          if (useWickFilter && candleRange > 0) {
+            const wickReq = c.high - maxWickRatio * candleRange;
+            honestBullEntry = Math.max(honestBullEntry, wickReq);
+          }
+          if (useSweepFilter && barsSinceBullSweep === 0 && priorLow !== Infinity) {
+            honestBullEntry = Math.max(honestBullEntry, priorLow);
+          }
+          honestBullEntry = Math.min(c.close, Math.max(c.low, honestBullEntry));
+        }
+        entryPrice = honestBullEntry;
+
+        if (targetMode === 'points') {
+          slPrice = entryPrice - pointsSl;
+          tp1Price = entryPrice + pointsTp1;
+          tp2Price = entryPrice + pointsTp2;
+          tp3Price = entryPrice + pointsTp3;
+        } else {
+          slPrice = entryPrice - atrLocked * slMulti;
+          tp1Price = entryPrice + atrLocked * tp1Multi;
+          tp2Price = entryPrice + atrLocked * tp2Multi;
+          tp3Price = entryPrice + atrLocked * tp3Multi;
+        }
       }
       invalidSwingRef = lastSwingLow;
-
-      // Plotshape signal with full Entry/SL/TP levels embedded
-      signalMarkers.push({
-        barIndex: bar_index,
-        time: c.time,
-        type: 'bull',
-        price: c.low,
-        text: trend === 1 ? 'BOS' : 'CHoCH',
-        color: colBullBos,
-        entryPrice: entryPrice!,
-        slPrice: slPrice!,
-        tp1Price: tp1Price!,
-        tp2Price: tp2Price!,
-        tp3Price: tp3Price!,
-        isKillZone: kz.isKillZone,
-        confidenceBadge: kz.isKillZone ? '🔥 KZ' : undefined,
-      });
 
       lastConfirmedBreakDir = 'BULL';
       lastConfirmedBreakBar = bar_index;
 
-      const currentActiveFilters = [
+      const currentActiveFilters = lockedBull?.filterFlags ?? ([
         useStructureFilter ? 'STR' : '',
         useWickFilter ? 'WICK' : '',
         useSweepFilter ? 'SWEEP' : '',
@@ -1967,7 +2052,28 @@ export function calculateMarketStructureTargetTracker(
         useTurtleSoupFilter ? 'TURTLE' : '',
         useRetestConfirmation ? 'RETEST' : '',
         useAntiWhipsawFilter ? 'CHOP-GUARD' : '',
-      ].filter(Boolean).join(' ');
+      ].filter(Boolean).join(' ') || 'NONE');
+
+      // Plotshape signal with full Entry/SL/TP levels embedded
+      signalMarkers.push({
+        barIndex: bar_index,
+        time: c.time,
+        type: 'bull',
+        price: c.low,
+        text: _lbl,
+        color: colBullBos,
+        entryPrice: entryPrice!,
+        slPrice: slPrice!,
+        tp1Price: tp1Price!,
+        tp2Price: tp2Price!,
+        tp3Price: tp3Price!,
+        bosLevel: bosLevel ?? undefined,
+        targetLevel,
+        swingBarTime: lockedBull?.swingBarTime ?? (lastSwingHighBar !== null && candles[lastSwingHighBar] ? candles[lastSwingHighBar].time : null),
+        filterFlags: currentActiveFilters,
+        isKillZone: kz.isKillZone,
+        confidenceBadge: kz.isKillZone ? '🔥 KZ' : undefined,
+      });
 
       // If an opposite BEAR trade was running, close it on trend reversal
       if (activeTrade !== null && activeTrade.dir === 'BEAR') {
@@ -1995,6 +2101,7 @@ export function calculateMarketStructureTargetTracker(
         activeTrade = null;
       }
       // If no active trade is running, open new Bull trade
+      let sameBarOutcomeBull: 'SL' | 'TP' | null = null;
       if (activeTrade === null) {
         activeTrade = {
           id: nextTradeId++,
@@ -2006,13 +2113,46 @@ export function calculateMarketStructureTargetTracker(
           tp1Price: tp1Price!,
           tp2Price: tp2Price!,
           tp3Price: tp3Price!,
-          filterFlags: currentActiveFilters || 'NONE',
+          filterFlags: currentActiveFilters,
         };
 
-        // Check if this breakout candle reached TP1 in the very same bar (only when SL was not touched anywhere on bar and not a delayed retest)
+        // Check same-candle SL Hit (Loss) first, then same-candle TP1 Hit (Win)
         const sameBarTp1 = c.high >= activeTrade.tp1Price;
         const sameBarSl = c.low <= activeTrade.slPrice;
-        if (!useRetestConfirmation && sameBarTp1 && !sameBarSl) {
+        const postSigSlHitBull = Boolean(lockedBull?.hitSlAfterSignal && lockedBull.firstOutcomeAfterSignal !== 'TP1');
+        const postSigTp1HitBull = Boolean(lockedBull?.hitTp1AfterSignal && lockedBull.firstOutcomeAfterSignal === 'TP1');
+        const closeBeyondSlBull = c.close <= activeTrade.slPrice;
+        const newLowReachedSlAfterLockBull = Boolean(
+          lockedBull &&
+          lockedBull.lowAtLock !== undefined &&
+          lockedBull.lowAtLock > activeTrade.slPrice &&
+          sameBarSl
+        );
+        const isSameBarSlLoss = !postSigTp1HitBull && (postSigSlHitBull || closeBeyondSlBull || newLowReachedSlAfterLockBull);
+
+        if (isSameBarSlLoss) {
+          completedTrades.push({
+            id: activeTrade.id,
+            dir: 'BULL',
+            entryBar: activeTrade.entryBar,
+            entryTime: activeTrade.entryTime,
+            endBar: bar_index,
+            endTime: c.time,
+            entryPrice: activeTrade.entryPrice,
+            slPrice: activeTrade.slPrice,
+            tp1Price: activeTrade.tp1Price,
+            tp2Price: activeTrade.tp2Price,
+            tp3Price: activeTrade.tp3Price,
+            exitPrice: activeTrade.slPrice,
+            exitReason: 'Stop Loss Hit (Loss)',
+            isWin: false,
+            barsHeld: 0,
+            pipsText: `-${Math.abs(activeTrade.entryPrice - activeTrade.slPrice).toFixed(1)} pts`,
+            filterFlags: activeTrade.filterFlags,
+          });
+          sameBarOutcomeBull = 'SL';
+          activeTrade = null;
+        } else if ((!useRetestConfirmation && sameBarTp1 && !sameBarSl) || postSigTp1HitBull) {
           const sameBarTp2 = c.high >= activeTrade.tp2Price;
           const sameBarTp3 = c.high >= activeTrade.tp3Price;
           let exitP = activeTrade.tp1Price;
@@ -2043,12 +2183,16 @@ export function calculateMarketStructureTargetTracker(
             pipsText: `+${Math.abs(exitP - activeTrade.entryPrice).toFixed(1)} pts`,
             filterFlags: activeTrade.filterFlags,
           });
+          sameBarOutcomeBull = 'TP';
           activeTrade = null;
         }
       }
 
       if (showBosLine && bosLevel !== null) {
-        const x1Bull = lastSwingHighBar === null ? bar_index : Math.max(lastSwingHighBar, bar_index - 499);
+        const swingIdxBull = lockedBull?.swingBarTime
+          ? (barTimeToIndex.get(normalizeMsttTimeSec(lockedBull.swingBarTime)) ?? lastSwingHighBar)
+          : lastSwingHighBar;
+        const x1Bull = swingIdxBull === null ? bar_index : Math.max(swingIdxBull, bar_index - 499);
         curBosLine = {
           x1: x1Bull,
           y1: bosLevel,
@@ -2061,7 +2205,10 @@ export function calculateMarketStructureTargetTracker(
       }
 
       if (showLabel && bosLevel !== null) {
-        const x1LabelBull = lastSwingHighBar === null ? bar_index : Math.max(lastSwingHighBar, bar_index - 499);
+        const swingIdxBull = lockedBull?.swingBarTime
+          ? (barTimeToIndex.get(normalizeMsttTimeSec(lockedBull.swingBarTime)) ?? lastSwingHighBar)
+          : lastSwingHighBar;
+        const x1LabelBull = swingIdxBull === null ? bar_index : Math.max(swingIdxBull, bar_index - 499);
         const midBull = Math.min(Math.round((x1LabelBull + bar_index) / 2), bar_index);
         curBosLbl = {
           x: midBull,
@@ -2075,13 +2222,21 @@ export function calculateMarketStructureTargetTracker(
       }
 
       if (showTpSl && entryPrice !== null) {
-        const x2Target = bar_index + 30;
+        const x2Target = sameBarOutcomeBull !== null ? bar_index : bar_index + 30;
         curEntryLine = { x1: bosBar, y1: entryPrice, x2: x2Target, y2: entryPrice, color: colEntry, width: 1, style: 'dashed' };
         curEntryLbl = { x: x2Target, y: entryPrice, text: '► Entry  ' + formatPrice(entryPrice, minTickPrecision), color: colEntry, textColor: colEntry, style: 'label_left', size: 'small' };
 
         if (showSl && slPrice !== null) {
           curSlLine = { x1: bosBar, y1: slPrice, x2: x2Target, y2: slPrice, color: colSl, width: 1, style: 'dashed' };
-          curSlLbl = { x: x2Target, y: slPrice, text: '✕ SL  ' + formatPrice(slPrice, minTickPrecision), color: colSl, textColor: colSl, style: 'label_left', size: 'small' };
+          curSlLbl = {
+            x: x2Target,
+            y: slPrice,
+            text: (sameBarOutcomeBull === 'SL' ? '✕ SL Hit  ' : '✕ SL  ') + formatPrice(slPrice, minTickPrecision),
+            color: colSl,
+            textColor: colSl,
+            style: 'label_left',
+            size: 'small',
+          };
         } else {
           curSlLine = null;
           curSlLbl = null;
@@ -2089,7 +2244,15 @@ export function calculateMarketStructureTargetTracker(
 
         if (showTp1 && tp1Price !== null) {
           curTp1Line = { x1: bosBar, y1: tp1Price, x2: x2Target, y2: tp1Price, color: colTp1, width: 1, style: 'dashed' };
-          curTp1Lbl = { x: x2Target, y: tp1Price, text: '● TP1  ' + formatPrice(tp1Price, minTickPrecision), color: colTp1, textColor: colTp1, style: 'label_left', size: 'small' };
+          curTp1Lbl = {
+            x: x2Target,
+            y: tp1Price,
+            text: (sameBarOutcomeBull === 'TP' ? '✓ Target Hit  ' : '● TP1  ') + formatPrice(tp1Price, minTickPrecision),
+            color: colTp1,
+            textColor: colTp1,
+            style: 'label_left',
+            size: 'small',
+          };
         } else {
           curTp1Line = null;
           curTp1Lbl = null;
@@ -2130,12 +2293,13 @@ export function calculateMarketStructureTargetTracker(
 
     // ── Bearish BOS/CHoCH Handler ─────────────────────────────────────────────
     if (bosBear) {
+      const lockedBear = lockedForBar && lockedForBar.dir === 'BEAR' ? lockedForBar : null;
       lastProcessedLowBar = lastSwingLowBar;
       firstBreakLowBar = null;
-      const _lbl = trend === -1 ? 'BOS' : 'CHoCH';
+      const _lbl = lockedBear ? lockedBear.text : (trend === -1 ? 'BOS' : 'CHoCH');
       trend = -1;
-      bosLevel = lastSwingLow;
-      targetLevel = prevSwingLow;
+      bosLevel = lockedBear ? lockedBear.bosLevel : lastSwingLow;
+      targetLevel = lockedBear ? lockedBear.targetLevel : prevSwingLow;
       bosBar = bar_index;
       bosBarTime = c.time;
       bosIsBull = false;
@@ -2144,76 +2308,67 @@ export function calculateMarketStructureTargetTracker(
       totalBos += 1;
       bearBosCount += 1;
 
-      // Honest real-time signal entry price (never back-dated to bosLevel when filters confirm later)
-      const needsVolumeConfirmBear = useVolumeFilter || (useScoreFilter && (bearScore - (volumeSpike ? 20 : 0)) < minContinuationScore);
-      const adxFlippedThisBarBear = useAdxFilter && !wasAdxOkBear;
-      let honestBearEntry = (useRetestConfirmation || needsVolumeConfirmBear || adxFlippedThisBarBear)
-        ? c.close
-        : Math.min(bosLevel!, c.open);
-      if (!useRetestConfirmation && !needsVolumeConfirmBear && !adxFlippedThisBarBear) {
-        if (useCandleFilter && atrVal > 0) {
-          if (minBodyAtr > 0) honestBearEntry = Math.min(honestBearEntry, c.open - atrVal * minBodyAtr);
-          if (breakoutBufferAtr > 0) honestBearEntry = Math.min(honestBearEntry, bosLevel! - atrVal * breakoutBufferAtr);
-        }
-        if (useDisplacementFilter && atrVal > 0 && minDisplacementAtr > 0) {
-          honestBearEntry = Math.min(honestBearEntry, c.open - atrVal * minDisplacementAtr);
-        }
-        if (useEmaFilter && emaVal !== null) {
-          honestBearEntry = Math.min(honestBearEntry, emaVal);
-        }
-        if (useBodyCloseFilter && minBodyRatio > 0) {
-          if (minBodyRatio >= 1) {
-            honestBearEntry = c.close;
-          } else if (c.high > c.open) {
-            const bodyCloseReq = (c.open - minBodyRatio * c.high) / (1 - minBodyRatio);
-            honestBearEntry = Math.min(honestBearEntry, bodyCloseReq);
-          }
-        }
-        if (useWickFilter && candleRange > 0) {
-          const wickReq = c.low + maxWickRatio * candleRange;
-          honestBearEntry = Math.min(honestBearEntry, wickReq);
-        }
-        if (useSweepFilter && barsSinceBearSweep === 0 && priorHigh !== -Infinity) {
-          honestBearEntry = Math.min(honestBearEntry, priorHigh);
-        }
-        honestBearEntry = Math.max(c.close, Math.min(c.high, honestBearEntry));
-      }
-      entryPrice = honestBearEntry;
-
-      if (targetMode === 'points') {
-        slPrice = entryPrice + pointsSl;
-        tp1Price = entryPrice - pointsTp1;
-        tp2Price = entryPrice - pointsTp2;
-        tp3Price = entryPrice - pointsTp3;
+      if (lockedBear) {
+        entryPrice = lockedBear.entryPrice;
+        slPrice = lockedBear.slPrice;
+        tp1Price = lockedBear.tp1Price;
+        tp2Price = lockedBear.tp2Price;
+        tp3Price = lockedBear.tp3Price;
       } else {
-        slPrice = entryPrice + atrLocked * slMulti;
-        tp1Price = entryPrice - atrLocked * tp1Multi;
-        tp2Price = entryPrice - atrLocked * tp2Multi;
-        tp3Price = entryPrice - atrLocked * tp3Multi;
+        // Honest real-time signal entry price (never back-dated to bosLevel when filters confirm later)
+        const needsVolumeConfirmBear = useVolumeFilter || (useScoreFilter && (bearScore - (volumeSpike ? 20 : 0)) < minContinuationScore);
+        const adxFlippedThisBarBear = useAdxFilter && !wasAdxOkBear;
+        let honestBearEntry = (useRetestConfirmation || needsVolumeConfirmBear || adxFlippedThisBarBear)
+          ? c.close
+          : Math.min(bosLevel!, c.open);
+        if (!useRetestConfirmation && !needsVolumeConfirmBear && !adxFlippedThisBarBear) {
+          if (useCandleFilter && atrVal > 0) {
+            if (minBodyAtr > 0) honestBearEntry = Math.min(honestBearEntry, c.open - atrVal * minBodyAtr);
+            if (breakoutBufferAtr > 0) honestBearEntry = Math.min(honestBearEntry, bosLevel! - atrVal * breakoutBufferAtr);
+          }
+          if (useDisplacementFilter && atrVal > 0 && minDisplacementAtr > 0) {
+            honestBearEntry = Math.min(honestBearEntry, c.open - atrVal * minDisplacementAtr);
+          }
+          if (useEmaFilter && emaVal !== null) {
+            honestBearEntry = Math.min(honestBearEntry, emaVal);
+          }
+          if (useBodyCloseFilter && minBodyRatio > 0) {
+            if (minBodyRatio >= 1) {
+              honestBearEntry = c.close;
+            } else if (c.high > c.open) {
+              const bodyCloseReq = (c.open - minBodyRatio * c.high) / (1 - minBodyRatio);
+              honestBearEntry = Math.min(honestBearEntry, bodyCloseReq);
+            }
+          }
+          if (useWickFilter && candleRange > 0) {
+            const wickReq = c.low + maxWickRatio * candleRange;
+            honestBearEntry = Math.min(honestBearEntry, wickReq);
+          }
+          if (useSweepFilter && barsSinceBearSweep === 0 && priorHigh !== -Infinity) {
+            honestBearEntry = Math.min(honestBearEntry, priorHigh);
+          }
+          honestBearEntry = Math.max(c.close, Math.min(c.high, honestBearEntry));
+        }
+        entryPrice = honestBearEntry;
+
+        if (targetMode === 'points') {
+          slPrice = entryPrice + pointsSl;
+          tp1Price = entryPrice - pointsTp1;
+          tp2Price = entryPrice - pointsTp2;
+          tp3Price = entryPrice - pointsTp3;
+        } else {
+          slPrice = entryPrice + atrLocked * slMulti;
+          tp1Price = entryPrice - atrLocked * tp1Multi;
+          tp2Price = entryPrice - atrLocked * tp2Multi;
+          tp3Price = entryPrice - atrLocked * tp3Multi;
+        }
       }
       invalidSwingRef = lastSwingHigh;
-
-      // Plotshape signal with full Entry/SL/TP levels embedded
-      signalMarkers.push({
-        barIndex: bar_index,
-        time: c.time,
-        type: 'bear',
-        price: c.high,
-        text: trend === -1 ? 'BOS' : 'CHoCH',
-        color: colBearBos,
-        entryPrice: entryPrice!,
-        slPrice: slPrice!,
-        tp1Price: tp1Price!,
-        tp2Price: tp2Price!,
-        tp3Price: tp3Price!,
-        isKillZone: kz.isKillZone,
-        confidenceBadge: kz.isKillZone ? '🔥 KZ' : undefined,
-      });
 
       lastConfirmedBreakDir = 'BEAR';
       lastConfirmedBreakBar = bar_index;
 
-      const currentActiveFilters = [
+      const currentActiveFilters = lockedBear?.filterFlags ?? ([
         useStructureFilter ? 'STR' : '',
         useWickFilter ? 'WICK' : '',
         useSweepFilter ? 'SWEEP' : '',
@@ -2232,7 +2387,28 @@ export function calculateMarketStructureTargetTracker(
         useTurtleSoupFilter ? 'TURTLE' : '',
         useRetestConfirmation ? 'RETEST' : '',
         useAntiWhipsawFilter ? 'CHOP-GUARD' : '',
-      ].filter(Boolean).join(' ');
+      ].filter(Boolean).join(' ') || 'NONE');
+
+      // Plotshape signal with full Entry/SL/TP levels embedded
+      signalMarkers.push({
+        barIndex: bar_index,
+        time: c.time,
+        type: 'bear',
+        price: c.high,
+        text: _lbl,
+        color: colBearBos,
+        entryPrice: entryPrice!,
+        slPrice: slPrice!,
+        tp1Price: tp1Price!,
+        tp2Price: tp2Price!,
+        tp3Price: tp3Price!,
+        bosLevel: bosLevel ?? undefined,
+        targetLevel,
+        swingBarTime: lockedBear?.swingBarTime ?? (lastSwingLowBar !== null && candles[lastSwingLowBar] ? candles[lastSwingLowBar].time : null),
+        filterFlags: currentActiveFilters,
+        isKillZone: kz.isKillZone,
+        confidenceBadge: kz.isKillZone ? '🔥 KZ' : undefined,
+      });
 
       // If an opposite BULL trade was running, close it on trend reversal
       if (activeTrade !== null && activeTrade.dir === 'BULL') {
@@ -2260,6 +2436,7 @@ export function calculateMarketStructureTargetTracker(
         activeTrade = null;
       }
       // If no active trade is running, open new Bear trade
+      let sameBarOutcomeBear: 'SL' | 'TP' | null = null;
       if (activeTrade === null) {
         activeTrade = {
           id: nextTradeId++,
@@ -2271,13 +2448,46 @@ export function calculateMarketStructureTargetTracker(
           tp1Price: tp1Price!,
           tp2Price: tp2Price!,
           tp3Price: tp3Price!,
-          filterFlags: currentActiveFilters || 'NONE',
+          filterFlags: currentActiveFilters,
         };
 
-        // Check if this breakout candle reached TP1 in the very same bar (only when SL was not touched anywhere on bar and not a delayed retest)
+        // Check same-candle SL Hit (Loss) first, then same-candle TP1 Hit (Win)
         const sameBarTp1 = c.low <= activeTrade.tp1Price;
         const sameBarSl = c.high >= activeTrade.slPrice;
-        if (!useRetestConfirmation && sameBarTp1 && !sameBarSl) {
+        const postSigSlHitBear = Boolean(lockedBear?.hitSlAfterSignal && lockedBear.firstOutcomeAfterSignal !== 'TP1');
+        const postSigTp1HitBear = Boolean(lockedBear?.hitTp1AfterSignal && lockedBear.firstOutcomeAfterSignal === 'TP1');
+        const closeBeyondSlBear = c.close >= activeTrade.slPrice;
+        const newHighReachedSlAfterLockBear = Boolean(
+          lockedBear &&
+          lockedBear.highAtLock !== undefined &&
+          lockedBear.highAtLock < activeTrade.slPrice &&
+          sameBarSl
+        );
+        const isSameBarSlLoss = !postSigTp1HitBear && (postSigSlHitBear || closeBeyondSlBear || newHighReachedSlAfterLockBear);
+
+        if (isSameBarSlLoss) {
+          completedTrades.push({
+            id: activeTrade.id,
+            dir: 'BEAR',
+            entryBar: activeTrade.entryBar,
+            entryTime: activeTrade.entryTime,
+            endBar: bar_index,
+            endTime: c.time,
+            entryPrice: activeTrade.entryPrice,
+            slPrice: activeTrade.slPrice,
+            tp1Price: activeTrade.tp1Price,
+            tp2Price: activeTrade.tp2Price,
+            tp3Price: activeTrade.tp3Price,
+            exitPrice: activeTrade.slPrice,
+            exitReason: 'Stop Loss Hit (Loss)',
+            isWin: false,
+            barsHeld: 0,
+            pipsText: `-${Math.abs(activeTrade.slPrice - activeTrade.entryPrice).toFixed(1)} pts`,
+            filterFlags: activeTrade.filterFlags,
+          });
+          sameBarOutcomeBear = 'SL';
+          activeTrade = null;
+        } else if ((!useRetestConfirmation && sameBarTp1 && !sameBarSl) || postSigTp1HitBear) {
           const sameBarTp2 = c.low <= activeTrade.tp2Price;
           const sameBarTp3 = c.low <= activeTrade.tp3Price;
           let exitP = activeTrade.tp1Price;
@@ -2308,12 +2518,16 @@ export function calculateMarketStructureTargetTracker(
             pipsText: `+${Math.abs(activeTrade.entryPrice - exitP).toFixed(1)} pts`,
             filterFlags: activeTrade.filterFlags,
           });
+          sameBarOutcomeBear = 'TP';
           activeTrade = null;
         }
       }
 
       if (showBosLine && bosLevel !== null) {
-        const x1Bear = lastSwingLowBar === null ? bar_index : Math.max(lastSwingLowBar, bar_index - 499);
+        const swingIdxBear = lockedBear?.swingBarTime
+          ? (barTimeToIndex.get(normalizeMsttTimeSec(lockedBear.swingBarTime)) ?? lastSwingLowBar)
+          : lastSwingLowBar;
+        const x1Bear = swingIdxBear === null ? bar_index : Math.max(swingIdxBear, bar_index - 499);
         curBosLine = {
           x1: x1Bear,
           y1: bosLevel,
@@ -2326,7 +2540,10 @@ export function calculateMarketStructureTargetTracker(
       }
 
       if (showLabel && bosLevel !== null) {
-        const x1LabelBear = lastSwingLowBar === null ? bar_index : Math.max(lastSwingLowBar, bar_index - 499);
+        const swingIdxBear = lockedBear?.swingBarTime
+          ? (barTimeToIndex.get(normalizeMsttTimeSec(lockedBear.swingBarTime)) ?? lastSwingLowBar)
+          : lastSwingLowBar;
+        const x1LabelBear = swingIdxBear === null ? bar_index : Math.max(swingIdxBear, bar_index - 499);
         const midBear = Math.min(Math.round((x1LabelBear + bar_index) / 2), bar_index);
         curBosLbl = {
           x: midBear,
@@ -2340,13 +2557,21 @@ export function calculateMarketStructureTargetTracker(
       }
 
       if (showTpSl && entryPrice !== null) {
-        const x2Target = bar_index + 30;
+        const x2Target = sameBarOutcomeBear !== null ? bar_index : bar_index + 30;
         curEntryLine = { x1: bosBar, y1: entryPrice, x2: x2Target, y2: entryPrice, color: colEntry, width: 1, style: 'dashed' };
         curEntryLbl = { x: x2Target, y: entryPrice, text: '► Entry  ' + formatPrice(entryPrice, minTickPrecision), color: colEntry, textColor: colEntry, style: 'label_left', size: 'small' };
 
         if (showSl && slPrice !== null) {
           curSlLine = { x1: bosBar, y1: slPrice, x2: x2Target, y2: slPrice, color: colSl, width: 1, style: 'dashed' };
-          curSlLbl = { x: x2Target, y: slPrice, text: '✕ SL  ' + formatPrice(slPrice, minTickPrecision), color: colSl, textColor: colSl, style: 'label_left', size: 'small' };
+          curSlLbl = {
+            x: x2Target,
+            y: slPrice,
+            text: (sameBarOutcomeBear === 'SL' ? '✕ SL Hit  ' : '✕ SL  ') + formatPrice(slPrice, minTickPrecision),
+            color: colSl,
+            textColor: colSl,
+            style: 'label_left',
+            size: 'small',
+          };
         } else {
           curSlLine = null;
           curSlLbl = null;
@@ -2354,7 +2579,15 @@ export function calculateMarketStructureTargetTracker(
 
         if (showTp1 && tp1Price !== null) {
           curTp1Line = { x1: bosBar, y1: tp1Price, x2: x2Target, y2: tp1Price, color: colTp1, width: 1, style: 'dashed' };
-          curTp1Lbl = { x: x2Target, y: tp1Price, text: '● TP1  ' + formatPrice(tp1Price, minTickPrecision), color: colTp1, textColor: colTp1, style: 'label_left', size: 'small' };
+          curTp1Lbl = {
+            x: x2Target,
+            y: tp1Price,
+            text: (sameBarOutcomeBear === 'TP' ? '✓ Target Hit  ' : '● TP1  ') + formatPrice(tp1Price, minTickPrecision),
+            color: colTp1,
+            textColor: colTp1,
+            style: 'label_left',
+            size: 'small',
+          };
         } else {
           curTp1Line = null;
           curTp1Lbl = null;
@@ -2449,8 +2682,9 @@ export function calculateMarketStructureTargetTracker(
       (bosIsBull ? c.close < invalidSwingRef : c.close > invalidSwingRef) &&
       invalidateMode;
 
-    // Invalidation only resets the structural line if NO trade is currently running
-    if (invalidated && activeTrade === null) {
+    // Invalidation only resets structure tracking on subsequent bars;
+    // keep formed BOS lines & labels visible on chart even if price pulls back afterward.
+    if (invalidated && activeTrade === null && bar_index > (bosBar ?? -1)) {
       bosLevel = null;
       bosBar = null;
       bosBarTime = null;
@@ -2459,8 +2693,6 @@ export function calculateMarketStructureTargetTracker(
       trend = 0;
       lastProcessedHighBar = null;
       lastProcessedLowBar = null;
-      curBosLine = null;
-      curBosLbl = null;
     }
   }
 
@@ -2575,11 +2807,11 @@ export function calculateMarketStructureTargetTracker(
   }
 
   const rrVal =
-    isBosActiveNow && targetDiff > 0 && slDiff > 0
+    isBosActiveNow && targetDiff > 0 && slDiff > 0 && Number.isFinite(targetDiff / slDiff)
       ? targetDiff / slDiff
       : 0;
 
-  const rrStr = isBosActiveNow ? rrVal.toFixed(2) + ' R' : '—';
+  const rrStr = isBosActiveNow ? safeFiniteNum(rrVal, 0).toFixed(2) + ' R' : '—';
   const rrCol =
     rrVal >= 2.0
       ? 'rgb(0, 255, 120)'
@@ -2620,7 +2852,7 @@ export function calculateMarketStructureTargetTracker(
 
   const totalEvaluated = evaluatedTrades.length;
   const winRate = totalEvaluated > 0 ? (wins / totalEvaluated) * 100 : 0;
-  const winRateStr = totalEvaluated > 0 ? `${winRate.toFixed(1)}%` : '—';
+  const winRateStr = totalEvaluated > 0 ? `${safeFiniteNum(winRate, 0).toFixed(1)}%` : '—';
   const winRateCol =
     totalEvaluated === 0
       ? 'rgb(140, 140, 140)'
@@ -2772,18 +3004,18 @@ export function exportMsttTradesToCsv(
       t.dir,
       t.entryBar,
       entryIso,
-      t.entryPrice.toFixed(4),
-      t.slPrice.toFixed(4),
-      t.tp1Price.toFixed(4),
-      t.tp2Price.toFixed(4),
-      t.tp3Price.toFixed(4),
+      formatPrice(t.entryPrice, 4),
+      formatPrice(t.slPrice, 4),
+      formatPrice(t.tp1Price, 4),
+      formatPrice(t.tp2Price, 4),
+      formatPrice(t.tp3Price, 4),
       t.endBar,
       exitIso,
-      t.exitPrice.toFixed(4),
+      formatPrice(t.exitPrice, 4),
       `"${t.exitReason}"`,
       outcome,
       t.barsHeld,
-      pnl.toFixed(4),
+      formatPrice(pnl, 4),
       `"${t.filterFlags || ''}"`
     ].join(',');
   });

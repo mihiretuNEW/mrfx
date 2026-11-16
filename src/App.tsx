@@ -9,7 +9,7 @@ import { useFavorites } from './hooks/useFavorites';
 import { LeftToolbar } from './components/LeftToolbar';
 import { TopToolbar } from './components/TopToolbar';
 import { MihiretuViewChart } from './components/MihiretuViewChart';
-import { BarReplayControls } from './components/BarReplayControls';
+import { BarReplayControls, ReplaySpeed } from './components/BarReplayControls';
 import { MultiChartPane } from './components/MultiChartPane';
 import { SymbolSelectorModal } from './components/SymbolSelectorModal';
 import { SettingsModal } from './components/SettingsModal';
@@ -47,11 +47,15 @@ const DEFAULT_SETTINGS: ChartSettings = {
   indicators: {
     showMA: false,
     maPeriod: 20,
-    showAutoPriceChannels: false,
+    showAutoPriceChannels: true,
     autoPriceChannelsLineWidth: 2,
     autoPriceChannelsColor: '#38bdf8', // Light sky blue matching image
     autoPriceChannelsShowBreakouts: true,
     autoPriceChannelsFill: true,
+    autoPriceChannelsShowSignals: true,
+    autoPriceChannelsShowLabels: true,
+    autoPriceChannelsRestoredV3: true,
+    legacyCleanupMigratedV1: true,
     // Institutional Auto Supply/Demand Order Blocks & Parallel Channel
     showAutoSupplyDemandChannel: false,
     autoSdcShowSupplyDemand: false,
@@ -650,7 +654,6 @@ const DEFAULT_SETTINGS: ChartSettings = {
     ema50100FastLineWidth: 2,
     ema50100SlowLineWidth: 2,
     deletedIndicators: [
-      'auto_price_channels',
       'auto_sdc',
       'ma',
       'gta',
@@ -722,15 +725,13 @@ function AppContent() {
   // Multi-Chart Grid Layout (1, 2, 4, 6 charts)
   const [layoutCount, setLayoutCount] = useState<1 | 2 | 4 | 6>(1);
 
-  // Bar Replay Tool State (Backtest step-by-step candles)
+  // Bar Replay Tool State (Backtest step-by-step candles across timeframes)
   const [isReplayMode, setIsReplayMode] = useState<boolean>(false);
   const [replayIndex, setReplayIndex] = useState<number>(0);
   const [isReplayPlaying, setIsReplayPlaying] = useState<boolean>(false);
-  const [replaySpeed, setReplaySpeed] = useState<1 | 2 | 5>(1);
-
-  // Track candle array shifts so replayIndex stays anchored when older history is prepended
-  const prevCandlesLengthRef = useRef<number>(0);
-  const prevFirstCandleTimeRef = useRef<number | null>(null);
+  const [replaySpeed, setReplaySpeed] = useState<ReplaySpeed>(1);
+  const [isPickingReplayBar, setIsPickingReplayBar] = useState<boolean>(false);
+  const replayTimestampRef = useRef<number | null>(null);
 
   // TradingView-style Chart-Only Mode (shows ONLY chart canvas without toolbars/headers, Esc or click restores normal screen)
   const [isChartOnlyMode, setIsChartOnlyMode] = useState<boolean>(false);
@@ -753,10 +754,18 @@ function AppContent() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isChartOnlyMode) {
-        setIsChartOnlyMode(false);
-        if (typeof document !== 'undefined' && document.fullscreenElement && document.exitFullscreen) {
-          document.exitFullscreen().catch(() => {});
+      if (e.key === 'Escape') {
+        if (isPickingReplayBar) {
+          setIsPickingReplayBar(false);
+        }
+        if (activeTool !== 'cursor') {
+          setActiveTool('cursor');
+        }
+        if (isChartOnlyMode) {
+          setIsChartOnlyMode(false);
+          if (typeof document !== 'undefined' && document.documentElement && document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+          }
         }
       }
     };
@@ -773,7 +782,7 @@ function AppContent() {
       window.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, [isChartOnlyMode]);
+  }, [isChartOnlyMode, activeTool, isPickingReplayBar]);
 
   // Homepage vs Password page view mode for unauthenticated users
   const [viewMode, setViewMode] = useState<'landing' | 'password'>('landing');
@@ -1129,40 +1138,53 @@ function AppContent() {
           parsed.appearance.gridColor = '#141414';
         }
         const allOtherIndicators = [
-          'auto_price_channels', 'auto_sdc', 'ma', 'gta', 'twb', 'smc', 'so', 'fvg', 'ict',
+          'auto_sdc', 'ma', 'gta', 'twb', 'smc', 'so', 'fvg', 'ict',
           'mstat', 'mss', 'pr', 'sr', 'echo', 'mpro2', 'master', 'hvn', 'nexus', 'session',
           'obv', 'pro_ob', 'vip_scanner', 'dynamic_tpsl', 'trade_planner', 'fib_swing',
           'mtf_ema', 'ema_50_100',
         ];
         if (parsed.indicators) {
-          parsed.indicators.deletedIndicators = Array.from(new Set([...(parsed.indicators.deletedIndicators || []), ...allOtherIndicators])).filter((id) => id !== 'mrov_trade');
-          parsed.indicators.showAutoPriceChannels = false;
-          parsed.indicators.showAutoSupplyDemandChannel = false;
-          parsed.indicators.showMA = false;
-          parsed.indicators.showGTA = false;
-          parsed.indicators.showTrendlinesWithBreaks = false;
-          parsed.indicators.showSmartMoneyConcepts = false;
-          parsed.indicators.showSignalsAndOverlays = false;
-          parsed.indicators.showConfluenceFVG = false;
-          parsed.indicators.showIctConcepts = false;
-          parsed.indicators.showMarketStructureToolkit = false;
-          parsed.indicators.showMarketStructureSignals = false;
-          parsed.indicators.showPredictiveRanges = false;
-          parsed.indicators.showSrClassification = false;
-          parsed.indicators.showEchoMpro = false;
-          parsed.indicators.showMpro2Signal = false;
-          parsed.indicators.showMasterDashboard = false;
-          parsed.indicators.showHvnProfile = false;
-          parsed.indicators.showNexusSuite = false;
-          parsed.indicators.showSessionFilter = false;
-          parsed.indicators.showOrderBlocksWithVolume = false;
-          parsed.indicators.showProOrderBlocks = false;
-          parsed.indicators.showVipMarketScanner = false;
-          parsed.indicators.showDynamicTpSlSignals = false;
-          parsed.indicators.showTradePlanner = false;
-          parsed.indicators.showFibonacciSequenceSwing = false;
-          parsed.indicators.showMultiTimeframeEma = false;
-          parsed.indicators.showEma50100Trend = false;
+          if (!parsed.indicators.legacyCleanupMigratedV1) {
+            parsed.indicators.deletedIndicators = Array.from(
+              new Set([...(parsed.indicators.deletedIndicators || []), ...allOtherIndicators])
+            ).filter((id) => id !== 'mrov_trade');
+            parsed.indicators.showAutoSupplyDemandChannel = false;
+            parsed.indicators.showMA = false;
+            parsed.indicators.showGTA = false;
+            parsed.indicators.showTrendlinesWithBreaks = false;
+            parsed.indicators.showSmartMoneyConcepts = false;
+            parsed.indicators.showSignalsAndOverlays = false;
+            parsed.indicators.showConfluenceFVG = false;
+            parsed.indicators.showIctConcepts = false;
+            parsed.indicators.showMarketStructureToolkit = false;
+            parsed.indicators.showMarketStructureSignals = false;
+            parsed.indicators.showPredictiveRanges = false;
+            parsed.indicators.showSrClassification = false;
+            parsed.indicators.showEchoMpro = false;
+            parsed.indicators.showMpro2Signal = false;
+            parsed.indicators.showMasterDashboard = false;
+            parsed.indicators.showHvnProfile = false;
+            parsed.indicators.showNexusSuite = false;
+            parsed.indicators.showSessionFilter = false;
+            parsed.indicators.showOrderBlocksWithVolume = false;
+            parsed.indicators.showProOrderBlocks = false;
+            parsed.indicators.showVipMarketScanner = false;
+            parsed.indicators.showDynamicTpSlSignals = false;
+            parsed.indicators.showTradePlanner = false;
+            parsed.indicators.showFibonacciSequenceSwing = false;
+            parsed.indicators.showMultiTimeframeEma = false;
+            parsed.indicators.showEma50100Trend = false;
+            parsed.indicators.legacyCleanupMigratedV1 = true;
+          }
+          if (!parsed.indicators.autoPriceChannelsRestoredV3) {
+            parsed.indicators.deletedIndicators = (parsed.indicators.deletedIndicators || []).filter(
+              (id: string) => id !== 'auto_price_channels'
+            );
+            parsed.indicators.showAutoPriceChannels = true;
+            parsed.indicators.autoPriceChannelsShowSignals = true;
+            parsed.indicators.autoPriceChannelsRestoredV2 = true;
+            parsed.indicators.autoPriceChannelsRestoredV3 = true;
+          }
           if (parsed.indicators.msttTgBotToken && String(parsed.indicators.msttTgBotToken).includes('...')) {
             parsed.indicators.msttTgBotToken = '';
           }
@@ -1247,41 +1269,52 @@ function AppContent() {
     settings.historySpan || '1M'
   );
 
-  // Synchronize Replay Mode: Conceal future candles when Replay is engaged
-  useEffect(() => {
-    if (isReplayMode) {
-      if (candles.length > 25) {
-        setReplayIndex(candles.length - 25);
-      } else {
-        setReplayIndex(Math.max(0, candles.length - 1));
-      }
-    } else {
-      setIsReplayPlaying(false);
-    }
-  }, [isReplayMode]);
+  const commitReplayIndex = (rawIndex: number) => {
+    if (candles.length === 0) return;
+    const minIdx = Math.min(5, candles.length - 1);
+    const clamped = Math.max(minIdx, Math.min(candles.length - 1, rawIndex));
+    setReplayIndex(clamped);
+    replayTimestampRef.current = candles[clamped]?.time ?? null;
+  };
 
-  // Keep replayIndex anchored when older history is prepended during replay.
-  // Without this, loading more history shifts every index and the replay position jumps to a different candle.
+  const handleToggleReplayMode = () => {
+    setIsReplayMode((prev) => {
+      const next = !prev;
+      if (next) {
+        const minIdx = Math.min(5, Math.max(0, candles.length - 1));
+        const initIdx = candles.length > 25 ? Math.max(minIdx, candles.length - 25) : Math.max(0, candles.length - 1);
+        setReplayIndex(initIdx);
+        replayTimestampRef.current = candles[initIdx]?.time ?? null;
+      } else {
+        setIsReplayPlaying(false);
+        setIsPickingReplayBar(false);
+        replayTimestampRef.current = null;
+      }
+      return next;
+    });
+  };
+
+  // Keep replay position synchronized by real timestamp across timeframe switches, async fetches, and history prepends
   useEffect(() => {
-    if (candles.length === 0) {
-      prevCandlesLengthRef.current = 0;
-      prevFirstCandleTimeRef.current = null;
+    if (!isReplayMode || candles.length === 0 || replayTimestampRef.current === null) {
       return;
     }
-    const prevLen = prevCandlesLengthRef.current;
-    const prevFirstTime = prevFirstCandleTimeRef.current;
-    const currFirstTime = candles[0].time;
 
-    if (isReplayMode && prevLen > 0 && prevFirstTime !== null && currFirstTime < prevFirstTime) {
-      const oldFirstIdx = candles.findIndex((c) => c.time === prevFirstTime);
-      if (oldFirstIdx > 0) {
-        setReplayIndex((prev) => prev + oldFirstIdx);
+    const targetTs = replayTimestampRef.current;
+    let matchedIdx = 0;
+    for (let i = 0; i < candles.length; i++) {
+      if (candles[i].time <= targetTs) {
+        matchedIdx = i;
+      } else {
+        break;
       }
     }
-
-    prevCandlesLengthRef.current = candles.length;
-    prevFirstCandleTimeRef.current = currFirstTime;
-  }, [candles, isReplayMode]);
+    const minIdx = Math.min(5, candles.length - 1);
+    const nextIdx = Math.max(minIdx, matchedIdx);
+    if (nextIdx !== replayIndex) {
+      setReplayIndex(nextIdx);
+    }
+  }, [candles, isReplayMode, selectedTimeframe, replayIndex]);
 
   // Auto-load older history when stepping back near the earliest loaded candle during replay
   useEffect(() => {
@@ -1291,29 +1324,31 @@ function AppContent() {
     }
   }, [isReplayMode, replayIndex, loadMoreHistory, hasMoreHistory, isLoadingMore, candles.length]);
 
-  // Bar Replay Auto-Playback Timer (1x, 2x, 5x)
+  // Bar Replay Auto-Playback Timer (0.5x, 1x, 2x, 5x, 10x)
   useEffect(() => {
     if (!isReplayMode || !isReplayPlaying) return;
-    const intervalMs = Math.max(150, Math.round(1000 / replaySpeed));
+    const intervalMs = Math.max(90, Math.round(1000 / replaySpeed));
     const timer = setInterval(() => {
       setReplayIndex((prev) => {
         if (prev >= candles.length - 1) {
           setIsReplayPlaying(false);
           return prev;
         }
-        return prev + 1;
+        const next = prev + 1;
+        replayTimestampRef.current = candles[next]?.time ?? replayTimestampRef.current;
+        return next;
       });
     }, intervalMs);
     return () => clearInterval(timer);
-  }, [isReplayMode, isReplayPlaying, replaySpeed, candles.length]);
+  }, [isReplayMode, isReplayPlaying, replaySpeed, candles]);
 
-  // Candle slice visible to the chart during Replay Mode
-  const activeCandles = isReplayMode && candles.length > 0
-    ? candles.slice(0, Math.min(candles.length, Math.max(5, replayIndex + 1)))
+  // Candle slice visible to the chart during Replay Mode (temporarily shows all candles while picking cut bar)
+  const activeCandles = isReplayMode && candles.length > 0 && !isPickingReplayBar
+    ? candles.slice(0, Math.min(candles.length, Math.max(Math.min(5, candles.length), replayIndex + 1)))
     : candles;
 
   const currentReplayCandle = activeCandles.length > 0
-    ? activeCandles[activeCandles.length - 1]
+    ? activeCandles[Math.min(activeCandles.length - 1, isReplayMode ? replayIndex : activeCandles.length - 1)]
     : null;
 
   // Persistence: Save Settings whenever they change (never store Deriv credentials in browser storage)
@@ -1884,42 +1919,65 @@ function AppContent() {
           onToggleFavorite={favs.toggleFavorite}
           onSelectSymbol={setSelectedSymbol}
           isReplayMode={isReplayMode}
-          onToggleReplayMode={() => {
-            const next = !isReplayMode;
-            setIsReplayMode(next);
-            if (next && candles.length > 25) {
-              setReplayIndex(candles.length - 25);
-            }
-            setIsReplayPlaying(false);
-          }}
+          onToggleReplayMode={handleToggleReplayMode}
           layoutCount={layoutCount}
           onChangeLayout={setLayoutCount}
           isChartOnly={isChartOnlyMode}
           onToggleChartOnly={toggleChartOnlyMode}
+          activeTool={activeTool}
+          onToggleBrush={() => setActiveTool((prev) => (prev === 'brush' ? 'cursor' : 'brush'))}
         />
       )}
 
-      {/* Bar Replay Playback Toolbar (LIVE ↔ REPLAY, Step Back ◀, Play ▶, Step Forward ▶, Jump ▶▶, 1x 2x 5x) */}
-      {!isChartOnlyMode && (
+      {/* Bar Replay Playback Toolbar (LIVE ↔ REPLAY, Jump to Bar, Step Back ◀, Play ▶, Step Forward ▶, 0.5x–10x) */}
+      {isReplayMode && (
         <BarReplayControls
           isReplayMode={isReplayMode}
           onToggleReplayMode={() => {
             setIsReplayMode(false);
             setIsReplayPlaying(false);
+            setIsPickingReplayBar(false);
+            replayTimestampRef.current = null;
           }}
           replayIndex={replayIndex}
           totalCandles={candles.length}
           currentCandle={currentReplayCandle}
           isPlaying={isReplayPlaying}
-          onTogglePlay={() => setIsReplayPlaying((prev) => !prev)}
-          onStepBack={() => setReplayIndex((prev) => Math.max(5, prev - 1))}
-          onStepForward={() => setReplayIndex((prev) => Math.min(candles.length - 1, prev + 1))}
-          onJumpToEnd={() => setReplayIndex(candles.length - 1)}
-          onJumpToStart={() => setReplayIndex(5)}
-          onSeek={(idx) => setReplayIndex(idx)}
-          onBarsBack={(bars) => setReplayIndex((prev) => Math.max(5, prev - bars))}
+          onTogglePlay={() => {
+            setIsPickingReplayBar(false);
+            setIsReplayPlaying((prev) => !prev);
+          }}
+          onStepBack={() => {
+            setIsPickingReplayBar(false);
+            commitReplayIndex(replayIndex - 1);
+          }}
+          onStepForward={() => {
+            setIsPickingReplayBar(false);
+            commitReplayIndex(replayIndex + 1);
+          }}
+          onJumpToEnd={() => {
+            setIsPickingReplayBar(false);
+            commitReplayIndex(candles.length - 1);
+          }}
+          onJumpToStart={() => {
+            setIsPickingReplayBar(false);
+            commitReplayIndex(Math.min(5, candles.length - 1));
+          }}
+          onSeek={(idx) => {
+            setIsPickingReplayBar(false);
+            commitReplayIndex(idx);
+          }}
+          onBarsBack={(bars) => {
+            setIsPickingReplayBar(false);
+            commitReplayIndex(replayIndex - bars);
+          }}
           speed={replaySpeed}
           onChangeSpeed={(spd) => setReplaySpeed(spd)}
+          isPickingStartBar={isPickingReplayBar}
+          onTogglePickStartBar={() => {
+            setIsReplayPlaying(false);
+            setIsPickingReplayBar((prev) => !prev);
+          }}
           theme={settings.theme}
         />
       )}
@@ -2095,6 +2153,15 @@ function AppContent() {
                 onLoadMoreHistory={loadMoreHistory}
                 isLoadingMoreHistory={isLoadingMore}
                 hasMoreHistory={hasMoreHistory}
+                isReplayMode={isReplayMode}
+                isPickingReplayBar={isPickingReplayBar}
+                onPickReplayBarTime={(pickedTime) => {
+                  const foundIdx = candles.findIndex((c) => c.time >= pickedTime);
+                  const targetIdx = foundIdx !== -1 ? foundIdx : candles.length - 1;
+                  commitReplayIndex(targetIdx);
+                  setIsPickingReplayBar(false);
+                }}
+                onToggleReplayMode={handleToggleReplayMode}
               />
 
               {/* Minimalist Fullscreen Loader while loading live market - stays until chart is visible */}

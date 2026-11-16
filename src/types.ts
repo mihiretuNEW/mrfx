@@ -125,12 +125,17 @@ export interface ChartSettings {
   indicators: {
     showMA: boolean;
     maPeriod: number;
-    // Auto Price Channels (4H Breakout & Trend Indicator)
+    // Auto Price Channels (MTF Non-Repainting Channels & Touch/Bounce Signals)
     showAutoPriceChannels?: boolean;
     autoPriceChannelsLineWidth?: number;
     autoPriceChannelsColor?: string;
     autoPriceChannelsShowBreakouts?: boolean;
     autoPriceChannelsFill?: boolean;
+    autoPriceChannelsShowSignals?: boolean;
+    autoPriceChannelsShowLabels?: boolean;
+    autoPriceChannelsRestoredV2?: boolean;
+    autoPriceChannelsRestoredV3?: boolean;
+    legacyCleanupMigratedV1?: boolean;
     // Institutional Auto Supply/Demand Order Blocks & Parallel Channel
     showAutoSupplyDemandChannel?: boolean;
     autoSdcShowSupplyDemand?: boolean;
