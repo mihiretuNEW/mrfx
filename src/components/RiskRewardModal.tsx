@@ -8,7 +8,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChartThemeId } from '../types';
 import { isDarkTheme, getThemePreset } from '../utils/themePresets';
-import { SymbolSpec, calculateProfitLoss, calculateStopPriceFromRisk, calculateTargetPriceFromReward } from '../utils/symbolSpecs';
+import { SymbolSpec, calculateProfitLoss, calculateStopPriceFromRisk, calculateTargetPriceFromReward, getDefaultRrLot, getRrPointUnit } from '../utils/symbolSpecs';
 import { X, Percent, ArrowUpRight, RotateCcw, Check, Sparkles, Target, Shield, HelpCircle } from 'lucide-react';
 
 interface RiskRewardModalProps {
@@ -48,21 +48,22 @@ export const RiskRewardModal: React.FC<RiskRewardModalProps> = ({
   const preset = getThemePreset(theme);
   const decimals = symbolSpec.pointSize < 0.01 ? 4 : 2;
 
+  const defaultLot = getDefaultRrLot(symbolSpec);
   const [isLong, setIsLong] = useState<boolean>(true);
   const [entryPrice, setEntryPrice] = useState<number>(currentPrice || 96371.56);
   const [stopPrice, setStopPrice] = useState<number>(0);
   const [targetPrice, setTargetPrice] = useState<number>(0);
-  const [lotSize, setLotSize] = useState<number>(symbolSpec.minLot || 0.01);
+  const [lotSize, setLotSize] = useState<number>(defaultLot);
 
-  // Pip conversion factor: 1 pip in price units
-  const pipUnit = symbolSpec.pipSize > 0 ? symbolSpec.pipSize : (symbolSpec.pointSize || 0.01);
+  // Exact point/pip conversion factor: 100 points = $1.00, 1000 points = $10.00 at 0.01 lot
+  const pipUnit = getRrPointUnit(symbolSpec, currentPrice);
 
   // String buffers for smooth numerical editing
   const [entryInput, setEntryInput] = useState<string>('');
   const [stopInput, setStopInput] = useState<string>('');
   const [targetInput, setTargetInput] = useState<string>('');
-  const [slPipsInput, setSlPipsInput] = useState<string>('200');
-  const [tpPipsInput, setTpPipsInput] = useState<string>('600');
+  const [slPipsInput, setSlPipsInput] = useState<string>('100');
+  const [tpPipsInput, setTpPipsInput] = useState<string>('300');
   const [riskDollarInput, setRiskDollarInput] = useState<string>('');
   const [rewardDollarInput, setRewardDollarInput] = useState<string>('');
   const [lotInput, setLotInput] = useState<string>('');
@@ -70,7 +71,7 @@ export const RiskRewardModal: React.FC<RiskRewardModalProps> = ({
   // Synchronize initial state when modal opens or initial values change
   useEffect(() => {
     if (isOpen) {
-      const activeLot = initialValues?.lotSize || symbolSpec.minLot || 0.01;
+      const activeLot = initialValues?.lotSize || getDefaultRrLot(symbolSpec);
       const longMode = initialValues ? initialValues.isLong : true;
       const initialEntry = initialValues?.entryPrice || currentPrice || 96371.56;
 
@@ -81,28 +82,11 @@ export const RiskRewardModal: React.FC<RiskRewardModalProps> = ({
         initialStop = initialValues.stopPrice;
         initialTarget = initialValues.targetPrice;
       } else {
-        const cleanUpper = (symbolSpec.cleanCode || symbolSpec.symbol || '').toUpperCase();
-        const isVol75 = cleanUpper.includes('75') || symbolSpec.displayName.includes('75');
-        const isJump10 = cleanUpper.includes('JD10') || cleanUpper.includes('JUMP10') || symbolSpec.displayName.includes('Jump 10');
-
-        if (isVol75) {
-          // Standard Volatility 75: 200 pips SL, 600 pips TP (1:3 ratio)
-          const slDist = 200 * pipUnit;
-          const tpDist = 600 * pipUnit;
-          initialStop = longMode ? initialEntry - slDist : initialEntry + slDist;
-          initialTarget = longMode ? initialEntry + tpDist : initialEntry - tpDist;
-        } else if (isJump10) {
-          // Exact Deriv Jump 10 Standard: 0.01 min lot, 200 pts SL ($2.00) & 713.51 pts TP ($7.14)
-          const defaultDiff = 200;
-          const defaultTpDiff = 713.51;
-          initialStop = longMode ? initialEntry - defaultDiff : initialEntry + defaultDiff;
-          initialTarget = longMode ? initialEntry + defaultTpDiff : initialEntry - defaultTpDiff;
-        } else {
-          // Default 1:3 R:R setup based on symbol volatility or 200 points default
-          const defaultDiff = initialEntry > 1000 ? 200 : initialEntry * 0.005;
-          initialStop = longMode ? initialEntry - defaultDiff : initialEntry + defaultDiff;
-          initialTarget = longMode ? initialEntry + defaultDiff * 3 : initialEntry - defaultDiff * 3;
-        }
+        // Default 1:3 R:R setup: 100 points SL ($1.00) -> 300 points TP ($3.00) at 0.01 lot
+        const slDist = 100 * pipUnit;
+        const tpDist = 300 * pipUnit;
+        initialStop = longMode ? initialEntry - slDist : initialEntry + slDist;
+        initialTarget = longMode ? initialEntry + tpDist : initialEntry - tpDist;
       }
 
       setIsLong(longMode);
@@ -114,7 +98,7 @@ export const RiskRewardModal: React.FC<RiskRewardModalProps> = ({
       setEntryInput(initialEntry.toFixed(decimals));
       setStopInput(initialStop.toFixed(decimals));
       setTargetInput(initialTarget.toFixed(decimals));
-      setLotInput(activeLot.toFixed(symbolSpec.minLot < 0.01 ? 3 : 2));
+      setLotInput(activeLot.toFixed(activeLot < 0.01 ? 3 : 2));
 
       const slDist = Math.abs(initialEntry - initialStop);
       const tpDist = Math.abs(initialTarget - initialEntry);
@@ -124,8 +108,8 @@ export const RiskRewardModal: React.FC<RiskRewardModalProps> = ({
       // Calculate Dollar rewards
       const slPnl = calculateProfitLoss(initialEntry, initialStop, activeLot, longMode, symbolSpec, currentPrice);
       const tpPnl = calculateProfitLoss(initialEntry, initialTarget, activeLot, longMode, symbolSpec, currentPrice);
-      setRiskDollarInput(slPnl !== null ? Math.abs(slPnl).toFixed(2) : '2.00');
-      setRewardDollarInput(tpPnl !== null ? Math.abs(tpPnl).toFixed(2) : '6.00');
+      setRiskDollarInput(slPnl !== null ? Math.abs(slPnl).toFixed(2) : '1.00');
+      setRewardDollarInput(tpPnl !== null ? Math.abs(tpPnl).toFixed(2) : '3.00');
     }
   }, [isOpen, initialValues, currentPrice, symbolSpec, pipUnit, decimals]);
 
@@ -278,11 +262,11 @@ export const RiskRewardModal: React.FC<RiskRewardModalProps> = ({
     }
   };
 
-  // Dedicated Volatility 75 (My Pair) Quick Setup
-  const handleLoadVol75Preset = (ratio: number = 3) => {
-    const defaultSlPips = 200;
+  // Quick Point-Accurate Preset (100 pts = $1.00, 1000 pts = $10.00 at 0.01 lot)
+  const handleLoadVol75Preset = (ratio: number = 3, slPoints: number = 100) => {
+    const defaultSlPips = slPoints;
     const defaultTpPips = Math.round(defaultSlPips * ratio);
-    const volLot = symbolSpec.minLot || 0.001;
+    const volLot = getDefaultRrLot(symbolSpec);
     const activeEntry = currentPrice > 0 ? currentPrice : entryPrice;
     const slDist = defaultSlPips * pipUnit;
     const tpDist = defaultTpPips * pipUnit;
@@ -297,7 +281,7 @@ export const RiskRewardModal: React.FC<RiskRewardModalProps> = ({
     setEntryInput(activeEntry.toFixed(decimals));
     setStopInput(newStop.toFixed(decimals));
     setTargetInput(newTarget.toFixed(decimals));
-    setLotInput(volLot.toFixed(symbolSpec.minLot < 0.01 ? 3 : 2));
+    setLotInput(volLot.toFixed(volLot < 0.01 ? 3 : 2));
     setSlPipsInput(defaultSlPips.toString());
     setTpPipsInput(defaultTpPips.toString());
 
@@ -414,30 +398,30 @@ export const RiskRewardModal: React.FC<RiskRewardModalProps> = ({
           </button>
         </div>
 
-        {/* Quick Volatility 75 & Market Presets Banner */}
+        {/* Quick Standard Presets Banner (100 pts = $1, 1000 pts = $10) */}
         <div className={`px-5 py-2.5 border-b flex flex-wrap items-center justify-between gap-2 ${
           isDark ? 'bg-neutral-900/60 border-neutral-800/80' : 'bg-neutral-100/60 border-neutral-200'
         }`}>
           <div className="flex items-center gap-1.5 text-[11px] text-neutral-400 font-semibold">
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Volatility 75 (My Pair):</span>
+            <span>100 pts = $1 • 1000 pts = $10:</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <button
               type="button"
-              onClick={() => handleLoadVol75Preset(3)}
+              onClick={() => handleLoadVol75Preset(3, 100)}
               className="px-2 py-0.8 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold font-mono transition-colors flex items-center gap-1 shadow-sm"
-              title="Apply Volatility 75 setup with 200 SL pips and 600 TP pips (1:3 ratio)"
+              title="100 pts SL ($1.00) & 300 pts TP ($3.00)"
             >
-              <span>1:3 Ratio (200 / 600 pips)</span>
+              <span>1:3 (100/$1 → 300/$3)</span>
             </button>
             <button
               type="button"
-              onClick={() => handleLoadVol75Preset(4)}
+              onClick={() => handleLoadVol75Preset(5, 200)}
               className="px-2 py-0.8 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 text-blue-300 text-[10px] font-bold font-mono transition-colors flex items-center gap-1 shadow-sm"
-              title="Apply Volatility 75 setup with 200 SL pips and 800 TP pips (1:4 ratio)"
+              title="200 pts SL ($2.00) & 1000 pts TP ($10.00)"
             >
-              <span>1:4 Ratio (200 / 800 pips)</span>
+              <span>1:5 (200/$2 → 1000/$10)</span>
             </button>
           </div>
         </div>
@@ -665,7 +649,7 @@ export const RiskRewardModal: React.FC<RiskRewardModalProps> = ({
             </div>
 
             <div className="text-[10px] text-neutral-500 text-center font-mono">
-              Deriv Standard: {lotSize} Lot × 1 Contract size × Price Diff
+              {lotSize} Lot × {symbolSpec.contractSize} Contract ({Math.round(100)} pts = ${(100 * pipUnit * lotSize * symbolSpec.contractSize).toFixed(2)} | 1000 pts = ${(1000 * pipUnit * lotSize * symbolSpec.contractSize).toFixed(2)})
             </div>
           </div>
 

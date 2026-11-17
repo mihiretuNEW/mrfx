@@ -392,67 +392,65 @@ export function calculateSmartMoneySetup08(
 
     const barChanged = bar_index > 0; // bar_index > bar_index[1]
 
-    if (MSH_P.length > HSwingBack) {
-      if (barChanged) {
-        const prevClose = candles[bar_index - 1].close;
-        for (let i = 1; i <= HSwingBack; i++) {
-          const idx = MSH_P.length - i;
-          if (MSH_Permit[idx]) {
-            if (bar_index <= AOI_MSH[idx] + BackToBreakPeriod) {
-              if (
-                (MSH_P[idx] < c.high && MSH_P[idx] > c.close && AOI_MSH[idx] === Z && RealSFP) ||
-                (MSH_P[idx] > c.close && MSH_P[idx] < prevClose && ConsiderableSFP)
-              ) {
+    if (MSH_P.length > 0 && barChanged) {
+      const prevClose = candles[bar_index - 1].close;
+      const limitH = Math.min(HSwingBack, MSH_P.length);
+      for (let i = 1; i <= limitH; i++) {
+        const idx = MSH_P.length - i;
+        if (MSH_Permit[idx]) {
+          if (bar_index <= AOI_MSH[idx] + BackToBreakPeriod) {
+            if (
+              (MSH_P[idx] < c.high && MSH_P[idx] > c.close && AOI_MSH[idx] === Z && RealSFP) ||
+              (MSH_P[idx] > c.close && MSH_P[idx] < prevClose && ConsiderableSFP)
+            ) {
+              MSH_Permit[idx] = false;
+              if (bar_index - MSH_II[idx] >= 10 && bar_index - MSH_II[idx] <= 50) {
                 MSH_Permit[idx] = false;
-                if (bar_index - MSH_II[idx] >= 10 && bar_index - MSH_II[idx] <= 50) {
-                  MSH_Permit[idx] = false;
-                  H_Index_SFP = MSH_II[idx];
-                  H_Price_SFP = MSH_P[idx];
-                  HAlert = true;
-                }
-              }
-              if (RealSFP === false) {
-                if (MSH_P[idx] < c.high && MSH_P[idx] > c.close && AOI_MSH[idx] === Z) {
-                  MSH_Permit[idx] = false;
-                }
+                H_Index_SFP = MSH_II[idx];
+                H_Price_SFP = MSH_P[idx];
+                HAlert = true;
               }
             }
-            if (MSH_P[idx] < c.close && AOI_MSH[idx] === Z) {
-              AOI_MSH[idx] = bar_index;
+            if (RealSFP === false) {
+              if (MSH_P[idx] < c.high && MSH_P[idx] > c.close && AOI_MSH[idx] === Z) {
+                MSH_Permit[idx] = false;
+              }
             }
+          }
+          if (MSH_P[idx] < c.close && AOI_MSH[idx] === Z) {
+            AOI_MSH[idx] = bar_index;
           }
         }
       }
     }
 
-    if (MSL_P.length > LSwingBack) {
-      if (barChanged) {
-        const prevClose = candles[bar_index - 1].close;
-        for (let i = 1; i <= LSwingBack; i++) {
-          const idx = MSL_P.length - i;
-          if (MSL_Permit[idx]) {
-            if (bar_index <= AOI_MSL[idx] + BackToBreakPeriod) {
-              if (
-                (MSL_P[idx] > c.low && MSL_P[idx] < c.close && AOI_MSL[idx] === Z && RealSFP) ||
-                (MSL_P[idx] < c.close && MSL_P[idx] > prevClose && ConsiderableSFP)
-              ) {
+    if (MSL_P.length > 0 && barChanged) {
+      const prevClose = candles[bar_index - 1].close;
+      const limitL = Math.min(LSwingBack, MSL_P.length);
+      for (let i = 1; i <= limitL; i++) {
+        const idx = MSL_P.length - i;
+        if (MSL_Permit[idx]) {
+          if (bar_index <= AOI_MSL[idx] + BackToBreakPeriod) {
+            if (
+              (MSL_P[idx] > c.low && MSL_P[idx] < c.close && AOI_MSL[idx] === Z && RealSFP) ||
+              (MSL_P[idx] < c.close && MSL_P[idx] > prevClose && ConsiderableSFP)
+            ) {
+              MSL_Permit[idx] = false;
+              if (bar_index - MSL_II[idx] >= 10 && bar_index - MSL_II[idx] <= 100) {
                 MSL_Permit[idx] = false;
-                if (bar_index - MSL_II[idx] >= 10 && bar_index - MSL_II[idx] <= 100) {
-                  MSL_Permit[idx] = false;
-                  L_Index_SFP = MSL_II[idx];
-                  L_Price_SFP = MSL_P[idx];
-                  LAlert = true;
-                }
-              }
-              if (RealSFP === false) {
-                if (MSL_P[idx] > c.low && MSL_P[idx] < c.close && AOI_MSL[idx] === Z) {
-                  MSL_Permit[idx] = false;
-                }
+                L_Index_SFP = MSL_II[idx];
+                L_Price_SFP = MSL_P[idx];
+                LAlert = true;
               }
             }
-            if (MSL_P[idx] > c.close && AOI_MSL[idx] === Z) {
-              AOI_MSL[idx] = bar_index;
+            if (RealSFP === false) {
+              if (MSL_P[idx] > c.low && MSL_P[idx] < c.close && AOI_MSL[idx] === Z) {
+                MSL_Permit[idx] = false;
+              }
             }
+          }
+          if (MSL_P[idx] > c.close && AOI_MSL[idx] === Z) {
+            AOI_MSL[idx] = bar_index;
           }
         }
       }
@@ -463,7 +461,7 @@ export function calculateSmartMoneySetup08(
     let Bear = false;
 
     if (isConfirmed) {
-      if (LAlert) {
+      if (LAlert && MSH_P.length > 0) {
         Data.push({
           G_Permit: 1,
           Lvl_cp: Last_MSH_P,
@@ -486,7 +484,7 @@ export function calculateSmartMoneySetup08(
         });
       }
 
-      if (HAlert) {
+      if (HAlert && MSL_P.length > 0) {
         Data.push({
           G_Permit: 1,
           Lvl_cp: Last_MSL_P,
@@ -510,8 +508,9 @@ export function calculateSmartMoneySetup08(
       }
     }
 
-    if (isConfirmed && Data.length >= 10) {
-      for (let i = 1; i <= 10; i++) {
+    if (isConfirmed && Data.length > 0) {
+      const dataLimit = Math.min(10, Data.length);
+      for (let i = 1; i <= dataLimit; i++) {
         const get = Data[Data.length - i];
 
         if (get.G_Permit === 1) {

@@ -307,12 +307,73 @@ export function calculateTargetPriceFromReward(
 }
 
 /**
+ * Standard Risk/Reward default lot size so 100 points = $1.00 and 1000 points = $10.00
+ * on Volatility 75, Jump Indices, Forex, Metals, and Crypto (0.01 standard lot).
+ */
+export function getDefaultRrLot(spec: SymbolSpec): number {
+  if (!spec) return 0.01;
+  if (
+    spec.marketCategory === 'volatility' ||
+    spec.marketCategory === 'jump' ||
+    spec.marketCategory === 'forex' ||
+    spec.marketCategory === 'metals' ||
+    spec.marketCategory === 'crypto'
+  ) {
+    if (spec.cleanCode.includes('75') || spec.minLot <= 0.01) {
+      return 0.01;
+    }
+  }
+  return spec.minLot || 0.01;
+}
+
+/**
+ * Price movement per 1 "point (pip)" in Risk/Reward calculations:
+ * - Volatility / Jump / Boom & Crash / Crypto (price >= 20): 1 point = 1.0 price unit
+ *   -> At 0.01 lot (contractSize 1): 100 points = $1.00, 1000 points = $10.00
+ * - Metals (XAUUSD, contractSize 100): 1 point = 0.01 price unit
+ *   -> At 0.01 lot: 100 points = 1.00 move = $1.00, 1000 points = 10.00 move = $10.00
+ * - Forex non-JPY (EURUSD, contractSize 100000): 1 point = 0.00001
+ *   -> At 0.01 lot: 100 points = 0.00100 move = $1.00, 1000 points = 0.01000 move = $10.00
+ * - Step Index (contractSize 10, minLot 0.10): 1 point = 0.01 price unit
+ *   -> At 0.10 lot: 100 points = 1.00 move = $1.00, 1000 points = 10.00 move = $10.00
+ */
+export function getRrPointUnit(spec: SymbolSpec, currentPrice?: number): number {
+  if (!spec) return 1.0;
+  switch (spec.marketCategory) {
+    case 'volatility':
+    case 'jump':
+    case 'boom_crash':
+      return 1.0;
+    case 'crypto':
+      return currentPrice !== undefined && currentPrice > 0 && currentPrice < 20
+        ? (spec.pointSize || 0.0001)
+        : 1.0;
+    case 'metals':
+      return spec.pointSize > 0 ? spec.pointSize : 0.01;
+    case 'forex':
+      return spec.pointSize > 0
+        ? spec.pointSize
+        : (spec.quoteCurrency === 'JPY' ? 0.001 : 0.00001);
+    case 'step':
+      return 0.01;
+    default:
+      if (currentPrice !== undefined && currentPrice >= 100) return 1.0;
+      return spec.pointSize > 0 ? spec.pointSize : 0.01;
+  }
+}
+
+export function calculateRrPoints(priceDiff: number, spec: SymbolSpec, currentPrice?: number): number {
+  const unit = getRrPointUnit(spec, currentPrice);
+  if (!unit || unit <= 0) return Math.round(Math.abs(priceDiff));
+  return Math.round(Math.abs(priceDiff) / unit);
+}
+
+/**
  * Creates default Risk/Reward targets & stop loss dynamically based on symbol specifications.
- * For Volatility 75 Index (R_75 / 1HZ75V):
- * - At min lot 0.01: 224 points price movement = $2.24
- * - SL defaults to $2.2 (220 index points)
- * - TP defaults to $10.3 (1030 index points)
- * - Formula: price_diff = dollars / (lotSize * contractSize)
+ * At 0.01 lot on Volatility 75 / Jump / Metals / Forex:
+ * - 100 points = $1.00
+ * - 1000 points = $10.00
+ * - Defaults to 100 pts SL ($1.00) and 300 pts TP ($3.00) for clean 1:3 R:R unless overridden.
  */
 export function createDefaultRiskReward(
   entryPrice: number,
@@ -323,19 +384,15 @@ export function createDefaultRiskReward(
   customTpDollar?: number,
   customLot?: number
 ): { targetPrice: number; stopPrice: number; lotSize: number; riskAmount: number } {
-  const clean = (symbol || '').toUpperCase().replace(/^(FRX|CRY|IND|OTC|SYN)/, '');
-  const isVol75 = clean.includes('75') && (clean.includes('R_') || clean.includes('1HZ') || clean.includes('VOLATILITY'));
-
-  // Default lot: 0.01 for Volatility 75, or custom lot, or spec minLot
   const lotSize = customLot !== undefined && customLot > 0
     ? customLot
-    : (isVol75 ? 0.01 : (spec?.minLot || 0.01));
+    : getDefaultRrLot(spec);
 
   const contractSize = spec?.contractSize || 1;
 
-  // Default SL = $2.2, Default TP = $10.3 (or custom)
-  const slDollars = customSlDollar !== undefined && customSlDollar > 0 ? customSlDollar : 2.2;
-  const tpDollars = customTpDollar !== undefined && customTpDollar > 0 ? customTpDollar : 10.3;
+  // Default SL = $1.00 (100 points), Default TP = $3.00 (300 points, 1:3 ratio)
+  const slDollars = customSlDollar !== undefined && customSlDollar > 0 ? customSlDollar : 1.0;
+  const tpDollars = customTpDollar !== undefined && customTpDollar > 0 ? customTpDollar : 3.0;
 
   let slDistance: number;
   let tpDistance: number;
@@ -359,4 +416,5 @@ export function createDefaultRiskReward(
     riskAmount: slDollars,
   };
 }
+
 

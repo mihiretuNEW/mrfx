@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 import { TimeframeId, SymbolInfo, ChartThemeId, DrawingType } from '../types';
 import { isDarkTheme, getThemePreset } from '../utils/themePresets';
 import { TIMEFRAMES } from '../hooks/useDerivWS';
+import { getSymbolSpec, getDefaultRrLot, getRrPointUnit } from '../utils/symbolSpecs';
 import {
   Settings,
   Sun,
@@ -35,7 +36,7 @@ interface TopToolbarProps {
   onOpenSettingsModal: () => void;
   onOpenIndicators?: () => void;
   onOpenRiskRewardModal?: () => void;
-  onStartRRPlacement?: (config: { isLong: boolean; slPips: number; ratio: number }) => void;
+  onStartRRPlacement?: (config: { isLong: boolean; slPips: number; ratio: number; lotSize?: number; pickRatioOnChart?: boolean }) => void;
   isPlacingRR?: boolean;
   onCancelRRPlacement?: () => void;
   onCaptureChart?: () => void;
@@ -137,12 +138,17 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
 
   const [slPips, setSlPips] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('mihiretu_rr_sl_pips');
-      return saved ? Number(saved) || 220 : 220;
+      const saved = localStorage.getItem('mihiretu_rr_sl_points_v2');
+      return saved ? Number(saved) || 100 : 100;
     } catch {
-      return 220;
+      return 100;
     }
   });
+
+  const activeSpec = getSymbolSpec(selectedSymbol, symbolInfo);
+  const rrLot = getDefaultRrLot(activeSpec);
+  const pointUnit = getRrPointUnit(activeSpec);
+  const slDollarEstimate = (slPips * pointUnit * rrLot * (activeSpec.contractSize || 1));
 
   const updateTfCoords = useCallback(() => {
     if (tfDropdownRef.current) {
@@ -222,9 +228,16 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   const handleSelectRatio = (ratio: number) => {
     setIsQuickRrOpen(false);
     if (onStartRRPlacement) {
-      onStartRRPlacement({ isLong, slPips, ratio });
+      onStartRRPlacement({ isLong, slPips, ratio, lotSize: rrLot, pickRatioOnChart: false });
     } else if (onOpenRiskRewardModal) {
       onOpenRiskRewardModal();
+    }
+  };
+
+  const handleStartTapAndPickRatio = () => {
+    setIsQuickRrOpen(false);
+    if (onStartRRPlacement) {
+      onStartRRPlacement({ isLong, slPips, ratio: 3, lotSize: rrLot, pickRatioOnChart: true });
     }
   };
 
@@ -614,17 +627,18 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             </button>
           </div>
 
-          {/* 2. SL Pips quick input */}
+          {/* 2. SL Points (Pips) quick input + live $ preview (100 pts = $1, 1000 pts = $10) */}
           <div className="flex items-center gap-1">
             <span className={`text-[10px] font-bold ${isDark ? 'text-neutral-400' : 'text-neutral-500'}`}>SL:</span>
             <input
               type="number"
               id="input-quick-rr-sl-pips"
+              min={1}
               value={slPips}
               onChange={(e) => {
-                const val = Math.max(10, Number(e.target.value) || 220);
+                const val = Math.max(1, Number(e.target.value) || 100);
                 setSlPips(val);
-                try { localStorage.setItem('mihiretu_rr_sl_pips', String(val)); } catch (err) {}
+                try { localStorage.setItem('mihiretu_rr_sl_points_v2', String(val)); } catch (err) {}
               }}
               className={`w-14 px-1.5 py-0.5 rounded text-center text-xs font-bold border transition-colors ${
                 isDark
@@ -632,70 +646,74 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
                   : 'bg-neutral-100 border-neutral-300 text-slate-900 focus:border-blue-500'
               }`}
             />
-            <span className={`text-[9px] ${isDark ? 'text-neutral-500' : 'text-neutral-400'}`}>pips</span>
+            <span className={`text-[10px] font-bold ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>
+              pts (-${slDollarEstimate.toFixed(2)})
+            </span>
           </div>
 
-          {/* Separator */}
-          <div className={`w-px h-5 ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
-
-          {/* 3. Quick Ratio Pickers (1:2, 1:3, 1:4, 1:5) */}
+          {/* Quick SL Point Presets: 100 ($1), 200 ($2), 500 ($5), 1000 ($10) */}
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              id="btn-rr-ratio-1-2"
-              onClick={() => handleSelectRatio(2)}
-              title="Select 1:2 Ratio - Tap anywhere on chart to draw"
-              className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer ${
-                isDark
-                  ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border-neutral-700 hover:border-neutral-600'
-                  : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300'
-              }`}
-            >
-              1:2
-            </button>
-            <button
-              type="button"
-              id="btn-rr-ratio-1-3"
-              onClick={() => handleSelectRatio(3)}
-              title="Select 1:3 Ratio - Tap anywhere on chart to draw"
-              className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer ${
-                isDark
-                  ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border-neutral-700 hover:border-neutral-600'
-                  : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300'
-              }`}
-            >
-              1:3
-            </button>
-            <button
-              type="button"
-              id="btn-rr-ratio-1-4"
-              onClick={() => handleSelectRatio(4)}
-              title="Select 1:4 Ratio - Tap anywhere on chart to draw"
-              className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer ${
-                isDark
-                  ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border-neutral-700 hover:border-neutral-600'
-                  : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300'
-              }`}
-            >
-              1:4
-            </button>
-            <button
-              type="button"
-              id="btn-rr-ratio-1-5"
-              onClick={() => handleSelectRatio(5)}
-              title="Select 1:5 Ratio - Tap anywhere on chart to draw"
-              className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer ${
-                isDark
-                  ? 'bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border-neutral-700 hover:border-neutral-600'
-                  : 'bg-neutral-100 hover:bg-neutral-200 text-slate-800 border-neutral-300'
-              }`}
-            >
-              1:5
-            </button>
+            {[100, 200, 500, 1000].map((pts) => (
+              <button
+                key={pts}
+                type="button"
+                onClick={() => {
+                  setSlPips(pts);
+                  try { localStorage.setItem('mihiretu_rr_sl_points_v2', String(pts)); } catch (err) {}
+                }}
+                title={`${pts} points = $${(pts * pointUnit * rrLot * (activeSpec.contractSize || 1)).toFixed(2)} risk at ${rrLot} lot`}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                  slPips === pts
+                    ? 'bg-rose-600/30 text-rose-300 border-rose-500/60'
+                    : isDark
+                      ? 'bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 border-neutral-700'
+                      : 'bg-neutral-100 hover:bg-neutral-200 text-slate-700 border-neutral-300'
+                }`}
+              >
+                {pts}
+              </button>
+            ))}
           </div>
 
           {/* Separator */}
           <div className={`w-px h-5 ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
+
+          {/* 3. Quick Ratio Pickers (1:1, 1:1.5, 1:2, 1:3, 1:4, 1:5) */}
+          <div className="flex items-center gap-1">
+            {[1, 1.5, 2, 3, 4, 5].map((ratio) => (
+              <button
+                key={ratio}
+                type="button"
+                id={`btn-rr-ratio-1-${String(ratio).replace('.', '_')}`}
+                onClick={() => handleSelectRatio(ratio)}
+                title={`Select 1:${ratio} Ratio (TP: ${Math.round(slPips * ratio)} pts = +$${(slDollarEstimate * ratio).toFixed(2)}) — Tap chart to draw`}
+                className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer ${
+                  isDark
+                    ? 'bg-neutral-800 hover:bg-blue-600/40 text-neutral-200 hover:text-white border-neutral-700 hover:border-blue-500'
+                    : 'bg-neutral-100 hover:bg-blue-100 text-slate-800 border-neutral-300 hover:border-blue-400'
+                }`}
+              >
+                1:{ratio}
+              </button>
+            ))}
+          </div>
+
+          {/* Separator */}
+          <div className={`w-px h-5 ${isDark ? 'bg-neutral-800' : 'bg-neutral-200'}`} />
+
+          {/* Tap Chart First & Pick Ratio on Chart */}
+          {onStartRRPlacement && (
+            <button
+              type="button"
+              id="btn-rr-tap-pick-on-chart"
+              onClick={handleStartTapAndPickRatio}
+              title="Tap anywhere on chart first, then choose R:R ratio right on the chart"
+              className="px-2 py-0.5 rounded text-[11px] font-bold border border-emerald-500/50 bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-300 transition-colors cursor-pointer flex items-center gap-1"
+            >
+              <Target className="w-3 h-3" />
+              <span>Tap &amp; Pick Ratio</span>
+            </button>
+          )}
 
           {/* 4. Advanced Full Modal Trigger */}
           {onOpenRiskRewardModal && (

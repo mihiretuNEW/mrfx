@@ -21,7 +21,7 @@ import { SupportModal } from './components/SupportModal';
 import { MproSignalsModal } from './components/MproSignalsModal';
 import { Mpro2SignalsModal } from './components/Mpro2SignalsModal';
 import { RiskRewardModal } from './components/RiskRewardModal';
-import { getSymbolSpec } from './utils/symbolSpecs';
+import { getSymbolSpec, getDefaultRrLot, getRrPointUnit, calculateProfitLoss } from './utils/symbolSpecs';
 import { SRSignal } from './utils/supportResistanceClassification';
 
 const DEFAULT_SETTINGS: ChartSettings = {
@@ -966,27 +966,42 @@ function AppContent() {
     drawingId?: string;
   } | null>(null);
 
-  // Quick Risk/Reward Tap-to-Place Mode ("tap anywhere on chart" to draw immediately)
+  // Quick Risk/Reward Tap-to-Place Mode ("tap anywhere on chart" to draw immediately or pick ratio)
   const [rrPlacementState, setRrPlacementState] = useState<{
     isLong: boolean;
     slPips: number;
     ratio: number;
+    lotSize?: number;
+    pickRatioOnChart?: boolean;
   } | null>(null);
 
-  const handleStartRRPlacement = (config: { isLong: boolean; slPips: number; ratio: number }) => {
+  const handleStartRRPlacement = (config: { isLong: boolean; slPips: number; ratio: number; lotSize?: number; pickRatioOnChart?: boolean }) => {
     setRrPlacementState(config);
   };
 
-  const handleCompleteRRPlacement = (entryPrice: number, clickTime: number) => {
-    if (!rrPlacementState) return;
-    const { isLong, slPips, ratio } = rrPlacementState;
+  const handleCompleteRRPlacement = (
+    entryPrice: number,
+    clickTime: number,
+    overrideConfig?: { isLong: boolean; slPips: number; ratio: number; lotSize?: number }
+  ) => {
+    const activeCfg = overrideConfig || rrPlacementState;
+    if (!activeCfg) return;
+    const { isLong, slPips, ratio } = activeCfg;
 
-    const pipUnit = activeSymbolSpec.pipSize > 0 ? activeSymbolSpec.pipSize : (activeSymbolSpec.pointSize || 0.01);
-    const slDist = slPips * pipUnit;
+    const pointUnit = getRrPointUnit(activeSymbolSpec, entryPrice);
+    const lotSize = activeCfg.lotSize && activeCfg.lotSize > 0
+      ? activeCfg.lotSize
+      : getDefaultRrLot(activeSymbolSpec);
+
+    const slDist = slPips * pointUnit;
     const tpDist = slDist * ratio;
 
     const stopPrice = isLong ? entryPrice - slDist : entryPrice + slDist;
     const targetPrice = isLong ? entryPrice + tpDist : entryPrice - tpDist;
+    const riskDollars = Math.abs(
+      calculateProfitLoss(entryPrice, stopPrice, lotSize, isLong, activeSymbolSpec, entryPrice) ??
+      (slDist * lotSize * (activeSymbolSpec.contractSize || 1))
+    );
 
     const avgSpan = activeCandles.length > 1 ? (activeCandles[1].time - activeCandles[0].time) : 60;
     const startTime = clickTime || (activeCandles.length > 0 ? activeCandles[activeCandles.length - 1].time : Date.now() / 1000);
@@ -1006,13 +1021,13 @@ function AppContent() {
         entryPrice,
         targetPrice,
         stopPrice,
-        riskAmount: 100,
-        lotSize: activeSymbolSpec.minLot,
+        riskAmount: riskDollars,
+        lotSize,
       },
     };
 
     handleUpdateDrawings((prev) => [...(prev || []), newDrawing]);
-    // "tap ስሆን ያጽሑፎች መጥፋት አለቀ" - prompt texts disappear immediately!
+    // Clear placement state immediately after drawing
     setRrPlacementState(null);
   };
 
@@ -2118,22 +2133,27 @@ function AppContent() {
           {rrPlacementState && (
             <div 
               id="rr-placement-guide-banner"
-              className="absolute top-9 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-slate-900/95 border-2 border-emerald-500 shadow-2xl backdrop-blur-md flex items-center gap-2.5 select-none transition-all animate-bounce [animation-duration:2.5s]"
+              className="absolute top-9 left-1/2 -translate-x-1/2 z-50 px-3.5 py-1.5 rounded-full bg-slate-900/95 border-2 border-emerald-500 shadow-2xl backdrop-blur-md flex items-center gap-2 select-none transition-all max-w-[95vw] whitespace-nowrap overflow-x-auto"
             >
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-              <span className="font-mono font-black text-xs sm:text-sm text-emerald-300">
-                🎯 Tap anywhere on chart to draw Risk/Reward (1:{rrPlacementState.ratio})
-              </span>
-              <span className="text-[11px] text-neutral-300 font-sans hidden md:inline">
-                • በቻርቱ ላይ የፈለጉት ቦታ ይንኩ
+              <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+              <span className="font-mono font-black text-xs text-emerald-300">
+                {rrPlacementState.pickRatioOnChart
+                  ? '🎯 Tap chart anywhere to choose Ratio & draw R:R'
+                  : (() => {
+                      const unit = getRrPointUnit(activeSymbolSpec);
+                      const lot = rrPlacementState.lotSize || getDefaultRrLot(activeSymbolSpec);
+                      const riskUsd = (rrPlacementState.slPips * unit * lot * (activeSymbolSpec.contractSize || 1)).toFixed(2);
+                      const rewardUsd = (Number(riskUsd) * rrPlacementState.ratio).toFixed(2);
+                      return `🎯 Tap chart to draw ${rrPlacementState.isLong ? 'LONG' : 'SHORT'} 1:${rrPlacementState.ratio} (SL: -$${riskUsd} | TP: +$${rewardUsd})`;
+                    })()}
               </span>
               <button
                 type="button"
                 onClick={() => setRrPlacementState(null)}
-                className="ml-1.5 px-2 py-0.5 text-[10px] font-bold rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white border border-neutral-600 cursor-pointer"
+                className="ml-1 px-2 py-0.5 text-[10px] font-bold rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white border border-neutral-600 cursor-pointer shrink-0"
                 title="Cancel (Esc)"
               >
-                Cancel (Esc)
+                Cancel
               </button>
             </div>
           )}

@@ -35,7 +35,7 @@ import { VipMarketScannerHUD } from './VipMarketScannerHUD';
 import { DynamicTpSlTableHUD } from './DynamicTpSlTableHUD';
 import { TradePlannerHUD } from './TradePlannerHUD';
 import { MsttHUD } from './MsttHUD';
-import { getSymbolSpec, calculateProfitLoss, calculateStopPriceFromRisk, calculateTargetPriceFromReward, createDefaultRiskReward } from '../utils/symbolSpecs';
+import { getSymbolSpec, calculateProfitLoss, calculateStopPriceFromRisk, calculateTargetPriceFromReward, createDefaultRiskReward, getDefaultRrLot, getRrPointUnit } from '../utils/symbolSpecs';
 import { MasterGatekeeperHUD } from './MasterGatekeeperHUD';
 import { MasterTradeLoggerModal } from './MasterTradeLoggerModal';
 import { MasterJournalModal } from './MasterJournalModal';
@@ -104,8 +104,14 @@ interface MihiretuViewChartProps {
     isLong: boolean;
     slPips: number;
     ratio: number;
+    lotSize?: number;
+    pickRatioOnChart?: boolean;
   } | null;
-  onCompleteRRPlacement?: (price: number, time: number) => void;
+  onCompleteRRPlacement?: (
+    price: number,
+    time: number,
+    overrideConfig?: { isLong: boolean; slPips: number; ratio: number; lotSize?: number }
+  ) => void;
   onLoadMoreHistory?: () => void;
   isLoadingMoreHistory?: boolean;
   hasMoreHistory?: boolean;
@@ -181,6 +187,19 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
   const [draggedHandleIndex, setDraggedHandleIndex] = useState<number | null>(null); // -1 for dragging body, >=0 for handle
   const [dragOffset, setDragOffset] = useState<{ time: number; price: number } | null>(null);
 
+  // Inline Tap-to-Pick-Ratio Chart Popover State
+  const [pendingRrTap, setPendingRrTap] = useState<{
+    entryPrice: number;
+    time: number;
+    x: number;
+    y: number;
+    isLong: boolean;
+    slPoints: number;
+    ratio: number;
+    customRatio: string;
+    lotSize: number;
+  } | null>(null);
+
   // Snapping state
   const [snappedPoint, setSnappedPoint] = useState<DrawingPoint | null>(null);
 
@@ -222,6 +241,8 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     isDraggingScale?: boolean;
     startPriceScaleRatio?: number;
     isPickingReplay?: boolean;
+    isPickingRR?: boolean;
+    rrCoord?: DrawingPoint;
     moved?: boolean;
     localX?: number;
     localY?: number;
@@ -2322,6 +2343,55 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         }
       });
 
+      ctx.restore();
+    }
+
+    // =========================================================================
+    // Render Smart Money Setup 08 Background Boxes & Lines (Behind Candlesticks)
+    // =========================================================================
+    if (!isIndicatorDeleted('sm08') && (settings.indicators.showSmartMoneySetup08 ?? true) && sm08Results) {
+      ctx.save();
+      sm08Results.setups.forEach((setup) => {
+        if (setup.maxBarIndex < start - 5 || setup.minBarIndex > end + 5) return;
+
+        // 1a. Seamless 20-step Pine Script gradient boxes (FVG_Box and POI_Box)
+        setup.boxes.forEach((box) => {
+          const bx1 = getXFromIndex(box.x1);
+          const bx2 = getXFromIndex(box.x2);
+          const leftX = Math.min(bx1, bx2);
+          const boxW = Math.max(2, Math.abs(bx2 - bx1));
+          const pyD = getYFromPrice(box.d);
+          const pyP = getYFromPrice(box.p);
+          const topY = Math.min(pyD, pyP);
+          const boxH = Math.max(1, Math.abs(pyP - pyD));
+
+          const startAlpha = Math.max(0, Math.min(1, (100 - (box.baseTransp + 2.25)) / 100));
+          const grad = ctx.createLinearGradient(leftX, pyD, leftX, pyP);
+          grad.addColorStop(0, hexToRgba(box.baseHex, startAlpha));
+          grad.addColorStop(1, hexToRgba(box.baseHex, 0));
+
+          ctx.fillStyle = grad;
+          ctx.fillRect(leftX, topY, boxW, boxH);
+        });
+
+        // 1b. Lines (SSL/BSL dotted, ChoCh dotted, POI dashed, Imbalance dashed)
+        setup.lines.forEach((line) => {
+          const lx1 = getXFromIndex(line.x1);
+          const lx2 = getXFromIndex(line.x2);
+          const ly1 = getYFromPrice(line.y1);
+          const ly2 = getYFromPrice(line.y2);
+
+          ctx.save();
+          ctx.strokeStyle = line.color;
+          ctx.lineWidth = 1.1;
+          ctx.setLineDash(line.style === 'dotted' ? [2, 3] : [5, 3]);
+          ctx.beginPath();
+          ctx.moveTo(lx1, ly1);
+          ctx.lineTo(lx2, ly2);
+          ctx.stroke();
+          ctx.restore();
+        });
+      });
       ctx.restore();
     }
 
@@ -6793,16 +6863,67 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           ctx.lineWidth = isSelected ? 1.5 : 1;
           ctx.stroke();
 
-          // 5. Calculations
+          // 5. Calculations (Exact Points & Dollar Math: 100 pts = $1, 1000 pts = $10 at 0.01 lot)
           const targetPips = Math.abs(config.targetPrice - config.entryPrice);
           const stopPips = Math.abs(config.entryPrice - config.stopPrice);
+          const rrPointUnit = getRrPointUnit(activeSymbolSpec, config.entryPrice);
+          const rrLot = config.lotSize || getDefaultRrLot(activeSymbolSpec);
+          const tpPoints = Math.round(targetPips / rrPointUnit);
+          const slPoints = Math.round(stopPips / rrPointUnit);
+          const tpDollar = calculateProfitLoss(config.entryPrice, config.targetPrice, rrLot, isLong, activeSymbolSpec);
+          const slDollar = calculateProfitLoss(config.entryPrice, config.stopPrice, rrLot, isLong, activeSymbolSpec);
           const rrRatio = stopPips > 0 ? (targetPips / stopPips).toFixed(2) : '0.00';
+
+          // 5B. Crisp Zone Labels (Points & Dollars) inside Target and Stop Boxes
+          if (boxWidth >= 78) {
+            ctx.save();
+            ctx.font = 'bold 10px JetBrains Mono, monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            if (targetHeight >= 22) {
+              const tpDollarStr = tpDollar !== null ? ` (+$${Math.abs(tpDollar).toFixed(2)})` : '';
+              const tpText = boxWidth >= 150
+                ? `Target: ${tpPoints} pts${tpDollarStr}`
+                : `${tpPoints}p${tpDollarStr}`;
+              const tpLabelY = isLong
+                ? Math.min(entryY - 14, targetY + 11)
+                : Math.max(entryY + 14, targetY - 11);
+
+              const tpTw = ctx.measureText(tpText).width + 10;
+              if (tpTw <= boxWidth - 4) {
+                ctx.fillStyle = 'rgba(13, 17, 23, 0.72)';
+                ctx.fillRect(centerX - tpTw / 2, tpLabelY - 8, tpTw, 16);
+                ctx.fillStyle = '#34d399';
+                ctx.fillText(tpText, centerX, tpLabelY);
+              }
+            }
+
+            if (stopHeight >= 22) {
+              const slDollarStr = slDollar !== null ? ` (-$${Math.abs(slDollar).toFixed(2)})` : '';
+              const slText = boxWidth >= 150
+                ? `Stop: ${slPoints} pts${slDollarStr}`
+                : `${slPoints}p${slDollarStr}`;
+              const slLabelY = isLong
+                ? Math.max(entryY + 14, stopY - 11)
+                : Math.min(entryY - 14, stopY + 11);
+
+              const slTw = ctx.measureText(slText).width + 10;
+              if (slTw <= boxWidth - 4) {
+                ctx.fillStyle = 'rgba(13, 17, 23, 0.72)';
+                ctx.fillRect(centerX - slTw / 2, slLabelY - 8, slTw, 16);
+                ctx.fillStyle = '#fb7185';
+                ctx.fillText(slText, centerX, slLabelY);
+              }
+            }
+            ctx.restore();
+          }
 
           // 6. Centered TradingView Risk/Reward Ratio Pill on Entry Line (Always visible when msttShowRrBadge is on, or when selected)
           const showRrBadge = settings.indicators.msttShowRrBadge ?? true;
           if (isSelected || showRrBadge) {
             ctx.save();
-            const rrText = `Risk/Reward Ratio: ${rrRatio}`;
+            const rrText = `1:${rrRatio} • ${rrLot.toFixed(rrLot < 0.01 ? 3 : 2)}L`;
             ctx.font = 'bold 10px JetBrains Mono, monospace';
             const rrW = ctx.measureText(rrText).width + 16;
             const rrH = 18;
@@ -7206,6 +7327,57 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
           drawHandle(ctx, cp.x, cp.y, '#06b6d4');
         });
       }
+    }
+
+    // 5B. Live Preview for Pending Chart Tap Ratio Selection
+    if (pendingRrTap) {
+      const pointUnit = getRrPointUnit(activeSymbolSpec, pendingRrTap.entryPrice);
+      const slDist = pendingRrTap.slPoints * pointUnit;
+      const tpDist = slDist * pendingRrTap.ratio;
+      const stopP = pendingRrTap.isLong ? pendingRrTap.entryPrice - slDist : pendingRrTap.entryPrice + slDist;
+      const targetP = pendingRrTap.isLong ? pendingRrTap.entryPrice + tpDist : pendingRrTap.entryPrice - tpDist;
+
+      const leftX = getCanvasCoords({ time: pendingRrTap.time, price: pendingRrTap.entryPrice }).x;
+      const boxW = Math.min(200, Math.max(120, chartWidth * 0.22));
+      const entryY = getYFromPrice(pendingRrTap.entryPrice);
+      const targetY = getYFromPrice(targetP);
+      const stopY = getYFromPrice(stopP);
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(8, 153, 129, 0.25)';
+      ctx.fillRect(leftX, Math.min(entryY, targetY), boxW, Math.max(2, Math.abs(entryY - targetY)));
+      ctx.fillStyle = 'rgba(242, 54, 69, 0.25)';
+      ctx.fillRect(leftX, Math.min(entryY, stopY), boxW, Math.max(2, Math.abs(entryY - stopY)));
+
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#089981';
+      ctx.beginPath();
+      ctx.moveTo(leftX, targetY);
+      ctx.lineTo(leftX + boxW, targetY);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#f23645';
+      ctx.beginPath();
+      ctx.moveTo(leftX, stopY);
+      ctx.lineTo(leftX + boxW, stopY);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+      ctx.strokeStyle = '#3b82f6';
+      ctx.beginPath();
+      ctx.moveTo(leftX, entryY);
+      ctx.lineTo(leftX + boxW, entryY);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(leftX, entryY, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#3b82f6';
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
     }
 
     // Render Market Structure Signals | ProjectSyndicate
@@ -9662,77 +9834,36 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     }
 
     // =========================================================================
-    // Render Smart Money Setup 08 [TradingFinder] Binary Options Gold Scalper
+    // Render Smart Money Setup 08 Labels & Signal Triangles (Above Candlesticks)
     // =========================================================================
     if (!isIndicatorDeleted('sm08') && (settings.indicators.showSmartMoneySetup08 ?? true) && sm08Results) {
       ctx.save();
 
-      // 1. Render setups (20-step gradient FVG & POI boxes, SSL/BSL/ChoCh/POI/Imbalance lines & labels)
+      // 1. Labels ('SSL', 'BSL', 'ChoCh', 'POI', 'Imbalance')
       sm08Results.setups.forEach((setup) => {
         if (setup.maxBarIndex < start - 5 || setup.minBarIndex > end + 5) return;
 
-        // 1a. 20-step gradient boxes (FVG_Box and POI_Box)
-        setup.boxes.forEach((box) => {
-          const bx1 = getXFromIndex(box.x1);
-          const bx2 = getXFromIndex(box.x2);
-          const leftX = Math.min(bx1, bx2);
-          const boxW = Math.max(2, Math.abs(bx2 - bx1));
-
-          for (let i = 0; i < 20; i++) {
-            const y0 = box.d + (box.p - box.d) * (0.05 * i);
-            const y1 = box.d + (box.p - box.d) * (0.05 * (i + 1));
-            const py0 = getYFromPrice(y0);
-            const py1 = getYFromPrice(y1);
-            const sliceTop = Math.min(py0, py1);
-            const sliceH = Math.max(0.6, Math.abs(py1 - py0));
-            const transp = box.baseTransp + (i + 1) * 2.25;
-            const alpha = Math.max(0, Math.min(1, (100 - transp) / 100));
-            if (alpha <= 0.002) continue;
-
-            ctx.fillStyle = hexToRgba(box.baseHex, alpha);
-            ctx.fillRect(leftX, sliceTop, boxW, sliceH);
-          }
-        });
-
-        // 1b. Lines (SSL/BSL dotted, ChoCh dotted, POI dashed, Imbalance dashed)
-        setup.lines.forEach((line) => {
-          const lx1 = getXFromIndex(line.x1);
-          const lx2 = getXFromIndex(line.x2);
-          const ly1 = getYFromPrice(line.y1);
-          const ly2 = getYFromPrice(line.y2);
-
-          ctx.save();
-          ctx.strokeStyle = line.color;
-          ctx.lineWidth = 1.2;
-          ctx.setLineDash(line.style === 'dotted' ? [2, 3] : [5, 4]);
-          ctx.beginPath();
-          ctx.moveTo(lx1, ly1);
-          ctx.lineTo(lx2, ly2);
-          ctx.stroke();
-          ctx.restore();
-        });
-
-        // 1c. Labels ('SSL', 'BSL', 'ChoCh', 'POI', 'Imbalance')
         setup.labels.forEach((lbl) => {
           const cx = getXFromIndex(lbl.x);
           const cy = getYFromPrice(lbl.y);
 
           ctx.save();
-          ctx.font = 'bold 9.5px JetBrains Mono, monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
 
           if (lbl.bgColor !== 'transparent') {
+            ctx.font = 'bold 9px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
             const tw = ctx.measureText(lbl.text).width + 8;
             const th = 14;
             ctx.fillStyle = lbl.bgColor;
             ctx.beginPath();
-            ctx.roundRect(cx - tw / 2, cy - th / 2, tw, th, 3);
+            ctx.roundRect(cx - tw / 2, cy - th / 2, tw, th, 2.5);
             ctx.fill();
 
             ctx.fillStyle = lbl.textColor;
-            ctx.fillText(lbl.text, cx, cy);
+            ctx.fillText(lbl.text, cx, cy + 0.5);
           } else {
+            ctx.font = '500 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
             ctx.fillStyle = isDark ? lbl.textColor : '#334155';
             ctx.fillText(lbl.text, cx, cy);
           }
@@ -9745,25 +9876,26 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         if (sig.barIndex < start - 3 || sig.barIndex > end + 3) return;
         const x = getXFromIndex(sig.barIndex);
         const yBase = getYFromPrice(sig.price);
-        const triSize = 6.5;
+        const triHalfW = 5.5;
+        const triH = 9.5;
 
         ctx.save();
         if (sig.direction === 'bull') {
-          const cy = yBase + 11;
-          ctx.fillStyle = '#00a846';
+          const cy = yBase + 8;
+          ctx.fillStyle = '#4caf50';
           ctx.beginPath();
           ctx.moveTo(x, cy);
-          ctx.lineTo(x - triSize, cy + triSize * 1.65);
-          ctx.lineTo(x + triSize, cy + triSize * 1.65);
+          ctx.lineTo(x - triHalfW, cy + triH);
+          ctx.lineTo(x + triHalfW, cy + triH);
           ctx.closePath();
           ctx.fill();
         } else {
-          const cy = yBase - 11;
-          ctx.fillStyle = '#ef4444';
+          const cy = yBase - 8;
+          ctx.fillStyle = '#ff5252';
           ctx.beginPath();
           ctx.moveTo(x, cy);
-          ctx.lineTo(x - triSize, cy - triSize * 1.65);
-          ctx.lineTo(x + triSize, cy - triSize * 1.65);
+          ctx.lineTo(x - triHalfW, cy - triH);
+          ctx.lineTo(x + triHalfW, cy - triH);
           ctx.closePath();
           ctx.fill();
         }
@@ -10111,6 +10243,8 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     brushColor,
     brushLineWidth,
     isPickingReplayBar,
+    pendingRrTap,
+    activeSymbolSpec,
   ]);
 
   // Helper: Get nice tick interval for price grid
@@ -10516,8 +10650,22 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     const snap = activeTool === 'brush' ? null : calculateSnapping(x, y);
     const spaceCoord = snap || getSpaceCoords(x, y);
 
-    // 0. QUICK RISK/REWARD TAP-TO-PLACE MODE ("tap anywhere on chart" to draw immediately)
+    // 0. QUICK RISK/REWARD TAP-TO-PLACE MODE ("tap anywhere on chart" to draw or pick ratio)
     if (rrPlacementMode && onCompleteRRPlacement) {
+      if (rrPlacementMode.pickRatioOnChart) {
+        setPendingRrTap({
+          entryPrice: spaceCoord.price,
+          time: spaceCoord.time,
+          x,
+          y,
+          isLong: rrPlacementMode.isLong,
+          slPoints: rrPlacementMode.slPips || 100,
+          ratio: rrPlacementMode.ratio || 3,
+          customRatio: String(rrPlacementMode.ratio || 3),
+          lotSize: rrPlacementMode.lotSize || getDefaultRrLot(activeSymbolSpec),
+        });
+        return;
+      }
       onCompleteRRPlacement(spaceCoord.price, spaceCoord.time);
       return;
     }
@@ -10665,49 +10813,19 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         setDrawings((prev) => [...prev, newDrawing]);
         setActiveTool('cursor');
       } else if (activeTool === 'risk_reward') {
-        // Spawn Risk/Reward tool instantly centered on clicked price with exact Deriv/Vol 75 formula:
-        // SL = $2.2, TP = $10.3 at min lot 0.01 (224 movement = $2.24)
-        const entryPrice = spaceCoord.price;
-        const rrConfig = createDefaultRiskReward(
-          entryPrice,
-          symbolName,
-          activeSymbolSpec,
-          true,
-          settings.indicators.rrDefaultSlDollar ?? 2.2,
-          settings.indicators.rrDefaultTpDollar ?? 10.3,
-          settings.indicators.rrDefaultLot ?? (activeSymbolSpec.cleanCode.includes('75') ? 0.01 : activeSymbolSpec.minLot)
-        );
-
-        const visibleCandlesCount = Math.max(10, Math.floor(chartWidth / (candleWidth || 8)));
-        const defaultBoxCandles = Math.min(25, Math.max(8, Math.floor(visibleCandlesCount * 0.25)));
-
-        const startIdx = candles.findIndex(c => c.time === spaceCoord.time);
-        const effectiveStartIdx = startIdx !== -1 ? startIdx : (candles.length > 0 ? candles.length - 1 : 0);
-        const endIdx = Math.min(candles.length - 1, effectiveStartIdx + defaultBoxCandles);
-        const avgCandleSec = candles.length > 1 ? (candles[1].time - candles[0].time) : 60;
-        const endTime = candles[endIdx] ? candles[endIdx].time : (spaceCoord.time + avgCandleSec * defaultBoxCandles);
-
-        const newDrawing: Drawing = {
-          id: 'drawing_' + Date.now(),
-          type: 'risk_reward',
-          points: [
-            spaceCoord,
-            { time: endTime, price: entryPrice }
-          ],
-          color: '#2196f3',
-          lineWidth: 1.5,
-          riskReward: {
-            isLong: true,
-            entryPrice,
-            targetPrice: rrConfig.targetPrice,
-            stopPrice: rrConfig.stopPrice,
-            riskAmount: rrConfig.riskAmount,
-            lotSize: rrConfig.lotSize,
-          },
-        };
-        setDrawings((prev) => [...prev, newDrawing]);
-        setSelectedDrawingId(newDrawing.id);
-        setActiveTool('cursor');
+        // Open inline Chart Ratio Picker right at tapped coordinates before drawing
+        const defaultLot = settings.indicators.rrDefaultLot ?? getDefaultRrLot(activeSymbolSpec);
+        setPendingRrTap({
+          entryPrice: spaceCoord.price,
+          time: spaceCoord.time,
+          x,
+          y,
+          isLong: true,
+          slPoints: 100,
+          ratio: 3,
+          customRatio: '3',
+          lotSize: defaultLot,
+        });
       }
       return;
     }
@@ -11191,9 +11309,21 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       const snap = activeTool === 'brush' ? null : calculateSnapping(x, y);
       const spaceCoord = snap || getSpaceCoords(x, y);
 
-      // 0. QUICK RISK/REWARD TAP-TO-PLACE MODE ("tap anywhere on chart" to draw immediately)
-      if (rrPlacementMode && onCompleteRRPlacement) {
-        onCompleteRRPlacement(spaceCoord.price, spaceCoord.time);
+      // 0. QUICK RISK/REWARD TAP-TO-PLACE MODE (allows pan/scroll first; commits on clean tap)
+      if ((rrPlacementMode && onCompleteRRPlacement) || activeTool === 'risk_reward') {
+        touchStartRef.current = {
+          startX: touch.clientX,
+          startY: touch.clientY,
+          startScrollOffset: scrollOffset,
+          startVerticalPan: verticalPanPixels,
+          isDraggingDrawing: false,
+          isPickingRR: true,
+          rrCoord: spaceCoord,
+          moved: false,
+          localX: x,
+          localY: y,
+        };
+        setMousePos({ x, y });
         return;
       }
 
@@ -11329,48 +11459,6 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             lineWidth: 2,
           };
           setDrawings((prev) => [...prev, newDrawing]);
-          setActiveTool('cursor');
-        } else if (activeTool === 'risk_reward') {
-          const entryPrice = spaceCoord.price;
-          const rrConfig = createDefaultRiskReward(
-            entryPrice,
-            symbolName,
-            activeSymbolSpec,
-            true,
-            settings.indicators.rrDefaultSlDollar ?? 2.2,
-            settings.indicators.rrDefaultTpDollar ?? 10.3,
-            settings.indicators.rrDefaultLot ?? (activeSymbolSpec.cleanCode.includes('75') ? 0.01 : activeSymbolSpec.minLot)
-          );
-
-          const visibleCandlesCount = Math.max(10, Math.floor(chartWidth / (candleWidth || 8)));
-          const defaultBoxCandles = Math.min(25, Math.max(8, Math.floor(visibleCandlesCount * 0.25)));
-
-          const startIdx = candles.findIndex(c => c.time === spaceCoord.time);
-          const effectiveStartIdx = startIdx !== -1 ? startIdx : (candles.length > 0 ? candles.length - 1 : 0);
-          const endIdx = Math.min(candles.length - 1, effectiveStartIdx + defaultBoxCandles);
-          const avgCandleSec = candles.length > 1 ? (candles[1].time - candles[0].time) : 60;
-          const endTime = candles[endIdx] ? candles[endIdx].time : (spaceCoord.time + avgCandleSec * defaultBoxCandles);
-
-          const newDrawing: Drawing = {
-            id: 'drawing_' + Date.now(),
-            type: 'risk_reward',
-            points: [
-              spaceCoord,
-              { time: endTime, price: entryPrice }
-            ],
-            color: '#2196f3',
-            lineWidth: 1.5,
-            riskReward: {
-              isLong: true,
-              entryPrice,
-              targetPrice: rrConfig.targetPrice,
-              stopPrice: rrConfig.stopPrice,
-              riskAmount: rrConfig.riskAmount,
-              lotSize: rrConfig.lotSize,
-            },
-          };
-          setDrawings((prev) => [...prev, newDrawing]);
-          setSelectedDrawingId(newDrawing.id);
           setActiveTool('cursor');
         }
         return;
@@ -11610,9 +11698,10 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       setHoveredTime(getSpaceCoords(x, y).time);
       setMousePos({ x, y });
     } else if (e.touches.length === 2) {
-      // Pinch to Zoom (cancel any pending single-tap replay cut so pinching never cuts)
+      // Pinch to Zoom (cancel any pending single-tap replay/RR pick so pinching never triggers)
       if (touchStartRef.current) {
         touchStartRef.current.isPickingReplay = false;
+        touchStartRef.current.isPickingRR = false;
         touchStartRef.current.moved = true;
       }
       const t1 = e.touches[0];
@@ -11847,6 +11936,31 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     ) {
       const idx = Math.max(Math.min(5, candles.length - 1), Math.min(candles.length - 1, getIndexFromX(prevTouchStart.localX)));
       onPickReplayBarTime(candles[idx].time);
+    }
+
+    if (
+      prevTouchStart?.isPickingRR &&
+      !prevTouchStart.moved &&
+      !wasPinching &&
+      e.touches.length === 0 &&
+      prevTouchStart.rrCoord
+    ) {
+      const coord = prevTouchStart.rrCoord;
+      if (rrPlacementMode?.pickRatioOnChart || activeTool === 'risk_reward') {
+        setPendingRrTap({
+          entryPrice: coord.price,
+          time: coord.time,
+          x: prevTouchStart.localX ?? chartWidth / 2,
+          y: prevTouchStart.localY ?? chartHeight / 2,
+          isLong: rrPlacementMode?.isLong ?? true,
+          slPoints: rrPlacementMode?.slPips || 100,
+          ratio: rrPlacementMode?.ratio || 3,
+          customRatio: String(rrPlacementMode?.ratio || 3),
+          lotSize: rrPlacementMode?.lotSize || getDefaultRrLot(activeSymbolSpec),
+        });
+      } else if (rrPlacementMode && onCompleteRRPlacement) {
+        onCompleteRRPlacement(coord.price, coord.time);
+      }
     }
   };
 
@@ -12096,7 +12210,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       {selectedRiskRewardDrawing && selectedRiskRewardDrawing.riskReward && (() => {
         const config = selectedRiskRewardDrawing.riskReward;
         const spec = activeSymbolSpec;
-        const currentLot = config.lotSize || spec.minLot;
+        const currentLot = config.lotSize || getDefaultRrLot(spec);
         const entryPrice = config.entryPrice;
         const targetPrice = config.targetPrice;
         const stopPrice = config.stopPrice;
@@ -12109,8 +12223,11 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         const tpPnl = calculateProfitLoss(entryPrice, targetPrice, currentLot, isLong, spec, lastPrice);
         const slPnl = calculateProfitLoss(entryPrice, stopPrice, currentLot, isLong, spec, lastPrice);
 
+        const rrPointUnit = getRrPointUnit(spec, entryPrice);
         const riskDist = Math.abs(entryPrice - stopPrice);
         const rewardDist = Math.abs(targetPrice - entryPrice);
+        const slPoints = Math.round(riskDist / rrPointUnit);
+        const tpPoints = Math.round(rewardDist / rrPointUnit);
         const rrRatio = riskDist > 0 ? (rewardDist / riskDist).toFixed(2) : '0.00';
 
         const formatVal = (val: number | null) => {
@@ -12392,39 +12509,51 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
                       </div>
                     </div>
 
-                    {/* Quick Target Presets */}
-                    <div className="pt-2 border-t border-neutral-800">
-                      <div className="text-[10px] text-neutral-400 mb-1.5">Quick Target Presets:</div>
-                      <div className="flex items-center gap-1.5">
+                    {/* Quick Target Ratio Presets (Preserves SL distance & applies exact ratio) */}
+                    <div className="pt-2 border-t border-neutral-800 space-y-1.5">
+                      <div className="text-[10px] text-neutral-400">Quick Ratio Presets ({slPoints} pts SL):</div>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {[1, 1.5, 2, 3, 4, 5].map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => {
+                              const baseSl = riskDist > 0 ? riskDist : 100 * rrPointUnit;
+                              const nextTarget = isLong ? entryPrice + baseSl * r : entryPrice - baseSl * r;
+                              updateRrConfig({ targetPrice: nextTarget });
+                            }}
+                            className="px-2 py-1 bg-neutral-800 hover:bg-blue-700/60 text-gray-200 border border-neutral-700 rounded font-semibold text-[10px] transition-colors cursor-pointer flex-1 text-center"
+                          >
+                            1:{r}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1.5 pt-1">
                         <button
                           type="button"
                           onClick={() => {
-                            const res = createDefaultRiskReward(entryPrice, symbolName, spec, isLong, 2.2, 10.3, currentLot);
-                            updateRrConfig({ targetPrice: res.targetPrice, stopPrice: res.stopPrice });
+                            const slD = 100 * rrPointUnit;
+                            updateRrConfig({
+                              stopPrice: isLong ? entryPrice - slD : entryPrice + slD,
+                              targetPrice: isLong ? entryPrice + slD * 3 : entryPrice - slD * 3,
+                            });
+                          }}
+                          className="px-2 py-1 bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-300 border border-emerald-700/50 rounded font-semibold text-[10px] transition-colors cursor-pointer flex-1 text-center"
+                        >
+                          100p ($1) • 1:3
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const slD = 1000 * rrPointUnit;
+                            updateRrConfig({
+                              stopPrice: isLong ? entryPrice - slD : entryPrice + slD,
+                              targetPrice: isLong ? entryPrice + slD * 2 : entryPrice - slD * 2,
+                            });
                           }}
                           className="px-2 py-1 bg-blue-900/40 hover:bg-blue-800/60 text-blue-300 border border-blue-700/50 rounded font-semibold text-[10px] transition-colors cursor-pointer flex-1 text-center"
                         >
-                          SL $2.2 / TP $10.3
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const res = createDefaultRiskReward(entryPrice, symbolName, spec, isLong, 5.0, 15.0, currentLot);
-                            updateRrConfig({ targetPrice: res.targetPrice, stopPrice: res.stopPrice });
-                          }}
-                          className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-gray-300 border border-neutral-700 rounded font-semibold text-[10px] transition-colors cursor-pointer flex-1 text-center"
-                        >
-                          1:3 Ratio
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const res = createDefaultRiskReward(entryPrice, symbolName, spec, isLong, 3.0, 12.0, currentLot);
-                            updateRrConfig({ targetPrice: res.targetPrice, stopPrice: res.stopPrice });
-                          }}
-                          className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-gray-300 border border-neutral-700 rounded font-semibold text-[10px] transition-colors cursor-pointer flex-1 text-center"
-                        >
-                          1:4 Ratio
+                          1000p ($10) • 1:2
                         </button>
                       </div>
                     </div>
@@ -12434,12 +12563,12 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
             )}
 
             {/* Sleek TradingView Floating Action Bar */}
-            <div className="flex items-center gap-1.5 sm:gap-2 bg-[#1e222d]/95 hover:bg-[#1e222d] text-white px-2.5 py-1.5 rounded-lg border border-[#2a2e39] shadow-2xl backdrop-blur-md transition-all text-xs">
+            <div className="flex items-center gap-1.5 sm:gap-2 bg-[#1e222d]/95 hover:bg-[#1e222d] text-white px-2.5 py-1.5 rounded-lg border border-[#2a2e39] shadow-2xl backdrop-blur-md transition-all text-xs overflow-x-auto max-w-full">
               {/* Direction Flip Button */}
               <button
                 onClick={toggleRiskRewardDirection}
                 title="Toggle Long / Short Direction"
-                className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1.5 transition-colors border cursor-pointer ${
+                className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1.5 transition-colors border cursor-pointer shrink-0 ${
                   isLong 
                     ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30' 
                     : 'bg-rose-500/20 text-rose-400 border-rose-500/30 hover:bg-rose-500/30'
@@ -12451,14 +12580,35 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
 
               {/* R:R Ratio Badge */}
               <span 
-                className="font-mono font-bold text-amber-400 bg-amber-400/10 px-2 py-1 rounded border border-amber-400/20 text-[11px]"
+                className="font-mono font-bold text-amber-400 bg-amber-400/10 px-2 py-1 rounded border border-amber-400/20 text-[11px] shrink-0"
                 title="Risk to Reward Ratio"
               >
                 1 : {rrRatio}
               </span>
 
+              {/* Quick 1-Tap Ratio Switcher */}
+              <div className="hidden md:flex items-center gap-0.5 bg-black/30 p-0.5 rounded border border-neutral-800 shrink-0">
+                {[1, 2, 3, 4, 5].map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => {
+                      const baseSl = riskDist > 0 ? riskDist : 100 * rrPointUnit;
+                      updateRrConfig({ targetPrice: isLong ? entryPrice + baseSl * r : entryPrice - baseSl * r });
+                    }}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold cursor-pointer transition-colors ${
+                      Math.abs(Number(rrRatio) - r) < 0.08
+                        ? 'bg-blue-600 text-white'
+                        : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                    }`}
+                  >
+                    1:{r}
+                  </button>
+                ))}
+              </div>
+
               {/* Lot Size Stepper */}
-              <div className="flex items-center gap-1 bg-black/40 px-1.5 py-0.5 rounded border border-neutral-700/80">
+              <div className="flex items-center gap-1 bg-black/40 px-1.5 py-0.5 rounded border border-neutral-700/80 shrink-0">
                 <button
                   onClick={() => handleLotChange(currentLot - spec.lotStep)}
                   disabled={currentLot <= spec.minLot}
@@ -12479,11 +12629,11 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
                 </button>
               </div>
 
-              {/* Compact P&L Overview */}
-              <div className="flex items-center gap-1.5 font-mono text-[11px] px-1 border-l border-neutral-700/60">
-                <span className="text-emerald-400 font-semibold" title="Take Profit Return">+${tpStr}</span>
+              {/* Compact Points & P&L Overview */}
+              <div className="flex items-center gap-1.5 font-mono text-[11px] px-1.5 border-l border-neutral-700/60 shrink-0">
+                <span className="text-emerald-400 font-semibold" title="Take Profit Points & Return">+{tpPoints}p (+${tpStr})</span>
                 <span className="text-neutral-500">/</span>
-                <span className="text-rose-400 font-semibold" title="Stop Loss Risk">-${slStr}</span>
+                <span className="text-rose-400 font-semibold" title="Stop Loss Points & Risk">-{slPoints}p (-${slStr})</span>
               </div>
 
               {/* TradingView Quick Color Picker Button */}
@@ -12667,6 +12817,231 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
         className="w-full flex-grow cursor-crosshair block"
         style={{ touchAction: 'none' }}
       />
+
+      {/* Inline Chart Tap-to-Select-Ratio Picker Popover */}
+      {pendingRrTap && (() => {
+        const pointUnit = getRrPointUnit(activeSymbolSpec, pendingRrTap.entryPrice);
+        const contractSize = activeSymbolSpec.contractSize || 1;
+        const decimals = pendingRrTap.entryPrice.toString().split('.')[1]?.length
+          ? Math.max(2, Math.min(4, pendingRrTap.entryPrice.toString().split('.')[1].length))
+          : 2;
+        const riskUsd = pendingRrTap.slPoints * pointUnit * pendingRrTap.lotSize * contractSize;
+        const popoverW = 296;
+        const popoverH = 290;
+        const clampedLeft = Math.max(8, Math.min(pendingRrTap.x - popoverW / 2, Math.max(8, dimensions.width - popoverW - 8)));
+        const clampedTop = pendingRrTap.y > popoverH + 24
+          ? pendingRrTap.y - popoverH - 12
+          : Math.min(Math.max(8, pendingRrTap.y + 14), Math.max(8, dimensions.height - popoverH - 8));
+
+        const commitTapRr = (chosenRatio: number) => {
+          const validRatio = Math.max(0.1, chosenRatio || 3);
+          if (onCompleteRRPlacement) {
+            onCompleteRRPlacement(pendingRrTap.entryPrice, pendingRrTap.time, {
+              isLong: pendingRrTap.isLong,
+              slPips: pendingRrTap.slPoints,
+              ratio: validRatio,
+              lotSize: pendingRrTap.lotSize,
+            });
+          } else {
+            const slDist = pendingRrTap.slPoints * pointUnit;
+            const tpDist = slDist * validRatio;
+            const stopPrice = pendingRrTap.isLong ? pendingRrTap.entryPrice - slDist : pendingRrTap.entryPrice + slDist;
+            const targetPrice = pendingRrTap.isLong ? pendingRrTap.entryPrice + tpDist : pendingRrTap.entryPrice - tpDist;
+            const visibleCount = Math.max(10, Math.floor((dimensions.width - 75) / (candleWidth || 8)));
+            const boxBars = Math.min(25, Math.max(10, Math.floor(visibleCount * 0.25)));
+            const avgSec = candles.length > 1 ? (candles[1].time - candles[0].time) : 60;
+            const newDrawing: Drawing = {
+              id: 'drawing_rr_' + Date.now(),
+              type: 'risk_reward',
+              points: [
+                { time: pendingRrTap.time, price: pendingRrTap.entryPrice },
+                { time: pendingRrTap.time + avgSec * boxBars, price: pendingRrTap.entryPrice },
+              ],
+              color: '#2196f3',
+              lineWidth: 1.5,
+              riskReward: {
+                isLong: pendingRrTap.isLong,
+                entryPrice: pendingRrTap.entryPrice,
+                targetPrice,
+                stopPrice,
+                riskAmount: riskUsd,
+                lotSize: pendingRrTap.lotSize,
+              },
+            };
+            setDrawings((prev) => [...prev, newDrawing]);
+            setSelectedDrawingId(newDrawing.id);
+          }
+          setPendingRrTap(null);
+          if (activeTool === 'risk_reward') {
+            setActiveTool('cursor');
+          }
+        };
+
+        return (
+          <div
+            id="chart-tap-ratio-picker"
+            style={{ left: `${clampedLeft}px`, top: `${clampedTop}px`, width: `${popoverW}px` }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            className="absolute z-40 rounded-xl bg-neutral-950/98 border border-blue-500/60 shadow-2xl backdrop-blur-md p-3 text-xs text-white select-none space-y-2.5 animate-in fade-in zoom-in-95 duration-100"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-neutral-800 pb-1.5">
+              <div>
+                <div className="font-bold text-blue-400 text-[11px] uppercase tracking-wide">Choose R:R Ratio</div>
+                <div className="font-mono text-[10px] text-neutral-400">
+                  Entry: <span className="text-white font-bold">{pendingRrTap.entryPrice.toFixed(decimals)}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingRrTap(null)}
+                className="p-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-800 cursor-pointer"
+                title="Cancel"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Direction & Lot Size Row */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center rounded-lg bg-black/50 p-0.5 border border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => setPendingRrTap((p) => (p ? { ...p, isLong: true } : p))}
+                  className={`px-2.5 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-colors ${
+                    pendingRrTap.isLong ? 'bg-emerald-600 text-white' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  LONG
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingRrTap((p) => (p ? { ...p, isLong: false } : p))}
+                  className={`px-2.5 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-colors ${
+                    !pendingRrTap.isLong ? 'bg-rose-600 text-white' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  SHORT
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1 bg-black/50 px-1.5 py-0.5 rounded-lg border border-neutral-800 font-mono text-[10px]">
+                <span className="text-neutral-400">Lot:</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPendingRrTap((p) =>
+                      p ? { ...p, lotSize: Math.max(activeSymbolSpec.minLot, Number((p.lotSize - activeSymbolSpec.lotStep).toFixed(3))) } : p
+                    )
+                  }
+                  className="px-1 text-neutral-300 hover:text-white font-bold cursor-pointer"
+                >
+                  -
+                </button>
+                <span className="text-amber-300 font-bold">{pendingRrTap.lotSize.toFixed(pendingRrTap.lotSize < 0.01 ? 3 : 2)}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPendingRrTap((p) =>
+                      p ? { ...p, lotSize: Number((p.lotSize + activeSymbolSpec.lotStep).toFixed(3)) } : p
+                    )
+                  }
+                  className="px-1 text-neutral-300 hover:text-white font-bold cursor-pointer"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* SL Points Input & 100 = $1 / 1000 = $10 Quick Presets */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[10px] font-mono">
+                <span className="text-neutral-400">SL Points (Pips):</span>
+                <span className="text-rose-400 font-bold">
+                  {pendingRrTap.slPoints} pts = -${riskUsd.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min={1}
+                  value={pendingRrTap.slPoints}
+                  onChange={(e) => {
+                    const val = Math.max(1, Number(e.target.value) || 100);
+                    setPendingRrTap((p) => (p ? { ...p, slPoints: val } : p));
+                  }}
+                  className="w-16 px-2 py-1 rounded bg-black border border-neutral-700 text-center font-mono text-[11px] font-bold text-white focus:border-blue-500 outline-none"
+                />
+                {[100, 200, 500, 1000].map((pts) => (
+                  <button
+                    key={pts}
+                    type="button"
+                    onClick={() => setPendingRrTap((p) => (p ? { ...p, slPoints: pts } : p))}
+                    className={`flex-1 py-1 rounded text-[10px] font-mono font-bold border cursor-pointer transition-colors ${
+                      pendingRrTap.slPoints === pts
+                        ? 'bg-rose-600/30 text-rose-300 border-rose-500/70'
+                        : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border-neutral-800'
+                    }`}
+                  >
+                    {pts}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tap a Ratio to Draw Immediately */}
+            <div className="space-y-1.5">
+              <div className="text-[10px] text-neutral-400 font-semibold">Tap Ratio to Draw on Chart:</div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[1, 1.5, 2, 3, 4, 5].map((r) => {
+                  const tpPts = Math.round(pendingRrTap.slPoints * r);
+                  const tpUsd = riskUsd * r;
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      onMouseEnter={() => setPendingRrTap((p) => (p ? { ...p, ratio: r, customRatio: String(r) } : p))}
+                      onClick={() => commitTapRr(r)}
+                      className="p-1.5 rounded-lg bg-neutral-900 hover:bg-emerald-600/30 border border-neutral-700 hover:border-emerald-500 transition-all text-center cursor-pointer group"
+                    >
+                      <div className="font-mono font-extrabold text-[11px] text-white group-hover:text-emerald-300">1:{r}</div>
+                      <div className="font-mono text-[9px] text-emerald-400">+${tpUsd.toFixed(2)}</div>
+                      <div className="font-mono text-[8px] text-neutral-500">{tpPts} pts</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Custom Ratio Input + Draw Button */}
+            <div className="flex items-center gap-1.5 pt-1 border-t border-neutral-800">
+              <span className="font-mono text-[10px] text-neutral-400 shrink-0">Custom 1 :</span>
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                value={pendingRrTap.customRatio}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const num = parseFloat(val);
+                  setPendingRrTap((p) =>
+                    p ? { ...p, customRatio: val, ratio: !isNaN(num) && num > 0 ? num : p.ratio } : p
+                  );
+                }}
+                className="w-16 px-2 py-1 rounded bg-black border border-neutral-700 text-center font-mono text-[11px] font-bold text-amber-300 focus:border-blue-500 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => commitTapRr(parseFloat(pendingRrTap.customRatio) || pendingRrTap.ratio)}
+                className="flex-1 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] transition-colors cursor-pointer"
+              >
+                Draw 1:{pendingRrTap.ratio}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Background continuous history fetching pill */}
       {isLoadingMoreHistory && (
