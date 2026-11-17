@@ -774,6 +774,15 @@ export interface ChartSettings {
     ema50100SlowColor?: string; // color.orange (default '#ff9800')
     ema50100FastLineWidth?: number; // Fast EMA line width 1..4 (default 2)
     ema50100SlowLineWidth?: number; // Slow EMA line width 1..4 (default 2)
+    // Smart Money Setup 08 [TradingFinder] Binary Options Gold Scalper (Pine Script v5 1:1 Port)
+    showSmartMoneySetup08?: boolean;
+    sm08SwingPeriod?: number; // Swing Period (default 5, min 1)
+    sm08Alert?: 'On' | 'Off'; // Alert (default 'On')
+    sm08AlertName?: string; // Alert Name (default 'Smart Money Setup 08 [TradingFinder]')
+    sm08Frequency?: 'All' | 'Once Per Bar' | 'Per Bar Close'; // Message Frequency (default 'Once Per Bar')
+    sm08Utc?: string; // Show Alert time by Time Zone (default 'UTC')
+    sm08MessageBull?: string; // Long Position Message (default 'Long Signal Position')
+    sm08MessageBear?: string; // Short Position Message (default 'Short Signal Position')
     // Permanently deleted indicators registry (removed from code execution, settings list, and HUD)
     deletedIndicators?: string[];
   };

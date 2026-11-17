@@ -57,6 +57,7 @@ const INDICATOR_NAME_MAP: Record<string, string> = {
   mtf_ema: 'Multi-Timeframe EMA 15m 1H',
   mrov_trade: 'Mrov Trade: Opening Range',
   ema_50_100: 'EMA 50/100 + Candle Trend',
+  sm08: 'Smart Money Setup 08 TFlab',
 };
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -614,6 +615,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const isMtfEmaActive = !isIndicatorDeleted('mtf_ema') && (settings.indicators.showMultiTimeframeEma ?? true);
   const isMrovTradeActive = !isIndicatorDeleted('mrov_trade') && (settings.indicators.showMrovOpeningRange ?? false);
   const isEma50100Active = !isIndicatorDeleted('ema_50_100') && (settings.indicators.showEma50100Trend ?? false);
+  const isSm08Active = !isIndicatorDeleted('sm08') && (settings.indicators.showSmartMoneySetup08 ?? true);
 
   // Permanently delete indicator handler
   const handlePermanentlyDeleteIndicator = (indicatorId: string) => {
@@ -655,6 +657,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       case 'mtf_ema': toggleUpdates.showMultiTimeframeEma = false; break;
       case 'mrov_trade': toggleUpdates.showMrovOpeningRange = false; break;
       case 'ema_50_100': toggleUpdates.showEma50100Trend = false; break;
+      case 'sm08': toggleUpdates.showSmartMoneySetup08 = false; break;
     }
 
     onUpdateSettings({
@@ -709,6 +712,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       case 'mtf_ema': toggleUpdates.showMultiTimeframeEma = true; break;
       case 'mrov_trade': toggleUpdates.showMrovOpeningRange = true; break;
       case 'ema_50_100': toggleUpdates.showEma50100Trend = true; break;
+      case 'sm08': toggleUpdates.showSmartMoneySetup08 = true; break;
     }
 
     onUpdateSettings({
@@ -881,8 +885,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     isMtfEmaActive,
     isMrovTradeActive,
     isEma50100Active,
+    isSm08Active,
   ].filter(Boolean).length;
-  const totalCount = Math.max(0, 28 - deletedSet.size);
+  const totalCount = Math.max(0, 29 - deletedSet.size);
   const notAddedCount = Math.max(0, totalCount - addedCount);
 
   React.useEffect(() => {
@@ -12931,6 +12936,175 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             handleUpdateIndicators('ema50100SlowColor', '#ff9800');
                             handleUpdateIndicators('ema50100FastLineWidth', 2);
                             handleUpdateIndicators('ema50100SlowLineWidth', 2);
+                          }}
+                          className="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-xs text-gray-300 rounded-md transition-colors font-medium cursor-pointer"
+                        >
+                          Reset to Pine Script Defaults
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Indicator 29: Smart Money Setup 08 [TradingFinder] Binary Options Gold Scalper */}
+              {!isIndicatorDeleted('sm08') && (indicatorFilter === 'all' || (indicatorFilter === 'added' && isSm08Active) || (indicatorFilter === 'not_added' && !isSm08Active)) && (
+                <div className={`p-4 rounded-xl border transition-all ${
+                  isSm08Active
+                    ? 'bg-neutral-900/90 border-emerald-500/40 shadow-lg'
+                    : 'bg-neutral-900/50 border-neutral-800'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-black text-xs font-mono">
+                        SM08
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-sm font-bold text-white">Smart Money Setup 08 [TradingFinder]</h4>
+                          <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded">
+                            TFlab
+                          </span>
+                          <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded">
+                            Pine Script v5 1:1
+                          </span>
+                        </div>
+                        <p className="text-xs text-neutral-400 mt-0.5">
+                          Binary Options Gold Scalper: SFP Liquidity Sweeps (SSL/BSL), ChoCh, POI &amp; FVG Imbalance gradient zones with signal triangles
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-neutral-950 border border-neutral-800">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isSm08Active ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-600'}`} />
+                        <span className={`text-[10px] font-mono font-bold ${isSm08Active ? 'text-emerald-400' : 'text-neutral-500'}`}>
+                          {isSm08Active ? 'ACTIVE' : 'INACTIVE'}
+                        </span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isSm08Active}
+                          onChange={(e) => handleUpdateIndicators('showSmartMoneySetup08', e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-8 h-4 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setIndicatorToDelete({ id: 'sm08', name: 'Smart Money Setup 08 TFlab' })}
+                        title="Permanently delete indicator from platform code & settings"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 hover:border-rose-600 rounded-lg transition-all cursor-pointer shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Permanently Delete</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {isSm08Active && (
+                    <div className="mt-4 pt-4 border-t border-neutral-800 space-y-4">
+                      {/* Logical Setting */}
+                      <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800/80 space-y-3">
+                        <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>⚙️</span> Logical Setting
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-xs font-medium text-gray-300 block">Swing Period</span>
+                            <span className="text-[10px] text-gray-500">Pivot high/low &amp; POI lookback period (min: 1, default: 5)</span>
+                          </div>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={settings.indicators.sm08SwingPeriod ?? 5}
+                            onChange={(e) => handleUpdateIndicators('sm08SwingPeriod', Math.max(1, parseInt(e.target.value) || 5))}
+                            className="w-20 px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-xs font-mono text-white text-right focus:border-emerald-500 outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Alert Settings */}
+                      <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800/80 space-y-3">
+                        <div className="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>🔔</span> Alert
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-medium text-gray-300">Alert</span>
+                            <select
+                              value={settings.indicators.sm08Alert ?? 'On'}
+                              onChange={(e) => handleUpdateIndicators('sm08Alert', e.target.value as 'On' | 'Off')}
+                              className="px-2.5 py-1.5 bg-neutral-900 border border-neutral-700 rounded text-xs text-white focus:border-emerald-500 outline-none"
+                            >
+                              <option value="On">On</option>
+                              <option value="Off">Off</option>
+                            </select>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-medium text-gray-300">Message Frequency</span>
+                            <select
+                              value={settings.indicators.sm08Frequency ?? 'Once Per Bar'}
+                              onChange={(e) => handleUpdateIndicators('sm08Frequency', e.target.value as 'All' | 'Once Per Bar' | 'Per Bar Close')}
+                              className="px-2.5 py-1.5 bg-neutral-900 border border-neutral-700 rounded text-xs text-white focus:border-emerald-500 outline-none"
+                            >
+                              <option value="All">All</option>
+                              <option value="Once Per Bar">Once Per Bar</option>
+                              <option value="Per Bar Close">Per Bar Close</option>
+                            </select>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-medium text-gray-300">Alert Name</span>
+                            <input
+                              type="text"
+                              value={settings.indicators.sm08AlertName ?? 'Smart Money Setup 08 [TradingFinder]'}
+                              onChange={(e) => handleUpdateIndicators('sm08AlertName', e.target.value)}
+                              className="px-2.5 py-1.5 bg-neutral-900 border border-neutral-700 rounded text-xs text-white focus:border-emerald-500 outline-none"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-medium text-gray-300">Show Alert time by Time Zone</span>
+                            <input
+                              type="text"
+                              value={settings.indicators.sm08Utc ?? 'UTC'}
+                              onChange={(e) => handleUpdateIndicators('sm08Utc', e.target.value)}
+                              className="px-2.5 py-1.5 bg-neutral-900 border border-neutral-700 rounded text-xs text-white font-mono focus:border-emerald-500 outline-none"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-medium text-gray-300">Long Position Message</span>
+                            <input
+                              type="text"
+                              value={settings.indicators.sm08MessageBull ?? 'Long Signal Position'}
+                              onChange={(e) => handleUpdateIndicators('sm08MessageBull', e.target.value)}
+                              className="px-2.5 py-1.5 bg-neutral-900 border border-neutral-700 rounded text-xs text-white focus:border-emerald-500 outline-none"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] font-medium text-gray-300">Short Position Message</span>
+                            <input
+                              type="text"
+                              value={settings.indicators.sm08MessageBear ?? 'Short Signal Position'}
+                              onChange={(e) => handleUpdateIndicators('sm08MessageBear', e.target.value)}
+                              className="px-2.5 py-1.5 bg-neutral-900 border border-neutral-700 rounded text-xs text-white focus:border-emerald-500 outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Reset to Pine Script Defaults */}
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleUpdateIndicators('sm08SwingPeriod', 5);
+                            handleUpdateIndicators('sm08Alert', 'On');
+                            handleUpdateIndicators('sm08AlertName', 'Smart Money Setup 08 [TradingFinder]');
+                            handleUpdateIndicators('sm08Frequency', 'Once Per Bar');
+                            handleUpdateIndicators('sm08Utc', 'UTC');
+                            handleUpdateIndicators('sm08MessageBull', 'Long Signal Position');
+                            handleUpdateIndicators('sm08MessageBear', 'Short Signal Position');
                           }}
                           className="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-xs text-gray-300 rounded-md transition-colors font-medium cursor-pointer"
                         >

@@ -30,6 +30,7 @@ import { calculateFibonacciSequenceSwing, FibSwingResult } from '../utils/fibona
 import { calculateMultiTimeframeEma, MtfEmaResult } from '../utils/multiTimeframeEma';
 import { calculateMrovTradeOpeningRange, MrovTradeResult } from '../utils/mrovTradeOpeningRange';
 import { calculateEma50100CandleTrend, Ema50100Result } from '../utils/ema50100CandleTrend';
+import { calculateSmartMoneySetup08, SmartMoneySetup08Result } from '../utils/smartMoneySetup08';
 import { VipMarketScannerHUD } from './VipMarketScannerHUD';
 import { DynamicTpSlTableHUD } from './DynamicTpSlTableHUD';
 import { TradePlannerHUD } from './TradePlannerHUD';
@@ -1592,6 +1593,35 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     settings.indicators.ema50100ShowBackground,
     settings.indicators.ema50100FastColor,
     settings.indicators.ema50100SlowColor,
+  ]);
+
+  // Compute Smart Money Setup 08 [TradingFinder] Binary Options Gold Scalper (Pine Script v5 1:1 Exact Port)
+  const sm08Results: SmartMoneySetup08Result | null = useMemo(() => {
+    if (isIndicatorDeleted('sm08') || !(settings.indicators.showSmartMoneySetup08 ?? true) || candles.length === 0) return null;
+    return calculateSmartMoneySetup08(candles, {
+      swingPeriod: settings.indicators.sm08SwingPeriod ?? 5,
+      alertEnabled: (settings.indicators.sm08Alert ?? 'On') === 'On',
+      alertName: settings.indicators.sm08AlertName ?? 'Smart Money Setup 08 [TradingFinder]',
+      frequency: settings.indicators.sm08Frequency ?? 'Once Per Bar',
+      utc: settings.indicators.sm08Utc ?? 'UTC',
+      messageBull: settings.indicators.sm08MessageBull ?? 'Long Signal Position',
+      messageBear: settings.indicators.sm08MessageBear ?? 'Short Signal Position',
+      fvgFilter: 'Off',
+      fvgFilterType: 'Very Aggressive',
+      confirmLastBar: isReplayMode,
+    });
+  }, [
+    candles,
+    isReplayMode,
+    settings.indicators.deletedIndicators,
+    settings.indicators.showSmartMoneySetup08,
+    settings.indicators.sm08SwingPeriod,
+    settings.indicators.sm08Alert,
+    settings.indicators.sm08AlertName,
+    settings.indicators.sm08Frequency,
+    settings.indicators.sm08Utc,
+    settings.indicators.sm08MessageBull,
+    settings.indicators.sm08MessageBear,
   ]);
 
   // Master System State & Hooks (Strictly operates on Mpro2)
@@ -9631,6 +9661,118 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
       ctx.restore();
     }
 
+    // =========================================================================
+    // Render Smart Money Setup 08 [TradingFinder] Binary Options Gold Scalper
+    // =========================================================================
+    if (!isIndicatorDeleted('sm08') && (settings.indicators.showSmartMoneySetup08 ?? true) && sm08Results) {
+      ctx.save();
+
+      // 1. Render setups (20-step gradient FVG & POI boxes, SSL/BSL/ChoCh/POI/Imbalance lines & labels)
+      sm08Results.setups.forEach((setup) => {
+        if (setup.maxBarIndex < start - 5 || setup.minBarIndex > end + 5) return;
+
+        // 1a. 20-step gradient boxes (FVG_Box and POI_Box)
+        setup.boxes.forEach((box) => {
+          const bx1 = getXFromIndex(box.x1);
+          const bx2 = getXFromIndex(box.x2);
+          const leftX = Math.min(bx1, bx2);
+          const boxW = Math.max(2, Math.abs(bx2 - bx1));
+
+          for (let i = 0; i < 20; i++) {
+            const y0 = box.d + (box.p - box.d) * (0.05 * i);
+            const y1 = box.d + (box.p - box.d) * (0.05 * (i + 1));
+            const py0 = getYFromPrice(y0);
+            const py1 = getYFromPrice(y1);
+            const sliceTop = Math.min(py0, py1);
+            const sliceH = Math.max(0.6, Math.abs(py1 - py0));
+            const transp = box.baseTransp + (i + 1) * 2.25;
+            const alpha = Math.max(0, Math.min(1, (100 - transp) / 100));
+            if (alpha <= 0.002) continue;
+
+            ctx.fillStyle = hexToRgba(box.baseHex, alpha);
+            ctx.fillRect(leftX, sliceTop, boxW, sliceH);
+          }
+        });
+
+        // 1b. Lines (SSL/BSL dotted, ChoCh dotted, POI dashed, Imbalance dashed)
+        setup.lines.forEach((line) => {
+          const lx1 = getXFromIndex(line.x1);
+          const lx2 = getXFromIndex(line.x2);
+          const ly1 = getYFromPrice(line.y1);
+          const ly2 = getYFromPrice(line.y2);
+
+          ctx.save();
+          ctx.strokeStyle = line.color;
+          ctx.lineWidth = 1.2;
+          ctx.setLineDash(line.style === 'dotted' ? [2, 3] : [5, 4]);
+          ctx.beginPath();
+          ctx.moveTo(lx1, ly1);
+          ctx.lineTo(lx2, ly2);
+          ctx.stroke();
+          ctx.restore();
+        });
+
+        // 1c. Labels ('SSL', 'BSL', 'ChoCh', 'POI', 'Imbalance')
+        setup.labels.forEach((lbl) => {
+          const cx = getXFromIndex(lbl.x);
+          const cy = getYFromPrice(lbl.y);
+
+          ctx.save();
+          ctx.font = 'bold 9.5px JetBrains Mono, monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+
+          if (lbl.bgColor !== 'transparent') {
+            const tw = ctx.measureText(lbl.text).width + 8;
+            const th = 14;
+            ctx.fillStyle = lbl.bgColor;
+            ctx.beginPath();
+            ctx.roundRect(cx - tw / 2, cy - th / 2, tw, th, 3);
+            ctx.fill();
+
+            ctx.fillStyle = lbl.textColor;
+            ctx.fillText(lbl.text, cx, cy);
+          } else {
+            ctx.fillStyle = isDark ? lbl.textColor : '#334155';
+            ctx.fillText(lbl.text, cx, cy);
+          }
+          ctx.restore();
+        });
+      });
+
+      // 2. Plotshape signals (shape.triangleup belowbar green / shape.triangledown abovebar red)
+      sm08Results.signals.forEach((sig) => {
+        if (sig.barIndex < start - 3 || sig.barIndex > end + 3) return;
+        const x = getXFromIndex(sig.barIndex);
+        const yBase = getYFromPrice(sig.price);
+        const triSize = 6.5;
+
+        ctx.save();
+        if (sig.direction === 'bull') {
+          const cy = yBase + 11;
+          ctx.fillStyle = '#00a846';
+          ctx.beginPath();
+          ctx.moveTo(x, cy);
+          ctx.lineTo(x - triSize, cy + triSize * 1.65);
+          ctx.lineTo(x + triSize, cy + triSize * 1.65);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          const cy = yBase - 11;
+          ctx.fillStyle = '#ef4444';
+          ctx.beginPath();
+          ctx.moveTo(x, cy);
+          ctx.lineTo(x - triSize, cy - triSize * 1.65);
+          ctx.lineTo(x + triSize, cy - triSize * 1.65);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      });
+
+      ctx.restore();
+    }
+
 
 
     ctx.lineWidth = 1;
@@ -9965,6 +10107,7 @@ export const MihiretuViewChart: React.FC<MihiretuViewChartProps> = ({
     mtfEmaResults,
     mrovTradeResults,
     ema50100Results,
+    sm08Results,
     brushColor,
     brushLineWidth,
     isPickingReplayBar,

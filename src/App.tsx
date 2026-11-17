@@ -653,6 +653,15 @@ const DEFAULT_SETTINGS: ChartSettings = {
     ema50100SlowColor: '#ff9800',
     ema50100FastLineWidth: 2,
     ema50100SlowLineWidth: 2,
+    // Smart Money Setup 08 [TradingFinder] Binary Options Gold Scalper (Pine Script v5 1:1 Port)
+    showSmartMoneySetup08: true,
+    sm08SwingPeriod: 5,
+    sm08Alert: 'On',
+    sm08AlertName: 'Smart Money Setup 08 [TradingFinder]',
+    sm08Frequency: 'Once Per Bar',
+    sm08Utc: 'UTC',
+    sm08MessageBull: 'Long Signal Position',
+    sm08MessageBear: 'Short Signal Position',
     deletedIndicators: [
       'auto_sdc',
       'ma',
@@ -1216,6 +1225,13 @@ function AppContent() {
           // TradingView Pine Script v6 uses fixed 3x & 12x multipliers by default
           if (parsed.indicators.mtfEmaAdaptiveTf === undefined) {
             parsed.indicators.mtfEmaAdaptiveTf = false;
+          }
+          // Smart Money Setup 08 [TradingFinder] default activation on first install
+          if (parsed.indicators.showSmartMoneySetup08 === undefined) {
+            parsed.indicators.showSmartMoneySetup08 = true;
+          }
+          if (parsed.indicators.sm08SwingPeriod === undefined) {
+            parsed.indicators.sm08SwingPeriod = 5;
           }
         }
         // Upgrade previous blinding pure-white theme to eye-friendly off-light white
